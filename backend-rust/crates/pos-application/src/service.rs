@@ -331,7 +331,15 @@ impl PosService {
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Inventory, self.clock.now())?;
 
-        if matches!(kind, MovementKind::Outbound) {
+        let product = tx
+            .find_product(actor.organization_id, product_id)
+            .await?
+            .ok_or(pos_core::DomainError::ProductNotFound)?;
+        if !product.active {
+            return Err(pos_core::DomainError::InactiveProduct.into());
+        }
+
+        if matches!(kind, MovementKind::Outbound | MovementKind::AdjustmentOut) {
             let current = tx
                 .current_stock(actor.organization_id, branch_id, product_id)
                 .await?;
@@ -373,6 +381,14 @@ impl PosService {
         branch_id: Option<BranchId>,
     ) -> AppResult<String> {
         actor.require(pos_core::identity::Permission::ViewInventory)?;
+        if let Some(requested_branch) = branch_id
+            && Some(requested_branch) != actor.branch_id
+        {
+            return Err(pos_core::DomainError::AccessDenied {
+                required: "inventory.view",
+            }
+            .into());
+        }
         let branch_id = branch_id.or(actor.branch_id).ok_or(AppError::NotFound)?;
         let mut tx = self.store.begin().await?;
         let stock = tx

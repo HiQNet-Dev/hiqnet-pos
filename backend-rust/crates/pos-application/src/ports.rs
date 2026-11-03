@@ -43,6 +43,11 @@ pub trait StoreTx: Send {
     async fn count_users(&mut self, organization_id: OrganizationId) -> AppResult<i64>;
 
     async fn insert_product(&mut self, product: &Product) -> AppResult<()>;
+    async fn find_product(
+        &mut self,
+        organization_id: OrganizationId,
+        product_id: ProductId,
+    ) -> AppResult<Option<Product>>;
     async fn list_products(&mut self, organization_id: OrganizationId) -> AppResult<Vec<Product>>;
 
     async fn insert_inventory_movement(&mut self, movement: &InventoryMovement) -> AppResult<()>;

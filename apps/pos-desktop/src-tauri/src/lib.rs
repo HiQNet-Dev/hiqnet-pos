@@ -7,11 +7,12 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use pos_application::{
-    AppError, AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse,
-    CommercialStateView, LoginRequest, PosService, ProductDraft, ProductView, SharedClock,
-    SharedHasher, SharedStore, SystemClock,
+    AppError, AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, CommercialStateView,
+    InventoryMovementDraft, InventoryMovementView, LoginRequest, PosService, ProductDraft,
+    ProductView, SharedClock, SharedHasher, SharedStore, SystemClock,
 };
 use pos_core::identity::{Actor, Permission};
+use pos_core::ids::{BranchId, ProductId};
 use pos_security::Argon2idHasher;
 use pos_storage_sqlite::SqliteStore;
 use serde::Serialize;
@@ -90,18 +91,11 @@ fn logout(state: State<'_, AppState>) -> IpcResult<()> {
 
 #[tauri::command]
 fn current_session(state: State<'_, AppState>) -> IpcResult<Option<Actor>> {
-    Ok(state
-        .session
-        .read()
-        .map_err(|_| AppError::Storage)?
-        .clone())
+    Ok(state.session.read().map_err(|_| AppError::Storage)?.clone())
 }
 
 #[tauri::command]
-async fn create_product(
-    state: State<'_, AppState>,
-    draft: ProductDraft,
-) -> IpcResult<ProductView> {
+async fn create_product(state: State<'_, AppState>, draft: ProductDraft) -> IpcResult<ProductView> {
     let actor = session_actor(&state)?;
     Ok(state.service.create_product(&actor, draft).await?)
 }
@@ -113,12 +107,70 @@ async fn list_products(state: State<'_, AppState>) -> IpcResult<Vec<ProductView>
 }
 
 #[tauri::command]
+async fn current_stock(
+    state: State<'_, AppState>,
+    product_id: String,
+    branch_id: Option<String>,
+) -> IpcResult<String> {
+    let actor = session_actor(&state)?;
+    let product_id: ProductId = product_id
+        .parse()
+        .map_err(|_| IpcError::from(AppError::NotFound))?;
+    let branch_id: Option<BranchId> = branch_id
+        .map(|value| {
+            value
+                .parse()
+                .map_err(|_| IpcError::from(AppError::NotFound))
+        })
+        .transpose()?;
+    Ok(state
+        .service
+        .current_stock(&actor, product_id, branch_id)
+        .await?)
+}
+
+#[tauri::command]
+async fn record_inventory_movement(
+    state: State<'_, AppState>,
+    draft: InventoryMovementDraft,
+) -> IpcResult<InventoryMovementView> {
+    let actor = session_actor(&state)?;
+    Ok(state
+        .service
+        .record_inventory_movement(&actor, draft)
+        .await?)
+}
+
+#[tauri::command]
+async fn list_inventory_movements(
+    state: State<'_, AppState>,
+    product_id: Option<String>,
+    limit: Option<u32>,
+) -> IpcResult<Vec<InventoryMovementView>> {
+    let actor = session_actor(&state)?;
+    let product_id: Option<ProductId> = product_id
+        .map(|value| {
+            value
+                .parse()
+                .map_err(|_| IpcError::from(AppError::NotFound))
+        })
+        .transpose()?;
+    Ok(state
+        .service
+        .list_inventory_movements(&actor, product_id, limit.unwrap_or(50))
+        .await?)
+}
+
+#[tauri::command]
 async fn list_audit_events(
     state: State<'_, AppState>,
     limit: Option<u32>,
 ) -> IpcResult<Vec<AuditEventView>> {
     let actor = session_actor(&state)?;
-    Ok(state.service.list_audit(&actor, limit.unwrap_or(50)).await?)
+    Ok(state
+        .service
+        .list_audit(&actor, limit.unwrap_or(50))
+        .await?)
 }
 
 #[tauri::command]
@@ -154,8 +206,7 @@ async fn backup_database(state: State<'_, AppState>) -> IpcResult<String> {
 pub fn run() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .try_init();
 
@@ -190,6 +241,9 @@ pub fn run() {
             current_session,
             create_product,
             list_products,
+            current_stock,
+            record_inventory_movement,
+            list_inventory_movements,
             list_audit_events,
             commercial_state,
             backup_database

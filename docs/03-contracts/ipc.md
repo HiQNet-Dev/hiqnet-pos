@@ -91,6 +91,37 @@ organización devuelve `conflict`.
 Requiere permiso `sales.sell`. Devuelve los productos de la organización del
 actor, ordenados por nombre.
 
+## `current_stock`
+
+Requiere permiso `inventory.view`. Entrada: `{ "product_id": "...", "branch_id": "... (opcional)" }`.
+Devuelve la cantidad exacta como cadena decimal. La sucursal debe coincidir con la
+sucursal del actor; en esta versión no hay acceso multisucursal.
+
+## `record_inventory_movement`
+
+Requiere permiso `inventory.manage`, entitlement `inventory` y licencia con
+escrituras. Entrada:
+
+```json
+{
+  "draft": {
+    "product_id": "...",
+    "kind": "inbound | outbound | adjustment_in | adjustment_out",
+    "quantity": "2.5",
+    "reason": "motivo obligatorio en ajustes"
+  }
+}
+```
+
+El movimiento y su evento de auditoría se escriben en la misma transacción.
+El ledger es append-only. Una salida mayor que el stock devuelve
+`validation_error`.
+
+## `list_inventory_movements`
+
+Requiere permiso `inventory.view`. Entrada opcional `{ "product_id": "...", "limit": 50 }`.
+Devuelve los movimientos de la sucursal del actor en orden descendente.
+
 ## `list_audit_events`
 
 Requiere permiso `audit.view`. Entrada opcional `{ "limit": 50 }` (máximo 200).
