@@ -142,6 +142,7 @@ export const productDraftSchema = z.object({
     .int()
     .min(0, "El impuesto no puede ser negativo")
     .max(10_000, "El impuesto máximo es 100%"),
+  category_id: z.string().optional(),
 });
 
 export type BootstrapRequest = z.infer<typeof bootstrapRequestSchema>;

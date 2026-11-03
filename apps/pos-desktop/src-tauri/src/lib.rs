@@ -108,6 +108,22 @@ async fn list_products(state: State<'_, AppState>) -> IpcResult<Vec<ProductView>
 }
 
 #[tauri::command]
+async fn assign_product_category(
+    state: State<'_, AppState>,
+    product_id: String,
+    category_id: Option<String>,
+) -> IpcResult<ProductView> {
+    let actor = session_actor(&state)?;
+    let product_id: ProductId = product_id
+        .parse()
+        .map_err(|_| IpcError::from(AppError::NotFound))?;
+    Ok(state
+        .service
+        .assign_product_category(&actor, product_id, category_id)
+        .await?)
+}
+
+#[tauri::command]
 async fn create_category(
     state: State<'_, AppState>,
     draft: CategoryDraft,
@@ -281,6 +297,7 @@ pub fn run() {
             current_session,
             create_product,
             list_products,
+            assign_product_category,
             create_category,
             list_categories,
             create_product_variant,

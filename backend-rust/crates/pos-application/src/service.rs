@@ -49,6 +49,7 @@ pub struct ProductDraft {
     /// Precio como texto decimal ("12.50") para no perder exactitud en JSON.
     pub price: String,
     pub tax_rate_bp: u16,
+    pub category_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -337,13 +338,29 @@ impl PosService {
     ) -> AppResult<ProductView> {
         actor.require(pos_core::identity::Permission::ManageCatalog)?;
         let price: Money = draft.price.parse()?;
+        let category_id = draft
+            .category_id
+            .as_deref()
+            .map(str::parse::<pos_core::ids::CategoryId>)
+            .transpose()
+            .map_err(|_| pos_core::DomainError::CategoryNotFound)?;
 
         let mut tx = self.store.begin().await?;
         let commercial = require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Catalog, self.clock.now())?;
 
-        let product = Product::new(
+        if let Some(category_id) = category_id {
+            let category = tx
+                .find_category(actor.organization_id, category_id)
+                .await?
+                .ok_or(pos_core::DomainError::CategoryNotFound)?;
+            if !category.active {
+                return Err(pos_core::DomainError::InactiveCategory.into());
+            }
+        }
+
+        let mut product = Product::new(
             ProductId::new(),
             actor.organization_id,
             draft.sku,
@@ -351,6 +368,7 @@ impl PosService {
             price,
             draft.tax_rate_bp,
         )?;
+        product.category_id = category_id;
 
         tx.insert_product(&product).await?;
         tx.append_audit(&AuditEvent::new(
@@ -365,6 +383,56 @@ impl PosService {
         .await?;
         tx.commit().await?;
 
+        Ok(ProductView::from(&product))
+    }
+
+    pub async fn assign_product_category(
+        &self,
+        actor: &Actor,
+        product_id: ProductId,
+        category_id: Option<String>,
+    ) -> AppResult<ProductView> {
+        actor.require(pos_core::identity::Permission::ManageCatalog)?;
+        let category_id = category_id
+            .as_deref()
+            .map(str::parse::<pos_core::ids::CategoryId>)
+            .transpose()
+            .map_err(|_| pos_core::DomainError::CategoryNotFound)?;
+
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        commercial.require_feature(FeatureKey::Catalog, self.clock.now())?;
+
+        tx.find_product(actor.organization_id, product_id)
+            .await?
+            .ok_or(pos_core::DomainError::ProductNotFound)?;
+        if let Some(category_id) = category_id {
+            let category = tx
+                .find_category(actor.organization_id, category_id)
+                .await?
+                .ok_or(pos_core::DomainError::CategoryNotFound)?;
+            if !category.active {
+                return Err(pos_core::DomainError::InactiveCategory.into());
+            }
+        }
+        tx.update_product_category(actor.organization_id, product_id, category_id)
+            .await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            actor.branch_id,
+            Some(actor.user_id),
+            AuditAction::ProductCategoryChanged,
+            "product",
+            product_id.to_string(),
+            serde_json::json!({ "category_id": category_id.map(|id| id.to_string()) }),
+        ))
+        .await?;
+        let product = tx
+            .find_product(actor.organization_id, product_id)
+            .await?
+            .ok_or(pos_core::DomainError::ProductNotFound)?;
+        tx.commit().await?;
         Ok(ProductView::from(&product))
     }
 

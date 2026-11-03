@@ -11,14 +11,21 @@ interface Props {
   actor: Actor;
   products: Product[];
   readOnly: boolean;
+  onProductsChanged?: () => Promise<void>;
 }
 
-export function CatalogPanel({ actor, products, readOnly }: Props) {
+export function CatalogPanel({
+  actor,
+  products,
+  readOnly,
+  onProductsChanged,
+}: Props) {
   const canManage = actor.permissions.includes("catalog.manage");
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("");
   const [query, setQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [variants, setVariants] = useState<ProductVariant[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -54,7 +61,10 @@ export function CatalogPanel({ actor, products, readOnly }: Props) {
     api
       .listProductVariants(selectedProduct.id)
       .then((list) => {
-        if (!cancelled) setVariants(list);
+        if (!cancelled) {
+          setVariants(list);
+          setSelectedVariantId(list[0]?.id ?? null);
+        }
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
@@ -82,6 +92,29 @@ export function CatalogPanel({ actor, products, readOnly }: Props) {
       return matchesCategory && matchesQuery;
     });
   }, [products, selectedCategory, query]);
+
+  async function handleAssignCategory(value: string) {
+    if (!canManage || readOnly || !selectedProduct) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await api.assignProductCategory(
+        selectedProduct.id,
+        value || null,
+      );
+      setSelectedProduct(updated);
+      setNotice("Categoría del producto actualizada.");
+      await onProductsChanged?.();
+    } catch (cause) {
+      setError(
+        cause instanceof IpcError
+          ? cause.message
+          : "No fue posible cambiar la categoría.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleCreateCategory(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -204,13 +237,15 @@ export function CatalogPanel({ actor, products, readOnly }: Props) {
             <button
               key={product.id}
               type="button"
-              role="listitem"
               className={
                 selectedProduct?.id === product.id
                   ? "product-card product-card-active"
                   : "product-card"
               }
-              onClick={() => setSelectedProduct(product)}
+              onClick={() => {
+                setSelectedProduct(product);
+                setSelectedVariantId(null);
+              }}
               aria-pressed={selectedProduct?.id === product.id}
             >
               <span className="product-card-sku">{product.sku}</span>
@@ -225,15 +260,46 @@ export function CatalogPanel({ actor, products, readOnly }: Props) {
       {selectedProduct && (
         <div className="catalog-detail">
           <h3>{selectedProduct.name}</h3>
+          {canManage && !readOnly && (
+            <div className="field-row">
+              <label className="field field-short">
+                <span>Categoría del producto</span>
+                <select
+                  value={selectedProduct.category_id ?? ""}
+                  onChange={(event) => void handleAssignCategory(event.target.value)}
+                  disabled={busy}
+                >
+                  <option value="">Sin categoría</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
           {variants.length === 0 ? (
             <p className="muted">Este producto no tiene variantes.</p>
           ) : (
-            <ul className="variant-list">
+            <ul className="variant-list" aria-label="Variantes disponibles">
               {variants.map((variant) => (
                 <li key={variant.id}>
-                  <span>{variant.name}</span>
-                  <span>${variant.unit_price}</span>
-                  {!variant.active && <span className="badge badge-warning">Inactiva</span>}
+                  <button
+                    type="button"
+                    className={
+                      selectedVariantId === variant.id
+                        ? "variant-button variant-button-active"
+                        : "variant-button"
+                    }
+                    onClick={() => setSelectedVariantId(variant.id)}
+                    aria-pressed={selectedVariantId === variant.id}
+                    disabled={!variant.active}
+                  >
+                    <span>{variant.name}</span>
+                    <span>${variant.unit_price}</span>
+                    {!variant.active && <span className="badge badge-warning">Inactiva</span>}
+                  </button>
                 </li>
               ))}
             </ul>

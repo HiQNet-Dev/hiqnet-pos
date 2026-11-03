@@ -98,6 +98,14 @@ actor, ordenados por nombre.
 `list_categories` requiere `sales.sell` y devuelve las categorías de la organización
 ordenadas por `sort_order`.
 
+## `assign_product_category`
+
+Requiere `catalog.manage` y entitlement `catalog`. Entrada:
+`{ "product_id": "...", "category_id": "... | null" }`. Devuelve el producto
+actualizado. La categoría debe pertenecer a la organización del actor y estar
+activa; `null` desasocia el producto. Se audita como
+`catalog.product_category_changed`.
+
 ## `create_product_variant` / `list_product_variants`
 
 `create_product_variant` requiere `catalog.manage` y entitlement `catalog`.

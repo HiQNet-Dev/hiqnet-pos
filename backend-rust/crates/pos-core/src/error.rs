@@ -26,6 +26,12 @@ pub enum DomainError {
     #[error("el producto está inactivo")]
     InactiveProduct,
 
+    #[error("la categoría no existe")]
+    CategoryNotFound,
+
+    #[error("la categoría está inactiva")]
+    InactiveCategory,
+
     #[error("el nombre es obligatorio")]
     EmptyName,
 

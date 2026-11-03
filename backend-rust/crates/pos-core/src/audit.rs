@@ -13,6 +13,7 @@ pub enum AuditAction {
     ProductCreated,
     CategoryCreated,
     ProductVariantCreated,
+    ProductCategoryChanged,
     InventoryMovementRegistered,
     BackupCreated,
 }
@@ -26,6 +27,7 @@ impl AuditAction {
             "catalog.product_created" => Some(AuditAction::ProductCreated),
             "catalog.category_created" => Some(AuditAction::CategoryCreated),
             "catalog.variant_created" => Some(AuditAction::ProductVariantCreated),
+            "catalog.product_category_changed" => Some(AuditAction::ProductCategoryChanged),
             "inventory.movement_registered" => Some(AuditAction::InventoryMovementRegistered),
             "backup.created" => Some(AuditAction::BackupCreated),
             _ => None,
@@ -40,6 +42,7 @@ impl AuditAction {
             AuditAction::ProductCreated => "catalog.product_created",
             AuditAction::CategoryCreated => "catalog.category_created",
             AuditAction::ProductVariantCreated => "catalog.variant_created",
+            AuditAction::ProductCategoryChanged => "catalog.product_category_changed",
             AuditAction::InventoryMovementRegistered => "inventory.movement_registered",
             AuditAction::BackupCreated => "backup.created",
         }

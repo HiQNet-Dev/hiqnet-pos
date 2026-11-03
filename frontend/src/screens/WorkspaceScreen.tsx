@@ -292,7 +292,12 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
           )}
         </section>
 
-<CatalogPanel actor={actor} products={products} readOnly={readOnly} />
+<CatalogPanel
+          actor={actor}
+          products={products}
+          readOnly={readOnly}
+          onProductsChanged={refresh}
+        />
         {actor.permissions.includes("inventory.view") && (
           <InventoryPanel actor={actor} products={products} readOnly={readOnly} />
         )}

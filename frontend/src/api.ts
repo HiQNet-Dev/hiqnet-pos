@@ -93,6 +93,13 @@ export const api = {
   listProducts: () =>
     call<Product[]>("list_products", undefined, productSchema.array()),
 
+  assignProductCategory: (productId: string, categoryId: string | null) =>
+    call<Product>(
+      "assign_product_category",
+      { product_id: productId, category_id: categoryId },
+      productSchema,
+    ),
+
   createCategory: (draft: CategoryDraft) =>
     call<Category>("create_category", { draft }, categorySchema),
 

@@ -3,7 +3,7 @@ use pos_application::{AppError, AppResult, InstallationState, Store, StoreTx};
 use pos_core::audit::{AuditAction, AuditEvent};
 use pos_core::catalog::{Category, Product, ProductVariant};
 use pos_core::identity::{Role, User};
-use pos_core::ids::{AuditEventId, BranchId, OrganizationId, ProductId};
+use pos_core::ids::{AuditEventId, BranchId, CategoryId, OrganizationId, ProductId};
 use pos_core::inventory::InventoryMovement;
 use pos_core::inventory::MovementKind;
 use pos_core::money::Money;
@@ -267,6 +267,54 @@ impl StoreTx for SqliteTx {
         .execute(&mut **self.tx()?)
         .await
         .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn find_category(
+        &mut self,
+        organization_id: OrganizationId,
+        category_id: CategoryId,
+    ) -> AppResult<Option<Category>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, name, sort_order, active, created_at \
+             FROM category WHERE id = ? AND organization_id = ?",
+        )
+        .bind(category_id.to_string())
+        .bind(organization_id.to_string())
+        .fetch_optional(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+
+        row.map(|row| -> AppResult<Category> {
+            Ok(Category {
+                id: parse_id(row.get("id"))?,
+                organization_id: parse_id(row.get("organization_id"))?,
+                name: row.get("name"),
+                sort_order: row.get("sort_order"),
+                active: row.get::<i64, _>("active") != 0,
+                created_at: parse_ts(row.get("created_at"))?,
+            })
+        })
+        .transpose()
+    }
+
+    async fn update_product_category(
+        &mut self,
+        organization_id: OrganizationId,
+        product_id: ProductId,
+        category_id: Option<CategoryId>,
+    ) -> AppResult<()> {
+        let result =
+            sqlx::query("UPDATE product SET category_id = ? WHERE id = ? AND organization_id = ?")
+                .bind(category_id.map(|id| id.to_string()))
+                .bind(product_id.to_string())
+                .bind(organization_id.to_string())
+                .execute(&mut **self.tx()?)
+                .await
+                .map_err(map_sqlx)?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::NotFound);
+        }
         Ok(())
     }
 

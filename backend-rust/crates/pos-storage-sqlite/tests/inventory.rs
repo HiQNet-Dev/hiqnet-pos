@@ -43,6 +43,7 @@ fn product_draft(sku: &str) -> ProductDraft {
         name: "Café americano".into(),
         price: "12.50".into(),
         tax_rate_bp: 1600,
+        category_id: None,
     }
 }
 
@@ -368,6 +369,17 @@ async fn categorias_y_variantes_se_persisten_y_auditan() {
     assert_eq!(categories.len(), 1);
     assert_eq!(categories[0].name, "Bebidas");
 
+    let assigned = service
+        .assign_product_category(&actor, product_id, Some(category.id.clone()))
+        .await
+        .unwrap();
+    assert_eq!(assigned.category_id.as_deref(), Some(category.id.as_str()));
+    let products = service.list_products(&actor).await.unwrap();
+    assert_eq!(
+        products[0].category_id.as_deref(),
+        Some(category.id.as_str())
+    );
+
     let variant = service
         .create_product_variant(
             &actor,
@@ -403,7 +415,21 @@ async fn categorias_y_variantes_se_persisten_y_auditan() {
         .await
         .unwrap_err();
     assert!(matches!(duplicate, AppError::Conflict));
-    let _ = category;
+    // Asignar una categoría de otra organización debe rechazarse.
+    let foreign_store = SqliteStore::new(pool.clone());
+    let mut foreign_tx = foreign_store.begin().await.unwrap();
+    let foreign_org =
+        pos_core::organization::Organization::new(OrganizationId::new(), "Otra organización")
+            .unwrap();
+    foreign_tx.insert_organization(&foreign_org).await.unwrap();
+    let foreign_category = pos_core::catalog::Category::new(foreign_org.id, "Ajena", 0).unwrap();
+    foreign_tx.insert_category(&foreign_category).await.unwrap();
+    foreign_tx.commit().await.unwrap();
+    let cross_org = service
+        .assign_product_category(&actor, product_id, Some(foreign_category.id.to_string()))
+        .await
+        .unwrap_err();
+    assert_eq!(cross_org.code(), "validation_error");
 
     let audit = service.list_audit(&actor, 50).await.unwrap();
     let actions: Vec<&str> = audit.iter().map(|event| event.action.as_str()).collect();

@@ -27,6 +27,17 @@ un modelo que soporte ambos sin crear POS separados.
 3. Las reglas de selección se validan en Rust antes de persistir.
 4. Los snapshots son inmutables y auditables.
 
+## Decisiones de G2.2A
+
+- La categoría pertenece a la organización y se asigna al producto; `NULL`
+  significa "sin categoría".
+- La variante pertenece a un producto de la misma organización y tiene precio
+  exacto propio; su SKU es opcional y único por organización.
+- **La variante no representa existencia independiente.** El inventario sigue
+  referenciando `product_id`; el vínculo stock-variante queda pendiente de una
+  decisión explícita antes de ventas.
+- Productos históricos sin categoría siguen siendo válidos y aparecen en "Todas".
+
 ## Fuera de alcance
 
 No se crean tablas ni comandos en esta iteración. Requiere aprobación de

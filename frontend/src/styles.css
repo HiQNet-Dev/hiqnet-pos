@@ -615,12 +615,30 @@ button {
   margin: 0.5rem 0;
 }
 
-.variant-list li {
+.variant-button {
   display: flex;
   gap: 0.5rem;
   align-items: center;
   padding: 0.35rem 0.6rem;
   border: 1px solid var(--border, #d8dde6);
   border-radius: 6px;
+  background: transparent;
+  font: inherit;
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.variant-button:hover,
+.variant-button:focus-visible {
+  border-color: var(--accent, #1f5f8b);
+}
+
+.variant-button-active {
+  border-color: var(--accent, #1f5f8b);
+  box-shadow: inset 0 0 0 1px var(--accent, #1f5f8b);
+}
+
+.variant-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
