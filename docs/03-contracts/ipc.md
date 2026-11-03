@@ -91,6 +91,28 @@ organización devuelve `conflict`.
 Requiere permiso `sales.sell`. Devuelve los productos de la organización del
 actor, ordenados por nombre.
 
+## `create_category` / `list_categories`
+
+`create_category` requiere `catalog.manage` y entitlement `catalog`. Entrada:
+`{ "draft": { "name": "Bebidas", "sort_order": 1 } }`.
+`list_categories` requiere `sales.sell` y devuelve las categorías de la organización
+ordenadas por `sort_order`.
+
+## `assign_product_category`
+
+Requiere `catalog.manage` y entitlement `catalog`. Entrada:
+`{ "product_id": "...", "category_id": "... | null" }`. Devuelve el producto
+actualizado. La categoría debe pertenecer a la organización del actor y estar
+activa; `null` desasocia el producto. Se audita como
+`catalog.product_category_changed`.
+
+## `create_product_variant` / `list_product_variants`
+
+`create_product_variant` requiere `catalog.manage` y entitlement `catalog`.
+Entrada: `{ "draft": { "product_id": "...", "name": "Grande", "sku": "CAF-001-G", "price": "15.00", "sort_order": 1 } }`.
+El SKU es opcional y único por organización. `list_product_variants` requiere
+`sales.sell` y recibe `{ "product_id": "..." }`.
+
 ## `current_stock`
 
 Requiere permiso `inventory.view`. Entrada: `{ "product_id": "...", "branch_id": "... (opcional)" }`.

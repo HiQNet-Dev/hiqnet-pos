@@ -1,9 +1,9 @@
 use crate::error::{AppError, AppResult};
 use async_trait::async_trait;
 use pos_core::audit::AuditEvent;
-use pos_core::catalog::Product;
+use pos_core::catalog::{Category, Product, ProductVariant};
 use pos_core::identity::User;
-use pos_core::ids::{BranchId, InstallationId, OrganizationId, ProductId};
+use pos_core::ids::{BranchId, CategoryId, InstallationId, OrganizationId, ProductId};
 use pos_core::inventory::InventoryMovement;
 use pos_core::organization::{Branch, Organization};
 use serde::Serialize;
@@ -49,6 +49,30 @@ pub trait StoreTx: Send {
         product_id: ProductId,
     ) -> AppResult<Option<Product>>;
     async fn list_products(&mut self, organization_id: OrganizationId) -> AppResult<Vec<Product>>;
+
+    async fn insert_category(&mut self, category: &Category) -> AppResult<()>;
+    async fn find_category(
+        &mut self,
+        organization_id: OrganizationId,
+        category_id: CategoryId,
+    ) -> AppResult<Option<Category>>;
+    async fn list_categories(
+        &mut self,
+        organization_id: OrganizationId,
+    ) -> AppResult<Vec<Category>>;
+    async fn update_product_category(
+        &mut self,
+        organization_id: OrganizationId,
+        product_id: ProductId,
+        category_id: Option<CategoryId>,
+    ) -> AppResult<()>;
+
+    async fn insert_product_variant(&mut self, variant: &ProductVariant) -> AppResult<()>;
+    async fn list_product_variants(
+        &mut self,
+        organization_id: OrganizationId,
+        product_id: ProductId,
+    ) -> AppResult<Vec<ProductVariant>>;
 
     async fn insert_inventory_movement(&mut self, movement: &InventoryMovement) -> AppResult<()>;
     async fn current_stock(

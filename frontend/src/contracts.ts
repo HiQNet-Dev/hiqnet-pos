@@ -43,6 +43,39 @@ export const productSchema = z.object({
   unit_price: z.string(),
   tax_rate_bp: z.number().int().min(0).max(10_000),
   active: z.boolean(),
+  category_id: z.string().nullable().optional(),
+});
+
+export const categorySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sort_order: z.number().int(),
+  active: z.boolean(),
+});
+
+export const categoryDraftSchema = z.object({
+  name: z.string().min(1, "El nombre de la categoría es obligatorio"),
+  sort_order: z.number().int(),
+});
+
+export const productVariantSchema = z.object({
+  id: z.string(),
+  product_id: z.string(),
+  name: z.string(),
+  sku: z.string().nullable(),
+  unit_price: z.string(),
+  active: z.boolean(),
+  sort_order: z.number().int(),
+});
+
+export const productVariantDraftSchema = z.object({
+  product_id: z.string().min(1, "Selecciona un producto"),
+  name: z.string().min(1, "El nombre de la variante es obligatorio"),
+  sku: z.string().max(32).optional(),
+  price: z
+    .string()
+    .regex(/^\d+(\.\d{1,2})?$/, "Usa un precio con hasta dos decimales"),
+  sort_order: z.number().int(),
 });
 
 export const auditEventSchema = z.object({
@@ -64,6 +97,10 @@ export type AppStatus = z.infer<typeof appStatusSchema>;
 export type Actor = z.infer<typeof actorSchema>;
 export type BootstrapResult = z.infer<typeof bootstrapResultSchema>;
 export type Product = z.infer<typeof productSchema>;
+export type Category = z.infer<typeof categorySchema>;
+export type CategoryDraft = z.infer<typeof categoryDraftSchema>;
+export type ProductVariant = z.infer<typeof productVariantSchema>;
+export type ProductVariantDraft = z.infer<typeof productVariantDraftSchema>;
 export type AuditEvent = z.infer<typeof auditEventSchema>;
 
 export const bootstrapRequestSchema = z.object({
@@ -105,6 +142,7 @@ export const productDraftSchema = z.object({
     .int()
     .min(0, "El impuesto no puede ser negativo")
     .max(10_000, "El impuesto máximo es 100%"),
+  category_id: z.string().optional(),
 });
 
 export type BootstrapRequest = z.infer<typeof bootstrapRequestSchema>;

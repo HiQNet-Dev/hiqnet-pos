@@ -11,6 +11,13 @@ const api = vi.hoisted(() => ({
   currentSession: vi.fn(),
   createProduct: vi.fn(),
   listProducts: vi.fn(),
+  listCategories: vi.fn(),
+  createCategory: vi.fn(),
+  listProductVariants: vi.fn(),
+  createProductVariant: vi.fn(),
+  currentStock: vi.fn(),
+  listInventoryMovements: vi.fn(),
+  recordInventoryMovement: vi.fn(),
   listAuditEvents: vi.fn(),
   commercialState: vi.fn(),
   backupDatabase: vi.fn(),
@@ -60,6 +67,10 @@ describe("App", () => {
     vi.clearAllMocks();
     api.currentSession.mockResolvedValue(null);
     api.listProducts.mockResolvedValue([]);
+    api.listCategories.mockResolvedValue([]);
+    api.listProductVariants.mockResolvedValue([]);
+    api.currentStock.mockResolvedValue("0");
+    api.listInventoryMovements.mockResolvedValue([]);
     api.listAuditEvents.mockResolvedValue([]);
   });
 
@@ -113,7 +124,7 @@ describe("App", () => {
 
     expect(await screen.findByRole("cell", { name: "CAF-001" })).toBeVisible();
     expect(screen.getByRole("cell", { name: /café americano/i })).toBeVisible();
-    expect(screen.getByText(/\$12\.50/)).toBeVisible();
+    expect(screen.getAllByText(/\$12\.50/).length).toBeGreaterThan(0);
   });
 
   it("muestra el aviso de solo lectura cuando la licencia venció", async () => {

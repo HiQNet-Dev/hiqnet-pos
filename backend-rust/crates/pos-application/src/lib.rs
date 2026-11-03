@@ -13,7 +13,7 @@ pub use ports::{
     SharedStore, Store, StoreTx, SystemClock,
 };
 pub use service::{
-    AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, CommercialStateView,
-    InventoryMovementDraft, InventoryMovementView, LoginRequest, PosService, ProductDraft,
-    ProductView,
+    AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, CategoryDraft, CategoryView,
+    CommercialStateView, InventoryMovementDraft, InventoryMovementView, LoginRequest, PosService,
+    ProductDraft, ProductVariantDraft, ProductVariantView, ProductView,
 };

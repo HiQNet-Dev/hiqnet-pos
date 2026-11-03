@@ -4,10 +4,12 @@ import {
   productDraftSchema,
   type Actor,
   type AuditEvent,
+  type Category,
   type CommercialState,
   type Product,
 } from "../contracts";
 import { InventoryPanel } from "./InventoryPanel";
+import { CatalogPanel } from "./CatalogPanel";
 
 type Props = {
   actor: Actor;
@@ -15,11 +17,18 @@ type Props = {
   productVersion: string;
 };
 
-const emptyDraft = { sku: "", name: "", price: "", taxPercent: "16" };
+const emptyDraft = {
+  sku: "",
+  name: "",
+  price: "",
+  taxPercent: "16",
+  categoryId: "",
+};
 
 export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [draft, setDraft] = useState(emptyDraft);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -48,6 +57,21 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
       setLoading(false);
     }
   }, [canManageCatalog]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listCategories()
+      .then((list) => {
+        if (!cancelled) setCategories(list);
+      })
+      .catch(() => {
+        // El catálogo sigue siendo usable sin categorías.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +116,7 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
       tax_rate_bp: Number.isFinite(taxRate)
         ? Math.round(taxRate * 100)
         : Number.NaN,
+      category_id: draft.categoryId || undefined,
     });
     if (!parsed.success) {
       setError(
@@ -234,6 +259,25 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
                     required
                   />
                 </label>
+                <label className="field field-short">
+                  <span>Categoría (opcional)</span>
+                  <select
+                    value={draft.categoryId}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        categoryId: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Sin categoría</option>
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <div className="field field-action">
                   <button
                     type="submit"
@@ -291,7 +335,13 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
           )}
         </section>
 
-{actor.permissions.includes("inventory.view") && (
+<CatalogPanel
+          actor={actor}
+          products={products}
+          readOnly={readOnly}
+          onProductsChanged={refresh}
+        />
+        {actor.permissions.includes("inventory.view") && (
           <InventoryPanel actor={actor} products={products} readOnly={readOnly} />
         )}
         <aside className="workspace-side">

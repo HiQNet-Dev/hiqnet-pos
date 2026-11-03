@@ -6,9 +6,11 @@ import {
   auditEventSchema,
   bootstrapResultSchema,
   commercialStateSchema,
+  categorySchema,
   ipcErrorSchema,
   inventoryMovementSchema,
   productSchema,
+  productVariantSchema,
   type Actor,
   type AppStatus,
   type AuditEvent,
@@ -20,6 +22,10 @@ import {
   type ProductDraft,
   type InventoryMovement,
   type InventoryMovementDraft,
+  type Category,
+  type CategoryDraft,
+  type ProductVariant,
+  type ProductVariantDraft,
 } from "./contracts";
 
 /** Error estable proveniente de Rust (`code`) con mensaje en español. */
@@ -86,6 +92,29 @@ export const api = {
 
   listProducts: () =>
     call<Product[]>("list_products", undefined, productSchema.array()),
+
+  assignProductCategory: (productId: string, categoryId: string | null) =>
+    call<Product>(
+      "assign_product_category",
+      { product_id: productId, category_id: categoryId },
+      productSchema,
+    ),
+
+  createCategory: (draft: CategoryDraft) =>
+    call<Category>("create_category", { draft }, categorySchema),
+
+  listCategories: () =>
+    call<Category[]>("list_categories", undefined, categorySchema.array()),
+
+  createProductVariant: (draft: ProductVariantDraft) =>
+    call<ProductVariant>("create_product_variant", { draft }, productVariantSchema),
+
+  listProductVariants: (productId: string) =>
+    call<ProductVariant[]>(
+      "list_product_variants",
+      { product_id: productId },
+      productVariantSchema.array(),
+    ),
 
   currentStock: (productId: string, branchId?: string) =>
     call<string>("current_stock", { product_id: productId, branch_id: branchId }, z.string()),

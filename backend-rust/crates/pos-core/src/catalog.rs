@@ -1,5 +1,5 @@
 use crate::error::{DomainError, DomainResult};
-use crate::ids::{OrganizationId, ProductId};
+use crate::ids::{CategoryId, OrganizationId, ProductId, ProductVariantId};
 use crate::money::Money;
 use serde::{Deserialize, Serialize};
 
@@ -14,6 +14,7 @@ pub struct Product {
     pub unit_price: Money,
     pub tax_rate_bp: u16,
     pub active: bool,
+    pub category_id: Option<CategoryId>,
     pub created_at: time::OffsetDateTime,
 }
 
@@ -43,6 +44,7 @@ impl Product {
             unit_price,
             tax_rate_bp,
             active: true,
+            category_id: None,
             created_at: time::OffsetDateTime::now_utc(),
         })
     }
@@ -52,6 +54,85 @@ impl Product {
         let base = i128::from(self.unit_price.minor_units()) * i128::from(self.tax_rate_bp);
         let tax = div_round_half_up(base, 10_000)?;
         Money::from_minor_units(i64::try_from(tax).map_err(|_| DomainError::AmountOverflow)?)
+    }
+}
+
+/// Categoría de catálogo. Agrupa productos para la operación y los reportes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Category {
+    pub id: CategoryId,
+    pub organization_id: OrganizationId,
+    pub name: String,
+    pub sort_order: i32,
+    pub active: bool,
+    pub created_at: time::OffsetDateTime,
+}
+
+impl Category {
+    pub fn new(
+        organization_id: OrganizationId,
+        name: impl Into<String>,
+        sort_order: i32,
+    ) -> DomainResult<Self> {
+        let name = name.into();
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(DomainError::EmptyName);
+        }
+        Ok(Self {
+            id: CategoryId::new(),
+            organization_id,
+            name: name.to_owned(),
+            sort_order,
+            active: true,
+            created_at: time::OffsetDateTime::now_utc(),
+        })
+    }
+}
+
+/// Variante vendible de un producto (tamaño, presentación).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProductVariant {
+    pub id: ProductVariantId,
+    pub organization_id: OrganizationId,
+    pub product_id: ProductId,
+    pub name: String,
+    pub sku: Option<String>,
+    pub unit_price: Money,
+    pub active: bool,
+    pub sort_order: i32,
+    pub created_at: time::OffsetDateTime,
+}
+
+impl ProductVariant {
+    pub fn new(
+        organization_id: OrganizationId,
+        product_id: ProductId,
+        name: impl Into<String>,
+        sku: Option<String>,
+        unit_price: Money,
+        sort_order: i32,
+    ) -> DomainResult<Self> {
+        let name = name.into();
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(DomainError::EmptyName);
+        }
+        let sku = match sku {
+            Some(value) => Some(normalize_sku(&value)?),
+            None => None,
+        };
+        Ok(Self {
+            id: ProductVariantId::new(),
+            organization_id,
+            product_id,
+            name: name.to_owned(),
+            sku,
+            unit_price,
+            active: true,
+            sort_order,
+            created_at: time::OffsetDateTime::now_utc(),
+        })
     }
 }
 

@@ -41,6 +41,7 @@ fn product_draft(sku: &str) -> ProductDraft {
         name: "Café americano".into(),
         price: "12.50".into(),
         tax_rate_bp: 1600,
+        category_id: None,
     }
 }
 

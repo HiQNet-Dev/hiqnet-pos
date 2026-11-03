@@ -7,9 +7,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use pos_application::{
-    AppError, AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, CommercialStateView,
-    InventoryMovementDraft, InventoryMovementView, LoginRequest, PosService, ProductDraft,
-    ProductView, SharedClock, SharedHasher, SharedStore, SystemClock,
+    AppError, AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, CategoryDraft,
+    CategoryView, CommercialStateView, InventoryMovementDraft, InventoryMovementView, LoginRequest,
+    PosService, ProductDraft, ProductVariantDraft, ProductVariantView, ProductView, SharedClock,
+    SharedHasher, SharedStore, SystemClock,
 };
 use pos_core::identity::{Actor, Permission};
 use pos_core::ids::{BranchId, ProductId};
@@ -104,6 +105,61 @@ async fn create_product(state: State<'_, AppState>, draft: ProductDraft) -> IpcR
 async fn list_products(state: State<'_, AppState>) -> IpcResult<Vec<ProductView>> {
     let actor = session_actor(&state)?;
     Ok(state.service.list_products(&actor).await?)
+}
+
+#[tauri::command]
+async fn assign_product_category(
+    state: State<'_, AppState>,
+    product_id: String,
+    category_id: Option<String>,
+) -> IpcResult<ProductView> {
+    let actor = session_actor(&state)?;
+    let product_id: ProductId = product_id
+        .parse()
+        .map_err(|_| IpcError::from(AppError::NotFound))?;
+    Ok(state
+        .service
+        .assign_product_category(&actor, product_id, category_id)
+        .await?)
+}
+
+#[tauri::command]
+async fn create_category(
+    state: State<'_, AppState>,
+    draft: CategoryDraft,
+) -> IpcResult<CategoryView> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.create_category(&actor, draft).await?)
+}
+
+#[tauri::command]
+async fn list_categories(state: State<'_, AppState>) -> IpcResult<Vec<CategoryView>> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.list_categories(&actor).await?)
+}
+
+#[tauri::command]
+async fn create_product_variant(
+    state: State<'_, AppState>,
+    draft: ProductVariantDraft,
+) -> IpcResult<ProductVariantView> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.create_product_variant(&actor, draft).await?)
+}
+
+#[tauri::command]
+async fn list_product_variants(
+    state: State<'_, AppState>,
+    product_id: String,
+) -> IpcResult<Vec<ProductVariantView>> {
+    let actor = session_actor(&state)?;
+    let product_id: ProductId = product_id
+        .parse()
+        .map_err(|_| IpcError::from(AppError::NotFound))?;
+    Ok(state
+        .service
+        .list_product_variants(&actor, product_id)
+        .await?)
 }
 
 #[tauri::command]
@@ -241,6 +297,11 @@ pub fn run() {
             current_session,
             create_product,
             list_products,
+            assign_product_category,
+            create_category,
+            list_categories,
+            create_product_variant,
+            list_product_variants,
             current_stock,
             record_inventory_movement,
             list_inventory_movements,
