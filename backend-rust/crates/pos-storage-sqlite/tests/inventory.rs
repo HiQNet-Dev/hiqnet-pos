@@ -1,6 +1,6 @@
 use pos_application::{
-    BootstrapRequest, Clock, InventoryMovementDraft, LoginRequest, PosService, ProductDraft,
-    SharedClock, SharedHasher, SharedStore, Store,
+    AppError, BootstrapRequest, CategoryDraft, Clock, InventoryMovementDraft, LoginRequest,
+    PosService, ProductDraft, ProductVariantDraft, SharedClock, SharedHasher, SharedStore, Store,
 };
 use pos_core::catalog::Product;
 use pos_core::identity::Actor;
@@ -347,6 +347,68 @@ async fn migracion_0002_a_0003_conserva_datos_y_preserva_append_only() {
             .is_err()
     );
     upgraded.close().await;
+}
+
+#[tokio::test]
+async fn categorias_y_variantes_se_persisten_y_auditan() {
+    let (_dir, pool, actor, product_id) = setup().await;
+    let service = build_service(pool.clone());
+
+    let category = service
+        .create_category(
+            &actor,
+            CategoryDraft {
+                name: "Bebidas".into(),
+                sort_order: 1,
+            },
+        )
+        .await
+        .unwrap();
+    let categories = service.list_categories(&actor).await.unwrap();
+    assert_eq!(categories.len(), 1);
+    assert_eq!(categories[0].name, "Bebidas");
+
+    let variant = service
+        .create_product_variant(
+            &actor,
+            ProductVariantDraft {
+                product_id: product_id.to_string(),
+                name: "Grande".into(),
+                sku: Some("CAF-001-G".into()),
+                price: "15.00".into(),
+                sort_order: 1,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(variant.unit_price, "15.00");
+    let variants = service
+        .list_product_variants(&actor, product_id)
+        .await
+        .unwrap();
+    assert_eq!(variants.len(), 1);
+
+    // SKU duplicado de variante en la misma organización.
+    let duplicate = service
+        .create_product_variant(
+            &actor,
+            ProductVariantDraft {
+                product_id: product_id.to_string(),
+                name: "Familiar".into(),
+                sku: Some("CAF-001-G".into()),
+                price: "20.00".into(),
+                sort_order: 2,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(duplicate, AppError::Conflict));
+    let _ = category;
+
+    let audit = service.list_audit(&actor, 50).await.unwrap();
+    let actions: Vec<&str> = audit.iter().map(|event| event.action.as_str()).collect();
+    assert!(actions.contains(&"catalog.category_created"));
+    assert!(actions.contains(&"catalog.variant_created"));
 }
 
 #[tokio::test]

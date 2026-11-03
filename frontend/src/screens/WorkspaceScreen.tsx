@@ -8,6 +8,7 @@ import {
   type Product,
 } from "../contracts";
 import { InventoryPanel } from "./InventoryPanel";
+import { CatalogPanel } from "./CatalogPanel";
 
 type Props = {
   actor: Actor;
@@ -291,7 +292,8 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
           )}
         </section>
 
-{actor.permissions.includes("inventory.view") && (
+<CatalogPanel actor={actor} products={products} readOnly={readOnly} />
+        {actor.permissions.includes("inventory.view") && (
           <InventoryPanel actor={actor} products={products} readOnly={readOnly} />
         )}
         <aside className="workspace-side">

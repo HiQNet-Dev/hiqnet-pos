@@ -1,7 +1,7 @@
 use crate::error::{AppError, AppResult};
 use crate::ports::{InstallationState, SharedClock, SharedHasher, SharedStore};
 use pos_core::audit::{AuditAction, AuditEvent};
-use pos_core::catalog::Product;
+use pos_core::catalog::{Category, Product, ProductVariant};
 use pos_core::entitlements::{
     CommercialState, FeatureKey, LicenseStatus, PlanName, local_features,
 };
@@ -59,6 +59,66 @@ pub struct ProductView {
     pub unit_price: String,
     pub tax_rate_bp: u16,
     pub active: bool,
+    pub category_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CategoryDraft {
+    pub name: String,
+    pub sort_order: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CategoryView {
+    pub id: String,
+    pub name: String,
+    pub sort_order: i32,
+    pub active: bool,
+}
+
+impl From<&Category> for CategoryView {
+    fn from(category: &Category) -> Self {
+        Self {
+            id: category.id.to_string(),
+            name: category.name.clone(),
+            sort_order: category.sort_order,
+            active: category.active,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProductVariantDraft {
+    pub product_id: String,
+    pub name: String,
+    pub sku: Option<String>,
+    pub price: String,
+    pub sort_order: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProductVariantView {
+    pub id: String,
+    pub product_id: String,
+    pub name: String,
+    pub sku: Option<String>,
+    pub unit_price: String,
+    pub active: bool,
+    pub sort_order: i32,
+}
+
+impl From<&ProductVariant> for ProductVariantView {
+    fn from(variant: &ProductVariant) -> Self {
+        Self {
+            id: variant.id.to_string(),
+            product_id: variant.product_id.to_string(),
+            name: variant.name.clone(),
+            sku: variant.sku.clone(),
+            unit_price: variant.unit_price.to_string(),
+            active: variant.active,
+            sort_order: variant.sort_order,
+        }
+    }
 }
 
 impl From<&Product> for ProductView {
@@ -70,6 +130,7 @@ impl From<&Product> for ProductView {
             unit_price: product.unit_price.to_string(),
             tax_rate_bp: product.tax_rate_bp,
             active: product.active,
+            category_id: product.category_id.map(|id| id.to_string()),
         }
     }
 }
@@ -313,6 +374,96 @@ impl PosService {
         let products = tx.list_products(actor.organization_id).await?;
         tx.rollback().await?;
         Ok(products.iter().map(ProductView::from).collect())
+    }
+
+    pub async fn create_category(
+        &self,
+        actor: &Actor,
+        draft: CategoryDraft,
+    ) -> AppResult<CategoryView> {
+        actor.require(pos_core::identity::Permission::ManageCatalog)?;
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        commercial.require_feature(FeatureKey::Catalog, self.clock.now())?;
+
+        let category = Category::new(actor.organization_id, draft.name, draft.sort_order)?;
+        tx.insert_category(&category).await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            actor.branch_id,
+            Some(actor.user_id),
+            AuditAction::CategoryCreated,
+            "category",
+            category.id.to_string(),
+            serde_json::json!({ "name": category.name, "sort_order": category.sort_order }),
+        ))
+        .await?;
+        tx.commit().await?;
+        Ok(CategoryView::from(&category))
+    }
+
+    pub async fn list_categories(&self, actor: &Actor) -> AppResult<Vec<CategoryView>> {
+        actor.require(pos_core::identity::Permission::Sell)?;
+        let mut tx = self.store.begin().await?;
+        let categories = tx.list_categories(actor.organization_id).await?;
+        tx.rollback().await?;
+        Ok(categories.iter().map(CategoryView::from).collect())
+    }
+
+    pub async fn create_product_variant(
+        &self,
+        actor: &Actor,
+        draft: ProductVariantDraft,
+    ) -> AppResult<ProductVariantView> {
+        actor.require(pos_core::identity::Permission::ManageCatalog)?;
+        let product_id: ProductId = draft.product_id.parse().map_err(|_| AppError::NotFound)?;
+        let price: Money = draft.price.parse()?;
+
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        commercial.require_feature(FeatureKey::Catalog, self.clock.now())?;
+
+        tx.find_product(actor.organization_id, product_id)
+            .await?
+            .ok_or(pos_core::DomainError::ProductNotFound)?;
+
+        let variant = ProductVariant::new(
+            actor.organization_id,
+            product_id,
+            draft.name,
+            draft.sku,
+            price,
+            draft.sort_order,
+        )?;
+        tx.insert_product_variant(&variant).await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            actor.branch_id,
+            Some(actor.user_id),
+            AuditAction::ProductVariantCreated,
+            "product_variant",
+            variant.id.to_string(),
+            serde_json::json!({ "product_id": product_id.to_string(), "name": variant.name, "price": variant.unit_price.to_string() }),
+        ))
+        .await?;
+        tx.commit().await?;
+        Ok(ProductVariantView::from(&variant))
+    }
+
+    pub async fn list_product_variants(
+        &self,
+        actor: &Actor,
+        product_id: ProductId,
+    ) -> AppResult<Vec<ProductVariantView>> {
+        actor.require(pos_core::identity::Permission::Sell)?;
+        let mut tx = self.store.begin().await?;
+        let variants = tx
+            .list_product_variants(actor.organization_id, product_id)
+            .await?;
+        tx.rollback().await?;
+        Ok(variants.iter().map(ProductVariantView::from).collect())
     }
 
     pub async fn record_inventory_movement(
