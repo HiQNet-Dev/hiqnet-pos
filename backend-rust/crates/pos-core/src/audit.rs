@@ -14,6 +14,8 @@ pub enum AuditAction {
     CategoryCreated,
     ProductVariantCreated,
     ProductCategoryChanged,
+    ModifierGroupCreated,
+    ModifierOptionCreated,
     InventoryMovementRegistered,
     BackupCreated,
 }
@@ -28,6 +30,8 @@ impl AuditAction {
             "catalog.category_created" => Some(AuditAction::CategoryCreated),
             "catalog.variant_created" => Some(AuditAction::ProductVariantCreated),
             "catalog.product_category_changed" => Some(AuditAction::ProductCategoryChanged),
+            "catalog.modifier_group_created" => Some(AuditAction::ModifierGroupCreated),
+            "catalog.modifier_option_created" => Some(AuditAction::ModifierOptionCreated),
             "inventory.movement_registered" => Some(AuditAction::InventoryMovementRegistered),
             "backup.created" => Some(AuditAction::BackupCreated),
             _ => None,
@@ -43,6 +47,8 @@ impl AuditAction {
             AuditAction::CategoryCreated => "catalog.category_created",
             AuditAction::ProductVariantCreated => "catalog.variant_created",
             AuditAction::ProductCategoryChanged => "catalog.product_category_changed",
+            AuditAction::ModifierGroupCreated => "catalog.modifier_group_created",
+            AuditAction::ModifierOptionCreated => "catalog.modifier_option_created",
             AuditAction::InventoryMovementRegistered => "inventory.movement_registered",
             AuditAction::BackupCreated => "backup.created",
         }

@@ -99,6 +99,77 @@ export type BootstrapResult = z.infer<typeof bootstrapResultSchema>;
 export type Product = z.infer<typeof productSchema>;
 export type Category = z.infer<typeof categorySchema>;
 export type CategoryDraft = z.infer<typeof categoryDraftSchema>;
+
+export const modifierGroupSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  min: z.number().int().nonnegative(),
+  max: z.number().int().nonnegative(),
+  sort_order: z.number().int(),
+  active: z.boolean(),
+});
+
+export const modifierGroupDraftSchema = z.object({
+  product_id: z.string().min(1),
+  name: z.string().min(1),
+  min: z.number().int().nonnegative(),
+  max: z.number().int().nonnegative(),
+  sort_order: z.number().int(),
+});
+
+export const modifierOptionSchema = z.object({
+  id: z.string(),
+  group_id: z.string(),
+  name: z.string(),
+  kind: z.enum(["choice", "extra", "omission"]),
+  price_delta: z.string(),
+  sort_order: z.number().int(),
+  active: z.boolean(),
+});
+
+export const modifierOptionDraftSchema = z.object({
+  group_id: z.string().min(1),
+  name: z.string().min(1),
+  kind: z.enum(["choice", "extra", "omission"]),
+  price_delta: z.string(),
+  sort_order: z.number().int(),
+});
+
+export const modifierSelectionSchema = z.object({
+  selected_option_id: z.string(),
+  name: z.string(),
+  kind: z.string(),
+  price_delta: z.string(),
+});
+
+export const modifierConfigurationSchema = z.object({
+  product_id: z.string(),
+  product_name: z.string(),
+  variant_id: z.string().nullable(),
+  variant_name: z.string().nullable(),
+  base_price: z.string(),
+  modifiers_total: z.string(),
+  tax: z.string(),
+  unit_price: z.string(),
+  tax_rate_bp: z.number().int(),
+  selected_options: z.array(modifierSelectionSchema),
+});
+
+export const modifierConfigurationDraftSchema = z.object({
+  product_id: z.string().min(1),
+  variant_id: z.string().nullable().optional(),
+  selected_option_ids: z.array(z.string()),
+});
+
+export type ModifierGroup = z.infer<typeof modifierGroupSchema>;
+export type ModifierGroupDraft = z.infer<typeof modifierGroupDraftSchema>;
+export type ModifierOption = z.infer<typeof modifierOptionSchema>;
+export type ModifierOptionDraft = z.infer<typeof modifierOptionDraftSchema>;
+export type ModifierSelection = z.infer<typeof modifierSelectionSchema>;
+export type ModifierConfiguration = z.infer<typeof modifierConfigurationSchema>;
+export type ModifierConfigurationDraft = z.infer<
+  typeof modifierConfigurationDraftSchema
+>;
 export type ProductVariant = z.infer<typeof productVariantSchema>;
 export type ProductVariantDraft = z.infer<typeof productVariantDraftSchema>;
 export type AuditEvent = z.infer<typeof auditEventSchema>;

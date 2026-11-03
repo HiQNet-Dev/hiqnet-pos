@@ -23,6 +23,9 @@ pub enum DomainError {
     #[error("el producto no existe")]
     ProductNotFound,
 
+    #[error("el recurso no existe")]
+    NotFound,
+
     #[error("el producto está inactivo")]
     InactiveProduct,
 
@@ -40,6 +43,9 @@ pub enum DomainError {
 
     #[error("el impuesto debe estar entre 0 y 10000 puntos base")]
     InvalidTaxRate,
+
+    #[error("límites de modificador inválidos")]
+    InvalidModifierLimits,
 
     #[error("la contraseña debe tener al menos {min} caracteres")]
     WeakPassword { min: usize },

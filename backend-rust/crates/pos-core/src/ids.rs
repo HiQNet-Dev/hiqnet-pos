@@ -58,6 +58,8 @@ id_type!(UserId, "Identificador de usuario operador local.");
 id_type!(ProductId, "Identificador de producto de catálogo.");
 id_type!(CategoryId, "Identificador de categoría de catálogo.");
 id_type!(ProductVariantId, "Identificador de variante de producto.");
+id_type!(ModifierGroupId, "Identificador de grupo de modificadores.");
+id_type!(ModifierOptionId, "Identificador de opción de modificador.");
 id_type!(AuditEventId, "Identificador de evento de auditoría.");
 id_type!(
     InstallationId,

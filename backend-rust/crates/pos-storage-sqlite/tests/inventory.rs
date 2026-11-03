@@ -1,6 +1,7 @@
 use pos_application::{
     AppError, BootstrapRequest, CategoryDraft, Clock, InventoryMovementDraft, LoginRequest,
-    PosService, ProductDraft, ProductVariantDraft, SharedClock, SharedHasher, SharedStore, Store,
+    ModifierConfigurationDraft, ModifierGroupDraft, ModifierOptionDraft, PosService, ProductDraft,
+    ProductVariantDraft, SharedClock, SharedHasher, SharedStore, Store,
 };
 use pos_core::catalog::Product;
 use pos_core::identity::Actor;
@@ -435,6 +436,67 @@ async fn categorias_y_variantes_se_persisten_y_auditan() {
     let actions: Vec<&str> = audit.iter().map(|event| event.action.as_str()).collect();
     assert!(actions.contains(&"catalog.category_created"));
     assert!(actions.contains(&"catalog.variant_created"));
+}
+
+#[tokio::test]
+async fn modificadores_validan_y_calculan_precio() {
+    let (_dir, pool, actor, product_id) = setup().await;
+    let service = build_service(pool.clone());
+
+    let group = service
+        .create_modifier_group(
+            &actor,
+            ModifierGroupDraft {
+                product_id: product_id.to_string(),
+                name: "Extras".into(),
+                min: 1,
+                max: 2,
+                sort_order: 1,
+            },
+        )
+        .await
+        .unwrap();
+
+    let option = service
+        .create_modifier_option(
+            &actor,
+            ModifierOptionDraft {
+                group_id: group.id.clone(),
+                name: "Proteína".into(),
+                kind: "extra".into(),
+                price_delta: "5.00".into(),
+                sort_order: 1,
+            },
+        )
+        .await
+        .unwrap();
+
+    let valid = service
+        .configure_product(
+            &actor,
+            ModifierConfigurationDraft {
+                product_id: product_id.to_string(),
+                variant_id: None,
+                selected_option_ids: vec![option.id.clone()],
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(valid.modifiers_total, "5.00");
+    assert!(valid.unit_price > valid.base_price);
+
+    let invalid = service
+        .configure_product(
+            &actor,
+            ModifierConfigurationDraft {
+                product_id: product_id.to_string(),
+                variant_id: None,
+                selected_option_ids: vec![],
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(invalid.code(), "validation_error");
 }
 
 #[tokio::test]

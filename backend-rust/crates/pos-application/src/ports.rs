@@ -5,6 +5,7 @@ use pos_core::catalog::{Category, Product, ProductVariant};
 use pos_core::identity::User;
 use pos_core::ids::{BranchId, CategoryId, InstallationId, OrganizationId, ProductId};
 use pos_core::inventory::InventoryMovement;
+use pos_core::modifiers::{ModifierGroup, ModifierOption};
 use pos_core::organization::{Branch, Organization};
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -73,6 +74,30 @@ pub trait StoreTx: Send {
         organization_id: OrganizationId,
         product_id: ProductId,
     ) -> AppResult<Vec<ProductVariant>>;
+
+    async fn insert_modifier_group(&mut self, group: &ModifierGroup) -> AppResult<()>;
+    async fn find_modifier_group(
+        &mut self,
+        organization_id: OrganizationId,
+        group_id: pos_core::ids::ModifierGroupId,
+    ) -> AppResult<Option<ModifierGroup>>;
+    async fn list_modifier_groups(
+        &mut self,
+        organization_id: OrganizationId,
+        product_id: ProductId,
+    ) -> AppResult<Vec<ModifierGroup>>;
+
+    async fn insert_modifier_option(&mut self, option: &ModifierOption) -> AppResult<()>;
+    async fn find_modifier_option(
+        &mut self,
+        organization_id: OrganizationId,
+        option_id: pos_core::ids::ModifierOptionId,
+    ) -> AppResult<Option<ModifierOption>>;
+    async fn list_modifier_options(
+        &mut self,
+        organization_id: OrganizationId,
+        group_id: pos_core::ids::ModifierGroupId,
+    ) -> AppResult<Vec<ModifierOption>>;
 
     async fn insert_inventory_movement(&mut self, movement: &InventoryMovement) -> AppResult<()>;
     async fn current_stock(

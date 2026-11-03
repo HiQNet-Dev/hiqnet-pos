@@ -9,8 +9,9 @@ use std::sync::{Arc, RwLock};
 use pos_application::{
     AppError, AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, CategoryDraft,
     CategoryView, CommercialStateView, InventoryMovementDraft, InventoryMovementView, LoginRequest,
-    PosService, ProductDraft, ProductVariantDraft, ProductVariantView, ProductView, SharedClock,
-    SharedHasher, SharedStore, SystemClock,
+    ModifierConfigurationDraft, ModifierConfigurationView, ModifierGroupDraft, ModifierGroupView,
+    ModifierOptionDraft, ModifierOptionView, PosService, ProductDraft, ProductVariantDraft,
+    ProductVariantView, ProductView, SharedClock, SharedHasher, SharedStore, SystemClock,
 };
 use pos_core::identity::{Actor, Permission};
 use pos_core::ids::{BranchId, ProductId};
@@ -121,6 +122,63 @@ async fn assign_product_category(
         .service
         .assign_product_category(&actor, product_id, category_id)
         .await?)
+}
+
+#[tauri::command]
+async fn create_modifier_group(
+    state: State<'_, AppState>,
+    draft: ModifierGroupDraft,
+) -> IpcResult<ModifierGroupView> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.create_modifier_group(&actor, draft).await?)
+}
+
+#[tauri::command]
+async fn list_modifier_groups(
+    state: State<'_, AppState>,
+    product_id: String,
+) -> IpcResult<Vec<ModifierGroupView>> {
+    let actor = session_actor(&state)?;
+    let product_id: ProductId = product_id
+        .parse()
+        .map_err(|_| IpcError::from(AppError::NotFound))?;
+    Ok(state
+        .service
+        .list_modifier_groups(&actor, product_id)
+        .await?)
+}
+
+#[tauri::command]
+async fn create_modifier_option(
+    state: State<'_, AppState>,
+    draft: ModifierOptionDraft,
+) -> IpcResult<ModifierOptionView> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.create_modifier_option(&actor, draft).await?)
+}
+
+#[tauri::command]
+async fn list_modifier_options(
+    state: State<'_, AppState>,
+    group_id: String,
+) -> IpcResult<Vec<ModifierOptionView>> {
+    let actor = session_actor(&state)?;
+    let group_id: pos_core::ids::ModifierGroupId = group_id
+        .parse()
+        .map_err(|_| IpcError::from(AppError::NotFound))?;
+    Ok(state
+        .service
+        .list_modifier_options(&actor, group_id)
+        .await?)
+}
+
+#[tauri::command]
+async fn configure_product(
+    state: State<'_, AppState>,
+    draft: ModifierConfigurationDraft,
+) -> IpcResult<ModifierConfigurationView> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.configure_product(&actor, draft).await?)
 }
 
 #[tauri::command]
@@ -299,7 +357,12 @@ pub fn run() {
             list_products,
             assign_product_category,
             create_category,
+            create_modifier_group,
+            create_modifier_option,
             list_categories,
+            list_modifier_groups,
+            list_modifier_options,
+            configure_product,
             create_product_variant,
             list_product_variants,
             current_stock,
