@@ -95,8 +95,18 @@ jobs:
           # features de sqlx no usadas en runtime. Ver backend-rust/.cargo/audit.toml.
           ignore: RUSTSEC-2023-0071
       - uses: dtolnay/rust-toolchain@stable
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Auditoría informativa de npm
         working-directory: frontend
+        # Informativa y visible: no bloquea el job, pero el resultado queda en el log.
+        continue-on-error: true
         run: |
           pnpm install --frozen-lockfile
-          pnpm audit --audit-level=high || true
+          pnpm audit --audit-level=high
