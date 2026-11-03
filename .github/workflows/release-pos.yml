@@ -1,0 +1,111 @@
+name: Release POS
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión SemVer (ej. 0.2.0-rc.1)"
+        required: true
+      channel:
+        description: "Canal de actualización"
+        required: true
+        type: choice
+        options: [stable, beta, alpha]
+  push:
+    tags:
+      - "pos-v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-pos-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validación completa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend-rust
+      - run: cargo fmt --manifest-path backend-rust/Cargo.toml --all -- --check
+      - run: cargo clippy --manifest-path backend-rust/Cargo.toml --workspace --all-targets -- -D warnings
+      - run: cargo test --manifest-path backend-rust/Cargo.toml --workspace
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run lint
+          pnpm run typecheck
+          pnpm run test
+          pnpm run build
+
+  build-windows:
+    name: Instalador Windows
+    needs: validate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/pos-desktop/src-tauri
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - working-directory: apps/pos-desktop/src-tauri
+        run: pnpm dlx @tauri-apps/cli@2 build
+      - name: Subir artefactos
+        uses: actions/upload-artifact@v4
+        with:
+          name: hiqnet-pos-windows
+          path: apps/pos-desktop/src-tauri/target/release/bundle/**
+          retention-days: 30
+
+  release:
+    name: Publicar GitHub Release
+    needs: [validate, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Descargar artefactos
+        uses: actions/download-artifact@v4
+        with:
+          name: hiqnet-pos-windows
+          path: artifacts
+      - name: Calcular hashes
+        run: |
+          cd artifacts
+          find . -type f -exec sha256sum {} \; > ../SHA256SUMS.txt
+          cat ../SHA256SUMS.txt
+      - name: Crear release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: HiQNet POS ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            artifacts/**
+            SHA256SUMS.txt
+EOF

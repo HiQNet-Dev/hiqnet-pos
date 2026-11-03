@@ -160,6 +160,7 @@ pub fn run() {
         .try_init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let db_path = std::env::var_os("HIQNET_POS_DB_PATH")
                 .map(PathBuf::from)
