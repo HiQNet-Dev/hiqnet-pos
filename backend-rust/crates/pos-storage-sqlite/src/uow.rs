@@ -251,6 +251,38 @@ impl StoreTx for SqliteTx {
             .collect()
     }
 
+    async fn find_product(
+        &mut self,
+        organization_id: OrganizationId,
+        product_id: ProductId,
+    ) -> AppResult<Option<Product>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, sku, name, unit_price_minor, tax_rate_bp, active, created_at \
+             FROM product WHERE id = ? AND organization_id = ?",
+        )
+        .bind(product_id.to_string())
+        .bind(organization_id.to_string())
+        .fetch_optional(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+
+        row.map(|row| -> AppResult<Product> {
+            Ok(Product {
+                id: parse_id(row.get("id"))?,
+                organization_id: parse_id(row.get("organization_id"))?,
+                sku: row.get("sku"),
+                name: row.get("name"),
+                unit_price: Money::from_minor_units(row.get("unit_price_minor"))
+                    .map_err(AppError::Domain)?,
+                tax_rate_bp: u16::try_from(row.get::<i64, _>("tax_rate_bp"))
+                    .map_err(|_| AppError::Storage)?,
+                active: row.get::<i64, _>("active") != 0,
+                created_at: parse_ts(row.get("created_at"))?,
+            })
+        })
+        .transpose()
+    }
+
     async fn insert_inventory_movement(&mut self, movement: &InventoryMovement) -> AppResult<()> {
         sqlx::query(
             "INSERT INTO inventory_movement \
@@ -289,7 +321,7 @@ impl StoreTx for SqliteTx {
         .await
         .map_err(map_sqlx)?;
         let stock: i64 = row.get("stock");
-        Quantity::from_milli_units(stock.max(0)).map_err(AppError::Domain)
+        Quantity::from_milli_units(stock).map_err(AppError::Domain)
     }
 
     async fn list_inventory_movements(

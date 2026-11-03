@@ -10,7 +10,8 @@ use time::OffsetDateTime;
 pub enum MovementKind {
     Inbound,
     Outbound,
-    Adjustment,
+    AdjustmentIn,
+    AdjustmentOut,
 }
 
 impl MovementKind {
@@ -18,7 +19,8 @@ impl MovementKind {
         match self {
             Self::Inbound => "inbound",
             Self::Outbound => "outbound",
-            Self::Adjustment => "adjustment",
+            Self::AdjustmentIn => "adjustment_in",
+            Self::AdjustmentOut => "adjustment_out",
         }
     }
 
@@ -26,7 +28,8 @@ impl MovementKind {
         match value {
             "inbound" => Some(Self::Inbound),
             "outbound" => Some(Self::Outbound),
-            "adjustment" => Some(Self::Adjustment),
+            "adjustment" | "adjustment_in" => Some(Self::AdjustmentIn),
+            "adjustment_out" => Some(Self::AdjustmentOut),
             _ => None,
         }
     }
@@ -66,7 +69,11 @@ impl InventoryMovement {
         let reason = reason
             .map(|value| value.trim().to_owned())
             .filter(|value| !value.is_empty());
-        if matches!(kind, MovementKind::Adjustment) && reason.is_none() {
+        if matches!(
+            kind,
+            MovementKind::AdjustmentIn | MovementKind::AdjustmentOut
+        ) && reason.is_none()
+        {
             return Err(DomainError::EmptyName);
         }
         Ok(Self {
@@ -85,8 +92,8 @@ impl InventoryMovement {
     /// Signo del movimiento sobre el stock disponible (+1 o -1).
     pub fn signed_milli_units(&self) -> i64 {
         match self.kind {
-            MovementKind::Inbound | MovementKind::Adjustment => self.quantity.milli_units(),
-            MovementKind::Outbound => -self.quantity.milli_units(),
+            MovementKind::Inbound | MovementKind::AdjustmentIn => self.quantity.milli_units(),
+            MovementKind::Outbound | MovementKind::AdjustmentOut => -self.quantity.milli_units(),
         }
     }
 }
@@ -115,7 +122,7 @@ mod tests {
             OrganizationId::new(),
             BranchId::new(),
             ProductId::new(),
-            MovementKind::Adjustment,
+            MovementKind::AdjustmentIn,
             Quantity::from_milli_units(1000).unwrap(),
             None,
             None,

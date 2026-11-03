@@ -20,6 +20,12 @@ pub enum DomainError {
     #[error("la cantidad tiene más de tres decimales")]
     InvalidQuantityScale,
 
+    #[error("el producto no existe")]
+    ProductNotFound,
+
+    #[error("el producto está inactivo")]
+    InactiveProduct,
+
     #[error("el nombre es obligatorio")]
     EmptyName,
 

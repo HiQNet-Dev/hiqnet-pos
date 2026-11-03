@@ -331,7 +331,15 @@ impl PosService {
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Inventory, self.clock.now())?;
 
-        if matches!(kind, MovementKind::Outbound) {
+        let product = tx
+            .find_product(actor.organization_id, product_id)
+            .await?
+            .ok_or(pos_core::DomainError::ProductNotFound)?;
+        if !product.active {
+            return Err(pos_core::DomainError::InactiveProduct.into());
+        }
+
+        if matches!(kind, MovementKind::Outbound | MovementKind::AdjustmentOut) {
             let current = tx
                 .current_stock(actor.organization_id, branch_id, product_id)
                 .await?;

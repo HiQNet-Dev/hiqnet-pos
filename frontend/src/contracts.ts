@@ -110,3 +110,24 @@ export const productDraftSchema = z.object({
 export type BootstrapRequest = z.infer<typeof bootstrapRequestSchema>;
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 export type ProductDraft = z.infer<typeof productDraftSchema>;
+
+export const inventoryMovementSchema = z.object({
+  id: z.string(),
+  product_id: z.string(),
+  kind: z.enum(["inbound", "outbound", "adjustment_in", "adjustment_out"]),
+  quantity: z.string(),
+  reason: z.string().nullable(),
+  occurred_at: z.string(),
+});
+
+export const inventoryMovementDraftSchema = z.object({
+  product_id: z.string().min(1, "Selecciona un producto"),
+  kind: z.enum(["inbound", "outbound", "adjustment_in", "adjustment_out"]),
+  quantity: z
+    .string()
+    .regex(/^\d+(\.\d{1,3})?$/, "Usa una cantidad con hasta 3 decimales"),
+  reason: z.string().optional(),
+});
+
+export type InventoryMovement = z.infer<typeof inventoryMovementSchema>;
+export type InventoryMovementDraft = z.infer<typeof inventoryMovementDraftSchema>;

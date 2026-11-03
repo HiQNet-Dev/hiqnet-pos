@@ -14,5 +14,6 @@ pub use ports::{
 };
 pub use service::{
     AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, CommercialStateView,
-    LoginRequest, PosService, ProductDraft, ProductView,
+    InventoryMovementDraft, InventoryMovementView, LoginRequest, PosService, ProductDraft,
+    ProductView,
 };

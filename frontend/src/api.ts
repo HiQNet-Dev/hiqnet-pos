@@ -7,6 +7,7 @@ import {
   bootstrapResultSchema,
   commercialStateSchema,
   ipcErrorSchema,
+  inventoryMovementSchema,
   productSchema,
   type Actor,
   type AppStatus,
@@ -17,6 +18,8 @@ import {
   type LoginRequest,
   type Product,
   type ProductDraft,
+  type InventoryMovement,
+  type InventoryMovementDraft,
 } from "./contracts";
 
 /** Error estable proveniente de Rust (`code`) con mensaje en español. */
@@ -83,6 +86,19 @@ export const api = {
 
   listProducts: () =>
     call<Product[]>("list_products", undefined, productSchema.array()),
+
+  currentStock: (productId: string, branchId?: string) =>
+    call<string>("current_stock", { product_id: productId, branch_id: branchId }, z.string()),
+
+  recordInventoryMovement: (draft: InventoryMovementDraft) =>
+    call<InventoryMovement>("record_inventory_movement", { draft }, inventoryMovementSchema),
+
+  listInventoryMovements: (productId?: string, limit = 50) =>
+    call<InventoryMovement[]>(
+      "list_inventory_movements",
+      { product_id: productId, limit },
+      inventoryMovementSchema.array(),
+    ),
 
   listAuditEvents: (limit = 50) =>
     call<AuditEvent[]>(
