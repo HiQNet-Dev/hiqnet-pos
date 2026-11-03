@@ -7,6 +7,7 @@ import {
   type CommercialState,
   type Product,
 } from "../contracts";
+import { InventoryPanel } from "./InventoryPanel";
 
 type Props = {
   actor: Actor;
@@ -290,6 +291,7 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
           )}
         </section>
 
+<InventoryPanel actor={actor} products={products} readOnly={readOnly} />
         <aside className="workspace-side">
           <section className="panel" aria-labelledby="license-title">
             <header className="panel-header">
