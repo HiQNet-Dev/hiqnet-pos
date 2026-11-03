@@ -3,9 +3,12 @@ use pos_application::{AppError, AppResult, InstallationState, Store, StoreTx};
 use pos_core::audit::{AuditAction, AuditEvent};
 use pos_core::catalog::Product;
 use pos_core::identity::{Role, User};
-use pos_core::ids::{AuditEventId, OrganizationId};
+use pos_core::ids::{AuditEventId, BranchId, OrganizationId, ProductId};
+use pos_core::inventory::InventoryMovement;
+use pos_core::inventory::MovementKind;
 use pos_core::money::Money;
 use pos_core::organization::{Branch, Organization};
+use pos_core::quantity::Quantity;
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
 use std::str::FromStr;
 use time::OffsetDateTime;
@@ -243,6 +246,109 @@ impl StoreTx for SqliteTx {
                         .map_err(|_| AppError::Storage)?,
                     active: row.get::<i64, _>("active") != 0,
                     created_at: parse_ts(row.get("created_at"))?,
+                })
+            })
+            .collect()
+    }
+
+    async fn insert_inventory_movement(&mut self, movement: &InventoryMovement) -> AppResult<()> {
+        sqlx::query(
+            "INSERT INTO inventory_movement \
+             (id, organization_id, branch_id, product_id, kind, quantity_milli, reason, \
+              actor_user_id, occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(movement.id.to_string())
+        .bind(movement.organization_id.to_string())
+        .bind(movement.branch_id.to_string())
+        .bind(movement.product_id.to_string())
+        .bind(movement.kind.as_str())
+        .bind(movement.quantity.milli_units())
+        .bind(&movement.reason)
+        .bind(movement.actor_user_id.map(|id| id.to_string()))
+        .bind(format_ts(movement.occurred_at))
+        .execute(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn current_stock(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        product_id: ProductId,
+    ) -> AppResult<Quantity> {
+        let row = sqlx::query(
+            "SELECT COALESCE(SUM(CASE kind WHEN 'outbound' THEN -quantity_milli ELSE quantity_milli END), 0) AS stock \
+             FROM inventory_movement WHERE organization_id = ? AND branch_id = ? AND product_id = ?",
+        )
+        .bind(organization_id.to_string())
+        .bind(branch_id.to_string())
+        .bind(product_id.to_string())
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        let stock: i64 = row.get("stock");
+        Quantity::from_milli_units(stock.max(0)).map_err(AppError::Domain)
+    }
+
+    async fn list_inventory_movements(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        product_id: Option<ProductId>,
+        limit: i64,
+    ) -> AppResult<Vec<InventoryMovement>> {
+        let rows = if let Some(product_id) = product_id {
+            sqlx::query(
+                "SELECT id, organization_id, branch_id, product_id, kind, quantity_milli, reason, \
+                 actor_user_id, occurred_at FROM inventory_movement \
+                 WHERE organization_id = ? AND branch_id = ? AND product_id = ? \
+                 ORDER BY occurred_at DESC LIMIT ?",
+            )
+            .bind(organization_id.to_string())
+            .bind(branch_id.to_string())
+            .bind(product_id.to_string())
+            .bind(limit)
+            .fetch_all(&mut **self.tx()?)
+            .await
+            .map_err(map_sqlx)?
+        } else {
+            sqlx::query(
+                "SELECT id, organization_id, branch_id, product_id, kind, quantity_milli, reason, \
+                 actor_user_id, occurred_at FROM inventory_movement \
+                 WHERE organization_id = ? AND branch_id = ? \
+                 ORDER BY occurred_at DESC LIMIT ?",
+            )
+            .bind(organization_id.to_string())
+            .bind(branch_id.to_string())
+            .bind(limit)
+            .fetch_all(&mut **self.tx()?)
+            .await
+            .map_err(map_sqlx)?
+        };
+
+        rows.into_iter()
+            .map(|row| -> AppResult<InventoryMovement> {
+                let kind = MovementKind::from_key(&row.get::<String, _>("kind"))
+                    .ok_or(AppError::Storage)?;
+                Ok(InventoryMovement {
+                    id: row
+                        .get::<String, _>("id")
+                        .parse()
+                        .map_err(|_| AppError::Storage)?,
+                    organization_id: parse_id(row.get("organization_id"))?,
+                    branch_id: parse_id(row.get("branch_id"))?,
+                    product_id: row
+                        .get::<String, _>("product_id")
+                        .parse()
+                        .map_err(|_| AppError::Storage)?,
+                    kind,
+                    quantity: Quantity::from_milli_units(row.get("quantity_milli"))
+                        .map_err(AppError::Domain)?,
+                    reason: row.get("reason"),
+                    actor_user_id: parse_optional_id(row.get("actor_user_id"))?,
+                    occurred_at: parse_ts(row.get("occurred_at"))?,
                 })
             })
             .collect()

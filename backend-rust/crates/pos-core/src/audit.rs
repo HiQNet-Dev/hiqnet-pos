@@ -11,6 +11,7 @@ pub enum AuditAction {
     SessionLoggedIn,
     SessionLoginRejected,
     ProductCreated,
+    InventoryMovementRegistered,
     BackupCreated,
 }
 
@@ -21,6 +22,7 @@ impl AuditAction {
             "session.logged_in" => Some(AuditAction::SessionLoggedIn),
             "session.login_rejected" => Some(AuditAction::SessionLoginRejected),
             "catalog.product_created" => Some(AuditAction::ProductCreated),
+            "inventory.movement_registered" => Some(AuditAction::InventoryMovementRegistered),
             "backup.created" => Some(AuditAction::BackupCreated),
             _ => None,
         }
@@ -32,6 +34,7 @@ impl AuditAction {
             AuditAction::SessionLoggedIn => "session.logged_in",
             AuditAction::SessionLoginRejected => "session.login_rejected",
             AuditAction::ProductCreated => "catalog.product_created",
+            AuditAction::InventoryMovementRegistered => "inventory.movement_registered",
             AuditAction::BackupCreated => "backup.created",
         }
     }

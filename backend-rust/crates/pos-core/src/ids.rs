@@ -61,6 +61,10 @@ id_type!(
     InstallationId,
     "Identificador de instalación local del POS."
 );
+id_type!(
+    InventoryMovementId,
+    "Identificador de movimiento de inventario."
+);
 
 #[cfg(test)]
 mod tests {

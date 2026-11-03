@@ -9,6 +9,7 @@ pub mod entitlements;
 pub mod error;
 pub mod identity;
 pub mod ids;
+pub mod inventory;
 pub mod money;
 pub mod organization;
 pub mod quantity;

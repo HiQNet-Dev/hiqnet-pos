@@ -16,7 +16,7 @@ fi
 
 # 2. Patrones de credenciales en archivos de texto versionados.
 secret_patterns='-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}'
-matches=$(git grep -nEI "${secret_patterns}" -- \
+matches=$(git grep -nEI -e "${secret_patterns}" -- \
   ':!frontend/pnpm-lock.yaml' ':!**/*.lock' ':!docs/**' ':!.github/**' || true)
 if [[ -n "${matches}" ]]; then
   echo "Posibles secretos en archivos versionados:"

@@ -50,6 +50,9 @@ pub enum DomainError {
     #[error("el estado comercial no permite esta operación")]
     CommercialStateBlocked,
 
+    #[error("stock insuficiente para registrar la salida")]
+    InsufficientStock,
+
     #[error("la versión de autorización comercial no es compatible")]
     UnsupportedLicenseVersion,
 }

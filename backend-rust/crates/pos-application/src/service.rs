@@ -7,8 +7,10 @@ use pos_core::entitlements::{
 };
 use pos_core::identity::{Actor, Role, User, normalize_username};
 use pos_core::ids::{BranchId, InstallationId, OrganizationId, ProductId, UserId};
+use pos_core::inventory::{InventoryMovement, MovementKind};
 use pos_core::money::Money;
 use pos_core::organization::{Branch, Organization};
+use pos_core::quantity::Quantity;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use time::OffsetDateTime;
@@ -68,6 +70,37 @@ impl From<&Product> for ProductView {
             unit_price: product.unit_price.to_string(),
             tax_rate_bp: product.tax_rate_bp,
             active: product.active,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct InventoryMovementDraft {
+    pub product_id: String,
+    pub kind: String,
+    pub quantity: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct InventoryMovementView {
+    pub id: String,
+    pub product_id: String,
+    pub kind: String,
+    pub quantity: String,
+    pub reason: Option<String>,
+    pub occurred_at: OffsetDateTime,
+}
+
+impl From<&InventoryMovement> for InventoryMovementView {
+    fn from(movement: &InventoryMovement) -> Self {
+        Self {
+            id: movement.id.to_string(),
+            product_id: movement.product_id.to_string(),
+            kind: movement.kind.as_str().to_owned(),
+            quantity: movement.quantity.to_string(),
+            reason: movement.reason.clone(),
+            occurred_at: movement.occurred_at,
         }
     }
 }
@@ -280,6 +313,90 @@ impl PosService {
         let products = tx.list_products(actor.organization_id).await?;
         tx.rollback().await?;
         Ok(products.iter().map(ProductView::from).collect())
+    }
+
+    pub async fn record_inventory_movement(
+        &self,
+        actor: &Actor,
+        draft: InventoryMovementDraft,
+    ) -> AppResult<InventoryMovementView> {
+        actor.require(pos_core::identity::Permission::ManageInventory)?;
+        let product_id: ProductId = draft.product_id.parse().map_err(|_| AppError::NotFound)?;
+        let kind = MovementKind::from_key(&draft.kind).ok_or(AppError::NotFound)?;
+        let quantity: Quantity = draft.quantity.parse()?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        commercial.require_feature(FeatureKey::Inventory, self.clock.now())?;
+
+        if matches!(kind, MovementKind::Outbound) {
+            let current = tx
+                .current_stock(actor.organization_id, branch_id, product_id)
+                .await?;
+            if current.milli_units() < quantity.milli_units() {
+                return Err(pos_core::DomainError::InsufficientStock.into());
+            }
+        }
+
+        let movement = InventoryMovement::new(
+            actor.organization_id,
+            branch_id,
+            product_id,
+            kind,
+            quantity,
+            draft.reason,
+            Some(actor.user_id),
+        )?;
+
+        tx.insert_inventory_movement(&movement).await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            Some(branch_id),
+            Some(actor.user_id),
+            AuditAction::InventoryMovementRegistered,
+            "inventory_movement",
+            movement.id.to_string(),
+            serde_json::json!({ "product_id": product_id.to_string(), "kind": kind.as_str(), "quantity": quantity.to_string() }),
+        ))
+        .await?;
+        tx.commit().await?;
+
+        Ok(InventoryMovementView::from(&movement))
+    }
+
+    pub async fn current_stock(
+        &self,
+        actor: &Actor,
+        product_id: ProductId,
+        branch_id: Option<BranchId>,
+    ) -> AppResult<String> {
+        actor.require(pos_core::identity::Permission::ViewInventory)?;
+        let branch_id = branch_id.or(actor.branch_id).ok_or(AppError::NotFound)?;
+        let mut tx = self.store.begin().await?;
+        let stock = tx
+            .current_stock(actor.organization_id, branch_id, product_id)
+            .await?;
+        tx.rollback().await?;
+        Ok(stock.to_string())
+    }
+
+    pub async fn list_inventory_movements(
+        &self,
+        actor: &Actor,
+        product_id: Option<ProductId>,
+        limit: u32,
+    ) -> AppResult<Vec<InventoryMovementView>> {
+        actor.require(pos_core::identity::Permission::ViewInventory)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let limit = i64::from(limit).clamp(1, MAX_AUDIT_PAGE);
+        let mut tx = self.store.begin().await?;
+        let movements = tx
+            .list_inventory_movements(actor.organization_id, branch_id, product_id, limit)
+            .await?;
+        tx.rollback().await?;
+        Ok(movements.iter().map(InventoryMovementView::from).collect())
     }
 
     pub async fn list_audit(&self, actor: &Actor, limit: u32) -> AppResult<Vec<AuditEventView>> {

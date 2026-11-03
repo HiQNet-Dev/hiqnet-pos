@@ -3,7 +3,8 @@ use async_trait::async_trait;
 use pos_core::audit::AuditEvent;
 use pos_core::catalog::Product;
 use pos_core::identity::User;
-use pos_core::ids::{InstallationId, OrganizationId};
+use pos_core::ids::{BranchId, InstallationId, OrganizationId, ProductId};
+use pos_core::inventory::InventoryMovement;
 use pos_core::organization::{Branch, Organization};
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -43,6 +44,21 @@ pub trait StoreTx: Send {
 
     async fn insert_product(&mut self, product: &Product) -> AppResult<()>;
     async fn list_products(&mut self, organization_id: OrganizationId) -> AppResult<Vec<Product>>;
+
+    async fn insert_inventory_movement(&mut self, movement: &InventoryMovement) -> AppResult<()>;
+    async fn current_stock(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        product_id: ProductId,
+    ) -> AppResult<pos_core::quantity::Quantity>;
+    async fn list_inventory_movements(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        product_id: Option<ProductId>,
+        limit: i64,
+    ) -> AppResult<Vec<InventoryMovement>>;
 
     async fn append_audit(&mut self, event: &AuditEvent) -> AppResult<()>;
     async fn list_audit(
