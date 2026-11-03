@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, IpcError } from "../api";
 import {
   inventoryMovementDraftSchema,
@@ -29,17 +29,42 @@ export function InventoryPanel({ actor, products, readOnly }: Props) {
 
   const selectedProduct = products.find((product) => product.id === productId) ?? null;
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    if (!productId) return;
+    let cancelled = false;
     const currentRequest = ++requestId.current;
-    if (!productId) {
-      setStock(null);
-      setMovements([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setStock(null);
-    setMovements([]);
+
+    Promise.all([
+      api.currentStock(productId),
+      api.listInventoryMovements(productId, 20),
+    ])
+      .then(([currentStock, history]) => {
+        if (cancelled || currentRequest !== requestId.current) return;
+        setStock(currentStock);
+        setMovements(history);
+      })
+      .catch((cause: unknown) => {
+        if (cancelled || currentRequest !== requestId.current) return;
+        setError(
+          cause instanceof IpcError
+            ? cause.message
+            : "No fue posible consultar el inventario.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled && currentRequest === requestId.current) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
+
+  async function refreshInventory() {
+    if (!productId) return;
+    const currentRequest = ++requestId.current;
     try {
       const [currentStock, history] = await Promise.all([
         api.currentStock(productId),
@@ -55,14 +80,18 @@ export function InventoryPanel({ actor, products, readOnly }: Props) {
           ? cause.message
           : "No fue posible consultar el inventario.",
       );
-    } finally {
-      if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [productId]);
+  }
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  function handleProductChange(value: string) {
+    requestId.current += 1;
+    setProductId(value);
+    setStock(null);
+    setMovements([]);
+    setError(null);
+    setNotice(null);
+    setLoading(Boolean(value));
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -102,7 +131,7 @@ export function InventoryPanel({ actor, products, readOnly }: Props) {
       setNotice("Movimiento registrado.");
       setQuantity("");
       setReason("");
-      await load();
+      await refreshInventory();
     } catch (cause) {
       setError(
         cause instanceof IpcError
@@ -133,7 +162,7 @@ export function InventoryPanel({ actor, products, readOnly }: Props) {
           <span>Producto</span>
           <select
             value={productId}
-            onChange={(event) => setProductId(event.target.value)}
+            onChange={(event) => handleProductChange(event.target.value)}
           >
             <option value="">Selecciona un producto</option>
             {products.map((product) => (
