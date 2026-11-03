@@ -47,6 +47,18 @@ pub enum DomainError {
     #[error("límites de modificador inválidos")]
     InvalidModifierLimits,
 
+    #[error("regla de modificador no cumplida")]
+    ModifierRuleViolation,
+
+    #[error("la opción está duplicada")]
+    DuplicateOption,
+
+    #[error("la opción de modificador está inactiva")]
+    InactiveOption,
+
+    #[error("el delta de precio no es válido")]
+    InvalidPriceDelta,
+
     #[error("la contraseña debe tener al menos {min} caracteres")]
     WeakPassword { min: usize },
 

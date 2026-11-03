@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, IpcError } from "../api";
 import type { Actor, ModifierConfiguration, ModifierGroup, ModifierOption, Product, ProductVariant } from "../contracts";
 
@@ -18,6 +18,7 @@ export function ModifierConfigurator({ actor, readOnly }: Props) {
   const [configuration, setConfiguration] = useState<ModifierConfiguration | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestId = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,10 +35,11 @@ export function ModifierConfigurator({ actor, readOnly }: Props) {
 
   useEffect(() => {
     if (!productId) return;
+    const currentRequest = ++requestId.current;
     let cancelled = false;
     Promise.all([api.listProductVariants(productId), api.listModifierGroups(productId)])
       .then(async ([variantList, groupList]) => {
-        if (cancelled) return;
+        if (cancelled || currentRequest !== requestId.current) return;
         setVariants(variantList);
         setVariantId(variantList[0]?.id ?? "");
         setGroups(groupList);
@@ -45,7 +47,7 @@ export function ModifierConfigurator({ actor, readOnly }: Props) {
         for (const group of groupList) {
           map[group.id] = await api.listModifierOptions(group.id);
         }
-        if (!cancelled) {
+        if (!cancelled && currentRequest === requestId.current) {
           setOptionsByGroup(map);
           setSelectedOptionIds([]);
           setConfiguration(null);
@@ -64,6 +66,7 @@ export function ModifierConfigurator({ actor, readOnly }: Props) {
   }, [productId]);
 
   function toggleOption(optionId: string) {
+    setConfiguration(null);
     setSelectedOptionIds((current) =>
       current.includes(optionId)
         ? current.filter((id) => id !== optionId)
@@ -107,7 +110,21 @@ export function ModifierConfigurator({ actor, readOnly }: Props) {
       <div className="field-row">
         <label className="field">
           <span>Producto</span>
-          <select value={productId} onChange={(event) => setProductId(event.target.value)}>
+          <select
+            value={productId}
+            onChange={(event) => {
+              const value = event.target.value;
+              requestId.current += 1;
+              setProductId(value);
+              setVariants([]);
+              setVariantId("");
+              setGroups([]);
+              setOptionsByGroup({});
+              setSelectedOptionIds([]);
+              setConfiguration(null);
+              setError(null);
+            }}
+          >
             <option value="">Selecciona un producto</option>
             {products.map((product) => (
               <option key={product.id} value={product.id}>
@@ -122,7 +139,13 @@ export function ModifierConfigurator({ actor, readOnly }: Props) {
         <div className="field-row">
           <label className="field field-short">
             <span>Variante</span>
-            <select value={variantId} onChange={(event) => setVariantId(event.target.value)}>
+            <select
+                          value={variantId}
+                          onChange={(event) => {
+                            setVariantId(event.target.value);
+                            setConfiguration(null);
+                          }}
+                        >
               {variants.map((variant) => (
                 <option key={variant.id} value={variant.id}>
                   {variant.name} · ${variant.unit_price}

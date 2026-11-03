@@ -109,6 +109,9 @@ impl ModifierOption {
         if name.is_empty() {
             return Err(DomainError::EmptyName);
         }
+        if matches!(kind, OptionKind::Omission) && price_delta != Money::ZERO {
+            return Err(DomainError::InvalidPriceDelta);
+        }
         Ok(Self {
             id: ModifierOptionId::new(),
             organization_id,
@@ -186,14 +189,14 @@ pub fn configure(
     let mut unique: BTreeSet<ModifierOptionId> = BTreeSet::new();
     for option_id in selected {
         if !unique.insert(*option_id) {
-            return Err(DomainError::DuplicateUsername);
+            return Err(DomainError::DuplicateOption);
         }
         let option = options
             .iter()
             .find(|option| option.id == *option_id)
             .ok_or(DomainError::NotFound)?;
         if !option.active {
-            return Err(DomainError::InactiveProduct);
+            return Err(DomainError::InactiveOption);
         }
         let group = groups
             .iter()
@@ -225,7 +228,7 @@ pub fn configure(
             .filter(|option| option.group_id == group.id)
             .count() as u32;
         if count < group.min || count > group.max {
-            return Err(DomainError::InvalidTaxRate);
+            return Err(DomainError::ModifierRuleViolation);
         }
     }
 

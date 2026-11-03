@@ -342,14 +342,11 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
           readOnly={readOnly}
           onProductsChanged={refresh}
         />
+        {actor.permissions.includes("sales.sell") && (
+          <ModifierConfigurator actor={actor} readOnly={readOnly} />
+        )}
         {actor.permissions.includes("inventory.view") && (
-          <>
-                    <CatalogPanel actor={actor} products={products} readOnly={readOnly} />
-                    <ModifierConfigurator actor={actor} readOnly={readOnly} />
-                    {actor.permissions.includes("inventory.view") && (
-                      <InventoryPanel actor={actor} products={products} readOnly={readOnly} />
-                    )}
-                  </>
+          <InventoryPanel actor={actor} products={products} readOnly={readOnly} />
         )}
         <aside className="workspace-side">
           <section className="panel" aria-labelledby="license-title">

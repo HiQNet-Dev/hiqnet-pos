@@ -799,13 +799,16 @@ impl PosService {
             .find_product(actor.organization_id, product_id)
             .await?
             .ok_or(pos_core::DomainError::ProductNotFound)?;
-        let variant = match variant_id {
-            Some(variant_id) => tx
-                .list_product_variants(actor.organization_id, product_id)
-                .await?
-                .into_iter()
-                .find(|value| value.id == variant_id),
-            None => None,
+        let variant = if let Some(variant_id) = variant_id {
+            Some(
+                tx.list_product_variants(actor.organization_id, product_id)
+                    .await?
+                    .into_iter()
+                    .find(|value| value.id == variant_id)
+                    .ok_or(AppError::NotFound)?,
+            )
+        } else {
+            None
         };
         let groups = tx
             .list_modifier_groups(actor.organization_id, product_id)

@@ -28,6 +28,16 @@ Licuado de fresa:
 - Extras: miel, avena, proteína (grupo opcional, hasta 3).
 - Observación: sin azúcar.
 
+## Política fiscal provisional de G2.2B
+
+- `unit_price` es un importe neto.
+- Los impuestos se calculan y suman después, con redondeo half-up a centavos.
+- Variantes y modificadores se consideran incrementos netos y usan la tasa del
+  producto padre.
+- El total configurable representa importe neto + impuesto.
+- La política fiscal mexicana final y el redondeo por venta corresponden a
+  G2.4/G4 y siguen en análisis legal.
+
 ## Fuera de alcance
 
 Checkout, ventas persistidas, recetas, descuentos automáticos de insumos y
