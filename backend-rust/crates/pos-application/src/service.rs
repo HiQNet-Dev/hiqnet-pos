@@ -1,0 +1,444 @@
+use crate::error::{AppError, AppResult};
+use crate::ports::{InstallationState, SharedClock, SharedHasher, SharedStore};
+use pos_core::audit::{AuditAction, AuditEvent};
+use pos_core::catalog::Product;
+use pos_core::entitlements::{
+    CommercialState, FeatureKey, LicenseStatus, PlanName, local_features,
+};
+use pos_core::identity::{Actor, Role, User, normalize_username};
+use pos_core::ids::{BranchId, InstallationId, OrganizationId, ProductId, UserId};
+use pos_core::money::Money;
+use pos_core::organization::{Branch, Organization};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+use time::OffsetDateTime;
+
+pub const MIN_PASSWORD_LEN: usize = 10;
+const MAX_AUDIT_PAGE: i64 = 200;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BootstrapRequest {
+    pub organization_name: String,
+    pub branch_name: String,
+    pub branch_code: String,
+    pub owner_username: String,
+    pub owner_display_name: String,
+    pub owner_password: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BootstrapResponse {
+    pub organization_id: OrganizationId,
+    pub branch_id: BranchId,
+    pub user_id: UserId,
+    pub trial_ends_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProductDraft {
+    pub sku: String,
+    pub name: String,
+    /// Precio como texto decimal ("12.50") para no perder exactitud en JSON.
+    pub price: String,
+    pub tax_rate_bp: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProductView {
+    pub id: ProductId,
+    pub sku: String,
+    pub name: String,
+    pub unit_price: String,
+    pub tax_rate_bp: u16,
+    pub active: bool,
+}
+
+impl From<&Product> for ProductView {
+    fn from(product: &Product) -> Self {
+        Self {
+            id: product.id,
+            sku: product.sku.clone(),
+            name: product.name.clone(),
+            unit_price: product.unit_price.to_string(),
+            tax_rate_bp: product.tax_rate_bp,
+            active: product.active,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditEventView {
+    pub id: String,
+    pub action: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub actor_user_id: Option<String>,
+    pub occurred_at: OffsetDateTime,
+}
+
+impl From<&AuditEvent> for AuditEventView {
+    fn from(event: &AuditEvent) -> Self {
+        Self {
+            id: event.id.to_string(),
+            action: event.action.as_str().to_owned(),
+            entity_type: event.entity_type.clone(),
+            entity_id: event.entity_id.clone(),
+            actor_user_id: event.actor_user_id.map(|id| id.to_string()),
+            occurred_at: event.occurred_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CommercialStateView {
+    pub plan: &'static str,
+    pub status: &'static str,
+    pub valid_until: OffsetDateTime,
+    pub features: Vec<&'static str>,
+    pub read_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AppStatus {
+    pub initialized: bool,
+    pub product_version: &'static str,
+    pub commercial: Option<CommercialStateView>,
+    pub user_count: i64,
+}
+
+/// Fachada de casos de uso del POS. No conoce SQL, Tauri ni React.
+pub struct PosService {
+    store: SharedStore,
+    hasher: SharedHasher,
+    clock: SharedClock,
+}
+
+impl PosService {
+    pub fn new(store: SharedStore, hasher: SharedHasher, clock: SharedClock) -> Self {
+        Self {
+            store,
+            hasher,
+            clock,
+        }
+    }
+
+    pub async fn status(&self) -> AppResult<AppStatus> {
+        let mut tx = self.store.begin().await?;
+        let state = tx.installation_state().await?;
+        let user_count = match &state {
+            Some(state) => tx.count_users(state.organization_id).await?,
+            None => 0,
+        };
+        tx.rollback().await?;
+
+        let commercial = match state {
+            Some(state) => Some(commercial_view(&state, self.clock.now())?),
+            None => None,
+        };
+
+        Ok(AppStatus {
+            initialized: commercial.is_some(),
+            product_version: pos_core::PRODUCT_VERSION,
+            commercial,
+            user_count,
+        })
+    }
+
+    /// Inicializa organización, sucursal, propietario y Trial de 30 días en una
+    /// sola transacción (mutación + auditoría + commit).
+    pub async fn bootstrap(&self, request: BootstrapRequest) -> AppResult<BootstrapResponse> {
+        validate_password(&request.owner_password)?;
+
+        let now = self.clock.now();
+        let mut tx = self.store.begin().await?;
+        if tx.installation_state().await?.is_some() {
+            return Err(pos_core::DomainError::AlreadyInitialized.into());
+        }
+
+        let organization = Organization::new(OrganizationId::new(), request.organization_name)?;
+        let branch = Branch::new(
+            BranchId::new(),
+            organization.id,
+            request.branch_name,
+            request.branch_code,
+        )?;
+
+        let password_hash = self.hasher.hash(&request.owner_password)?;
+        let user = User::new(
+            UserId::new(),
+            organization.id,
+            Some(branch.id),
+            request.owner_username,
+            request.owner_display_name,
+            Role::Owner,
+            password_hash,
+        )?;
+
+        tx.insert_organization(&organization).await?;
+        tx.insert_branch(&branch).await?;
+        tx.insert_user(&user).await?;
+
+        let trial = CommercialState::new_trial(InstallationId::new(), organization.id, now);
+        let state = installation_from_commercial(&trial);
+        tx.save_installation_state(&state).await?;
+
+        tx.append_audit(&AuditEvent::new(
+            organization.id,
+            Some(branch.id),
+            Some(user.id),
+            AuditAction::InstallationBootstrapped,
+            "organization",
+            organization.id.to_string(),
+            serde_json::json!({ "branch_code": branch.code }),
+        ))
+        .await?;
+
+        tx.commit().await?;
+
+        Ok(BootstrapResponse {
+            organization_id: organization.id,
+            branch_id: branch.id,
+            user_id: user.id,
+            trial_ends_at: trial.valid_until,
+        })
+    }
+
+    pub async fn login(&self, request: LoginRequest) -> AppResult<Actor> {
+        let username = normalize_username(&request.username)?;
+        let mut tx = self.store.begin().await?;
+        let user = match tx.find_user_by_username(&username).await? {
+            Some(user) if user.active => user,
+            _ => return Err(pos_core::DomainError::InvalidCredentials.into()),
+        };
+
+        if !self.hasher.verify(&request.password, &user.password_hash)? {
+            return Err(pos_core::DomainError::InvalidCredentials.into());
+        }
+
+        tx.append_audit(&AuditEvent::new(
+            user.organization_id,
+            user.branch_id,
+            Some(user.id),
+            AuditAction::SessionLoggedIn,
+            "user",
+            user.id.to_string(),
+            serde_json::json!({ "role": user.role.to_string() }),
+        ))
+        .await?;
+        tx.commit().await?;
+
+        Ok(Actor::from_user(&user))
+    }
+
+    pub async fn create_product(
+        &self,
+        actor: &Actor,
+        draft: ProductDraft,
+    ) -> AppResult<ProductView> {
+        actor.require(pos_core::identity::Permission::ManageCatalog)?;
+        let price: Money = draft.price.parse()?;
+
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        commercial.require_feature(FeatureKey::Catalog, self.clock.now())?;
+
+        let product = Product::new(
+            ProductId::new(),
+            actor.organization_id,
+            draft.sku,
+            draft.name,
+            price,
+            draft.tax_rate_bp,
+        )?;
+
+        tx.insert_product(&product).await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            actor.branch_id,
+            Some(actor.user_id),
+            AuditAction::ProductCreated,
+            "product",
+            product.id.to_string(),
+            serde_json::json!({ "sku": product.sku, "price": product.unit_price.to_string() }),
+        ))
+        .await?;
+        tx.commit().await?;
+
+        Ok(ProductView::from(&product))
+    }
+
+    pub async fn list_products(&self, actor: &Actor) -> AppResult<Vec<ProductView>> {
+        actor.require(pos_core::identity::Permission::Sell)?;
+        let mut tx = self.store.begin().await?;
+        let products = tx.list_products(actor.organization_id).await?;
+        tx.rollback().await?;
+        Ok(products.iter().map(ProductView::from).collect())
+    }
+
+    pub async fn list_audit(&self, actor: &Actor, limit: u32) -> AppResult<Vec<AuditEventView>> {
+        actor.require(pos_core::identity::Permission::ViewAudit)?;
+        let limit = i64::from(limit).clamp(1, MAX_AUDIT_PAGE);
+        let mut tx = self.store.begin().await?;
+        let events = tx.list_audit(actor.organization_id, limit).await?;
+        tx.rollback().await?;
+        Ok(events.iter().map(AuditEventView::from).collect())
+    }
+
+    /// Registra un respaldo exitoso. El respaldo es una operación permitida
+    /// incluso con licencia vencida (lectura, exportación y respaldo).
+    pub async fn record_backup(&self, actor: &Actor, backup_path: &str) -> AppResult<()> {
+        actor.require(pos_core::identity::Permission::ManageBackups)?;
+        let mut tx = self.store.begin().await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            actor.branch_id,
+            Some(actor.user_id),
+            AuditAction::BackupCreated,
+            "backup",
+            backup_path.to_owned(),
+            serde_json::json!({}),
+        ))
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn commercial_state(&self) -> AppResult<CommercialStateView> {
+        let mut tx = self.store.begin().await?;
+        let state = tx.installation_state().await?.ok_or(AppError::NotFound)?;
+        tx.rollback().await?;
+        commercial_view(&state, self.clock.now())
+    }
+}
+
+fn validate_password(password: &str) -> AppResult<()> {
+    if password.chars().count() < MIN_PASSWORD_LEN {
+        return Err(pos_core::DomainError::WeakPassword {
+            min: MIN_PASSWORD_LEN,
+        }
+        .into());
+    }
+    if password.trim().is_empty() {
+        return Err(pos_core::DomainError::WeakPassword {
+            min: MIN_PASSWORD_LEN,
+        }
+        .into());
+    }
+    Ok(())
+}
+
+async fn require_commercial(tx: &mut dyn crate::ports::StoreTx) -> AppResult<CommercialState> {
+    let state = tx
+        .installation_state()
+        .await?
+        .ok_or(pos_core::DomainError::AlreadyInitialized)?;
+    commercial_from_installation(&state)
+}
+
+fn commercial_from_installation(state: &InstallationState) -> AppResult<CommercialState> {
+    let plan = match state.plan.as_str() {
+        "trial" => PlanName::Trial,
+        "local" => PlanName::Local,
+        "pro" => PlanName::Pro,
+        "enterprise" => PlanName::Enterprise,
+        _ => PlanName::Trial,
+    };
+    let status = match state.license_status.as_str() {
+        "active" => LicenseStatus::Active,
+        "grace" => LicenseStatus::Grace,
+        "read_only" => LicenseStatus::ReadOnly,
+        "expired" => LicenseStatus::Expired,
+        _ => LicenseStatus::Trial,
+    };
+    let features: BTreeSet<FeatureKey> = state
+        .features
+        .iter()
+        .filter_map(|key| FeatureKey::from_key(key))
+        .collect();
+
+    // La verificación de la firma del grant pertenece a `pos-licensing`; este
+    // estado refleja únicamente lo observado por la aplicación.
+    Ok(CommercialState {
+        installation_id: state.installation_id,
+        organization_id: state.organization_id,
+        plan,
+        status,
+        features,
+        valid_until: state.valid_until,
+    })
+}
+
+fn commercial_view(
+    state: &InstallationState,
+    now: OffsetDateTime,
+) -> AppResult<CommercialStateView> {
+    let commercial = commercial_from_installation(state)?;
+    let effective = commercial.effective_status(now);
+    Ok(CommercialStateView {
+        plan: commercial.plan.as_str(),
+        status: match effective {
+            LicenseStatus::Trial => "trial",
+            LicenseStatus::Active => "active",
+            LicenseStatus::Grace => "grace",
+            LicenseStatus::ReadOnly => "read_only",
+            LicenseStatus::Expired => "expired",
+        },
+        valid_until: commercial.valid_until,
+        features: commercial
+            .features
+            .iter()
+            .map(|feature| feature.as_str())
+            .collect(),
+        read_only: matches!(effective, LicenseStatus::ReadOnly | LicenseStatus::Expired),
+    })
+}
+
+fn installation_from_commercial(commercial: &CommercialState) -> InstallationState {
+    InstallationState {
+        installation_id: commercial.installation_id,
+        organization_id: commercial.organization_id,
+        trial_started_at: commercial.valid_until - time::Duration::days(30),
+        plan: commercial.plan.as_str().to_owned(),
+        license_status: LicenseStatus::Trial.as_str().to_owned(),
+        features: local_features()
+            .iter()
+            .map(|feature| feature.as_str().to_owned())
+            .collect(),
+        valid_until: commercial.valid_until,
+        license_grant_json: None,
+        license_signature_b64: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn politica_de_contrasena_exige_longitud_minima() {
+        assert!(validate_password("123456789").is_err());
+        assert!(validate_password("1234567890").is_ok());
+    }
+
+    #[test]
+    fn vista_comercial_marca_solo_lectura_al_vencer() {
+        let start = OffsetDateTime::now_utc();
+        let commercial =
+            CommercialState::new_trial(InstallationId::new(), OrganizationId::new(), start);
+        let state = installation_from_commercial(&commercial);
+        let fresh = commercial_view(&state, start).unwrap();
+        assert!(!fresh.read_only);
+        assert_eq!(fresh.status, "trial");
+
+        let expired = commercial_view(&state, start + time::Duration::days(31)).unwrap();
+        assert!(expired.read_only);
+        assert_eq!(expired.status, "read_only");
+    }
+}

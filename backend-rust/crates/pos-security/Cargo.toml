@@ -1,0 +1,15 @@
+[package]
+name = "pos-security"
+description = "Hashing Argon2id de credenciales locales de HiQNet POS."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pos-application.workspace = true
+argon2.workspace = true
+password-hash.workspace = true
+rand_core.workspace = true
+zeroize.workspace = true

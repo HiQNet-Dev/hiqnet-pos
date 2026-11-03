@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capacidad mínima: solo IPC del core. Sin filesystem, shell ni HTTP remoto.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

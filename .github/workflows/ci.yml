@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust (fmt, clippy, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend-rust
+      - name: Formato
+        run: cargo fmt --manifest-path backend-rust/Cargo.toml --all -- --check
+      - name: Clippy
+        run: cargo clippy --manifest-path backend-rust/Cargo.toml --workspace --all-targets -- -D warnings
+      - name: Pruebas
+        run: cargo test --manifest-path backend-rust/Cargo.toml --workspace
+
+  frontend:
+    name: Frontend (lint, tipos, pruebas, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run typecheck
+      - run: pnpm run test
+      - run: pnpm run build
+
+  desktop-windows:
+    name: Tauri Windows (build de verificación)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/pos-desktop/src-tauri
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Dependencias del frontend
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Compilar aplicación de escritorio
+        working-directory: apps/pos-desktop/src-tauri
+        run: pnpm dlx @tauri-apps/cli@2 build --debug --no-bundle
+
+  supply-chain:
+    name: Archivos prohibidos y auditoría
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verificar archivos prohibidos y secretos
+        run: bash tools/check-no-secrets.sh
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          workingDirectory: backend-rust
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Auditoría informativa de npm
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm audit --audit-level=high || true

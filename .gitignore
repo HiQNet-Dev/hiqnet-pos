@@ -1,0 +1,46 @@
+# --- Bases de datos reales (PROHIBIDO publicar) ---
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.dump
+*.sql
+!backend-rust/migrations/**/*.sql
+backups/
+!backend-rust/migrations/**/README.md
+
+# --- Secretos y claves ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+signing/
+
+# --- Toolchain / builds ---
+target/
+dist/
+node_modules/
+coverage/
+.vite/
+*.tsbuildinfo
+apps/pos-desktop/src-tauri/gen/
+apps/pos-desktop/src-tauri/target/
+test-results/
+playwright-report/
+
+# --- Entorno local ---
+.worktrees/
+.serena/
+.zed/
+.dev-data/
+*.log
+.DS_Store
+Thumbs.db
