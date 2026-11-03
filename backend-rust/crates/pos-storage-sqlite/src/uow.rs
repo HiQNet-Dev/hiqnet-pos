@@ -311,7 +311,7 @@ impl StoreTx for SqliteTx {
         product_id: ProductId,
     ) -> AppResult<Quantity> {
         let row = sqlx::query(
-            "SELECT COALESCE(SUM(CASE kind WHEN 'outbound' THEN -quantity_milli ELSE quantity_milli END), 0) AS stock \
+            "SELECT COALESCE(SUM(CASE kind WHEN 'outbound' THEN -quantity_milli WHEN 'adjustment_out' THEN -quantity_milli ELSE quantity_milli END), 0) AS stock \
              FROM inventory_movement WHERE organization_id = ? AND branch_id = ? AND product_id = ?",
         )
         .bind(organization_id.to_string())

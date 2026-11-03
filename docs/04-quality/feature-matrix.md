@@ -25,7 +25,11 @@ Estados: **VERIFICADO** (implementado y probado), **PARCIAL**, **PENDIENTE**,
 | Smoke E2E con Playwright | PARCIAL | Smoke de UI en navegador; E2E Tauri pendiente |
 | Ventas y pagos | PENDIENTE | Fase G2 |
 | Caja, turnos y arqueo | PENDIENTE | Fase G2 |
-| Inventario y ledger | PENDIENTE | Fase G2 |
+| Inventario y ledger | PARCIAL | Dominio, migraciones 0002/0003, IPC y UI base; faltan E2E Tauri |
+| Ajustes positivos/negativos | VERIFICADO | Motivo obligatorio + pruebas SQLite |
+| Ledger append-only | VERIFICADO | Triggers y prueba de UPDATE/DELETE |
+| Concurrencia de salidas | VERIFICADO | Prueba con dos solicitudes y stock limitado |
+| Migración 0002 → 0003 | VERIFICADO | Prueba con datos sintéticos y triggers recreados |
 | Proveedores y compras | PENDIENTE | Fase G2 |
 | Gastos y devoluciones | PENDIENTE | Fase G2 |
 | Reportes | PENDIENTE | Fase G2 |

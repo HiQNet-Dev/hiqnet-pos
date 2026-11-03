@@ -381,13 +381,13 @@ impl PosService {
         branch_id: Option<BranchId>,
     ) -> AppResult<String> {
         actor.require(pos_core::identity::Permission::ViewInventory)?;
-        if let Some(requested_branch) = branch_id {
-            if Some(requested_branch) != actor.branch_id {
-                return Err(pos_core::DomainError::AccessDenied {
-                    required: "inventory.view",
-                }
-                .into());
+        if let Some(requested_branch) = branch_id
+            && Some(requested_branch) != actor.branch_id
+        {
+            return Err(pos_core::DomainError::AccessDenied {
+                required: "inventory.view",
             }
+            .into());
         }
         let branch_id = branch_id.or(actor.branch_id).ok_or(AppError::NotFound)?;
         let mut tx = self.store.begin().await?;

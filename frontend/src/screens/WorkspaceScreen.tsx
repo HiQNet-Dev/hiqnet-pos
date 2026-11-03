@@ -291,7 +291,9 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
           )}
         </section>
 
-<InventoryPanel actor={actor} products={products} readOnly={readOnly} />
+{actor.permissions.includes("inventory.view") && (
+          <InventoryPanel actor={actor} products={products} readOnly={readOnly} />
+        )}
         <aside className="workspace-side">
           <section className="panel" aria-labelledby="license-title">
             <header className="panel-header">
