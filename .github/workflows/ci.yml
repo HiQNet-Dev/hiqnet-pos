@@ -90,7 +90,7 @@ jobs:
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          workingDirectory: backend-rust
+          working-directory: backend-rust
       - uses: dtolnay/rust-toolchain@stable
       - name: Auditoría informativa de npm
         working-directory: frontend
