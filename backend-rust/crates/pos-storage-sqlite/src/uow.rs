@@ -202,25 +202,88 @@ impl StoreTx for SqliteTx {
         .await
         .map_err(map_sqlx)?;
 
-        row.map(|row| -> AppResult<User> {
-            let role = match row.get::<String, _>("role").as_str() {
-                "owner" => Role::Owner,
-                "cashier" => Role::Cashier,
-                _ => return Err(AppError::Storage),
-            };
-            Ok(User {
-                id: parse_id(row.get("id"))?,
-                organization_id: parse_id(row.get("organization_id"))?,
-                branch_id: parse_optional_id(row.get("branch_id"))?,
-                username: row.get("username"),
-                display_name: row.get("display_name"),
-                role,
-                password_hash: row.get("password_hash"),
-                active: row.get::<i64, _>("active") != 0,
-                created_at: parse_ts(row.get("created_at"))?,
-            })
-        })
-        .transpose()
+        row.map(user_from_row).transpose()
+    }
+
+    async fn find_user_by_id(
+        &mut self,
+        organization_id: OrganizationId,
+        user_id: UserId,
+    ) -> AppResult<Option<User>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, branch_id, username, display_name, role, password_hash, \
+             active, created_at FROM app_user WHERE organization_id = ? AND id = ?",
+        )
+        .bind(organization_id.to_string())
+        .bind(user_id.to_string())
+        .fetch_optional(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+
+        row.map(user_from_row).transpose()
+    }
+
+    async fn list_users(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Vec<User>> {
+        let rows = sqlx::query(
+            "SELECT id, organization_id, branch_id, username, display_name, role, password_hash, \
+             active, created_at FROM app_user \
+             WHERE organization_id = ? AND branch_id = ? ORDER BY display_name, username",
+        )
+        .bind(organization_id.to_string())
+        .bind(branch_id.to_string())
+        .fetch_all(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+
+        rows.into_iter().map(user_from_row).collect()
+    }
+
+    async fn update_user_active(
+        &mut self,
+        organization_id: OrganizationId,
+        user_id: UserId,
+        active: bool,
+    ) -> AppResult<()> {
+        sqlx::query("UPDATE app_user SET active = ? WHERE organization_id = ? AND id = ?")
+            .bind(i64::from(active))
+            .bind(organization_id.to_string())
+            .bind(user_id.to_string())
+            .execute(&mut **self.tx()?)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn update_user_password(
+        &mut self,
+        organization_id: OrganizationId,
+        user_id: UserId,
+        password_hash: &str,
+    ) -> AppResult<()> {
+        sqlx::query("UPDATE app_user SET password_hash = ? WHERE organization_id = ? AND id = ?")
+            .bind(password_hash)
+            .bind(organization_id.to_string())
+            .bind(user_id.to_string())
+            .execute(&mut **self.tx()?)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn count_active_owners(&mut self, organization_id: OrganizationId) -> AppResult<i64> {
+        let row = sqlx::query(
+            "SELECT COUNT(*) AS total FROM app_user \
+             WHERE organization_id = ? AND role = 'owner' AND active = 1",
+        )
+        .bind(organization_id.to_string())
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.get("total"))
     }
 
     async fn count_users(&mut self, organization_id: OrganizationId) -> AppResult<i64> {
@@ -1300,6 +1363,21 @@ fn parse_optional_id<T: FromStr>(value: Option<String>) -> AppResult<Option<T>> 
     value
         .map(|raw| raw.parse::<T>().map_err(|_| AppError::Storage))
         .transpose()
+}
+
+fn user_from_row(row: sqlx::sqlite::SqliteRow) -> AppResult<User> {
+    let role = Role::from_key(&row.get::<String, _>("role")).ok_or(AppError::Storage)?;
+    Ok(User {
+        id: parse_id(row.get("id"))?,
+        organization_id: parse_id(row.get("organization_id"))?,
+        branch_id: parse_optional_id(row.get("branch_id"))?,
+        username: row.get("username"),
+        display_name: row.get("display_name"),
+        role,
+        password_hash: row.get("password_hash"),
+        active: row.get::<i64, _>("active") != 0,
+        created_at: parse_ts(row.get("created_at"))?,
+    })
 }
 
 fn sale_from_row(row: &sqlx::sqlite::SqliteRow) -> AppResult<Sale> {

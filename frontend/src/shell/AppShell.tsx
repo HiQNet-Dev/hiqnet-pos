@@ -18,6 +18,7 @@ import { InventoryScreen } from "../screens/InventoryScreen";
 import { SalesScreen } from "../screens/SalesScreen";
 import { SideNav } from "./SideNav";
 import { TopBar } from "./TopBar";
+import { ChangePasswordDialog } from "./ChangePasswordDialog";
 import { availableSections, defaultSection, type SectionId } from "./navigation";
 
 interface Props {
@@ -66,6 +67,7 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
   const shiftRequest = useRef(0);
 
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string } | null>(
     null,
   );
@@ -207,6 +209,7 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
         onLogout={onLogout}
         onOpenCash={() => showSection("cash")}
         canOpenCash={canViewCash}
+        onChangePassword={() => setPasswordOpen(true)}
       />
 
       <div className="app-body" data-collapsed={collapsed}>
@@ -311,7 +314,7 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
             )}
 
             {activeSection === "admin" && (
-              <AdminScreen actor={actor} commercial={commercial} />
+              <AdminScreen actor={actor} commercial={commercial} readOnly={readOnly} />
             )}
 
             {availableIds.length === 0 && (
@@ -323,6 +326,15 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
           </div>
         </main>
       </div>
+
+      {passwordOpen && (
+        <ChangePasswordDialog
+          onClose={() => setPasswordOpen(false)}
+          onChanged={() =>
+            setNotice({ tone: "success", text: "Contraseña actualizada." })
+          }
+        />
+      )}
     </div>
   );
 }

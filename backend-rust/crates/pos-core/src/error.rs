@@ -65,6 +65,12 @@ pub enum DomainError {
     #[error("el usuario ya existe")]
     DuplicateUsername,
 
+    #[error("debe quedar al menos un propietario activo")]
+    LastActiveOwner,
+
+    #[error("el rol indicado no existe")]
+    UnknownRole,
+
     #[error("acceso denegado: falta el permiso {required}")]
     AccessDenied { required: &'static str },
 

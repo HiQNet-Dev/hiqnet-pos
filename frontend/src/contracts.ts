@@ -113,6 +113,36 @@ export const branchSummarySchema = z.object({
   code: z.string(),
 });
 
+export const userSchema = z.object({
+  id: z.string(),
+  username: z.string(),
+  display_name: z.string(),
+  role: z.enum(["owner", "cashier"]),
+  active: z.boolean(),
+  created_at: z.string(),
+});
+
+export const userDraftSchema = z.object({
+  username: z
+    .string()
+    .min(3, "El usuario debe tener al menos 3 caracteres")
+    .max(40, "El usuario admite hasta 40 caracteres"),
+  display_name: z.string().min(2, "Escribe el nombre del empleado"),
+  role: z.enum(["owner", "cashier"]),
+  password: z.string().min(10, "La contraseña debe tener al menos 10 caracteres"),
+});
+
+export const changePasswordDraftSchema = z.object({
+  current_password: z.string().min(1, "Escribe tu contraseña actual"),
+  new_password: z
+    .string()
+    .min(10, "La contraseña debe tener al menos 10 caracteres"),
+});
+
+export type User = z.infer<typeof userSchema>;
+export type UserDraft = z.infer<typeof userDraftSchema>;
+export type ChangePasswordDraft = z.infer<typeof changePasswordDraftSchema>;
+
 export const stockLevelSchema = z.object({
   product_id: z.string(),
   quantity: z.string(),

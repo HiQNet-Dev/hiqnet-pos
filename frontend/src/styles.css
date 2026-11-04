@@ -1857,6 +1857,33 @@ select {
   align-items: start;
 }
 
+/* Las tarjetas administrativas conservan su altura: la pantalla es la que
+   desplaza, no cada superficie. */
+.admin-screen > .surface,
+.admin-screen > .admin-layout {
+  flex: none;
+}
+
+.row-actions {
+  display: inline-flex;
+  gap: 4px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.user-self {
+  margin-left: 6px;
+  font-size: 10.5px;
+  padding: 1px 6px;
+}
+
+.surface-note {
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
 .admin-layout .surface {
   padding-bottom: var(--space-3);
 }

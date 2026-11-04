@@ -34,6 +34,56 @@ pub struct BootstrapRequest {
     pub owner_password: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct UserDraft {
+    pub username: String,
+    pub display_name: String,
+    pub role: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetUserActiveDraft {
+    pub user_id: String,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ResetUserPasswordDraft {
+    pub user_id: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChangeOwnPasswordDraft {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UserView {
+    pub id: String,
+    pub username: String,
+    pub display_name: String,
+    pub role: String,
+    pub active: bool,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+}
+
+impl UserView {
+    fn from_user(user: &User) -> Self {
+        Self {
+            id: user.id.to_string(),
+            username: user.username.clone(),
+            display_name: user.display_name.clone(),
+            role: user.role.to_string(),
+            active: user.active,
+            created_at: user.created_at,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct BootstrapResponse {
     pub organization_id: OrganizationId,
@@ -618,6 +668,209 @@ impl PosService {
         tx.commit().await?;
 
         Ok(Actor::from_user(&user))
+    }
+
+    /// Crea un usuario local en la sucursal del actor. Requiere `users.manage`.
+    pub async fn create_user(&self, actor: &Actor, draft: UserDraft) -> AppResult<UserView> {
+        actor.require(pos_core::identity::Permission::ManageUsers)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let role = Role::from_key(&draft.role).ok_or(pos_core::DomainError::UnknownRole)?;
+        let username = normalize_username(&draft.username)?;
+        validate_password(&draft.password)?;
+
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        if tx.find_user_by_username(&username).await?.is_some() {
+            return Err(pos_core::DomainError::DuplicateUsername.into());
+        }
+
+        let password_hash = self.hasher.hash(&draft.password)?;
+        let user = User::new(
+            UserId::new(),
+            actor.organization_id,
+            Some(branch_id),
+            username,
+            draft.display_name,
+            role,
+            password_hash,
+        )?;
+        tx.insert_user(&user).await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            Some(branch_id),
+            Some(actor.user_id),
+            AuditAction::UserCreated,
+            "user",
+            user.id.to_string(),
+            serde_json::json!({ "username": user.username, "role": user.role.to_string() }),
+        ))
+        .await?;
+        tx.commit().await?;
+        Ok(UserView::from_user(&user))
+    }
+
+    /// Empleados de la organización en la sucursal del actor.
+    pub async fn list_users(&self, actor: &Actor) -> AppResult<Vec<UserView>> {
+        actor.require(pos_core::identity::Permission::ManageUsers)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let mut tx = self.store.begin().await?;
+        let users = tx.list_users(actor.organization_id, branch_id).await?;
+        tx.rollback().await?;
+        Ok(users.iter().map(UserView::from_user).collect())
+    }
+
+    /// Activa o desactiva una cuenta. Nunca deja la instalación sin propietario
+    /// activo; la cuenta propia puede desactivarse si permanece otro propietario activo.
+    pub async fn set_user_active(
+        &self,
+        actor: &Actor,
+        draft: SetUserActiveDraft,
+    ) -> AppResult<UserView> {
+        actor.require(pos_core::identity::Permission::ManageUsers)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let user_id: UserId = draft.user_id.parse().map_err(|_| AppError::NotFound)?;
+
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        let mut user = tx
+            .find_user_by_id(actor.organization_id, user_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        if user.branch_id != Some(branch_id) {
+            return Err(AppError::NotFound);
+        }
+
+        if !draft.active {
+            // Defensa en profundidad: ninguna operación puede dejar la
+            // instalación sin un propietario activo. Cubre también la
+            // desactivación de la cuenta propia.
+            if user.active && user.is_owner() {
+                let restantes = tx.count_active_owners(actor.organization_id).await? - 1;
+                if restantes < 1 {
+                    return Err(pos_core::DomainError::LastActiveOwner.into());
+                }
+            }
+            user.deactivate();
+        } else {
+            user.activate();
+        }
+
+        tx.update_user_active(actor.organization_id, user.id, user.active)
+            .await?;
+        let action = if user.active {
+            AuditAction::UserReactivated
+        } else {
+            AuditAction::UserDeactivated
+        };
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            Some(branch_id),
+            Some(actor.user_id),
+            action,
+            "user",
+            user.id.to_string(),
+            serde_json::json!({ "username": user.username, "role": user.role.to_string() }),
+        ))
+        .await?;
+        tx.commit().await?;
+        Ok(UserView::from_user(&user))
+    }
+
+    /// Restablece la contraseña de un empleado. El hash nunca sale del backend.
+    pub async fn reset_user_password(
+        &self,
+        actor: &Actor,
+        draft: ResetUserPasswordDraft,
+    ) -> AppResult<()> {
+        actor.require(pos_core::identity::Permission::ManageUsers)?;
+        validate_password(&draft.password)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let user_id: UserId = draft.user_id.parse().map_err(|_| AppError::NotFound)?;
+
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        let user = tx
+            .find_user_by_id(actor.organization_id, user_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        if user.branch_id != Some(branch_id) {
+            return Err(AppError::NotFound);
+        }
+
+        let password_hash = self.hasher.hash(&draft.password)?;
+        tx.update_user_password(actor.organization_id, user.id, &password_hash)
+            .await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            Some(branch_id),
+            Some(actor.user_id),
+            AuditAction::UserPasswordReset,
+            "user",
+            user.id.to_string(),
+            serde_json::json!({ "username": user.username }),
+        ))
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Cambio de contraseña de la cuenta autenticada. Exige la contraseña actual.
+    pub async fn change_own_password(
+        &self,
+        actor: &Actor,
+        draft: ChangeOwnPasswordDraft,
+    ) -> AppResult<()> {
+        validate_password(&draft.new_password)?;
+        let branch_id = actor.branch_id;
+
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        let user = tx
+            .find_user_by_id(actor.organization_id, actor.user_id)
+            .await?
+            .filter(|user| user.active)
+            .ok_or(AppError::Unauthenticated)?;
+        if !self
+            .hasher
+            .verify(&draft.current_password, &user.password_hash)?
+        {
+            return Err(pos_core::DomainError::InvalidCredentials.into());
+        }
+
+        let password_hash = self.hasher.hash(&draft.new_password)?;
+        tx.update_user_password(actor.organization_id, user.id, &password_hash)
+            .await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            branch_id,
+            Some(actor.user_id),
+            AuditAction::UserPasswordChanged,
+            "user",
+            user.id.to_string(),
+            serde_json::json!({ "username": user.username }),
+        ))
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Revalida la sesión contra la base. Una cuenta desactivada o eliminada
+    /// pierde el acceso en el siguiente comando, aunque su `Actor` siga en
+    /// memoria en la capa IPC.
+    pub async fn refresh_actor(&self, actor: &Actor) -> AppResult<Actor> {
+        let mut tx = self.store.begin().await?;
+        let user = tx
+            .find_user_by_id(actor.organization_id, actor.user_id)
+            .await?;
+        tx.rollback().await?;
+        match user {
+            Some(user) if user.active => Ok(Actor::from_user(&user)),
+            _ => Err(AppError::Unauthenticated),
+        }
     }
 
     pub async fn create_product(

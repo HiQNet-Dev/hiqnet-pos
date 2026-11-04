@@ -88,6 +88,37 @@ La contraseña nunca se devuelve ni se registra.
 `logout` limpia la sesión (salida `null`). `current_session` devuelve el `Actor`
 o `null`.
 
+Cada comando revalida la sesión contra la base antes de ejecutarse: si la cuenta
+fue desactivada, eliminada o cambió de rol, la sesión en memoria se descarta y el
+comando devuelve `unauthenticated`. Así una sesión antigua no conserva permisos
+ya revocados.
+
+## Administración de usuarios
+
+| Comando | Permiso | Entrada |
+| --- | --- | --- |
+| `list_users` | `users.manage` | ninguna |
+| `create_user` | `users.manage` | `{ "draft": { "username", "display_name", "role", "password" } }` |
+| `set_user_active` | `users.manage` | `{ "draft": { "user_id", "active" } }` |
+| `reset_user_password` | `users.manage` | `{ "draft": { "user_id", "password" } }` |
+| `change_password` | sesión autenticada | `{ "draft": { "current_password", "new_password" } }` |
+
+- `role` acepta sólo `owner` o `cashier`; la cuenta pertenece a la organización y
+  sucursal del actor.
+- La contraseña exige al menos 10 caracteres y se guarda con Argon2id. El hash
+  nunca aparece en respuestas, errores ni auditoría.
+- `list_users` devuelve `{ id, username, display_name, role, active, created_at }`
+  sin datos de credenciales.
+- `set_user_active` no permite dejar la instalación sin propietario activo
+  (`last_active_owner`). Desactivar una cuenta revoca su sesión en el siguiente
+  comando.
+- `reset_user_password` invalida la contraseña anterior de inmediato.
+- `change_password` exige la contraseña actual y devuelve
+  `invalid_credentials` si no coincide.
+- Crear, desactivar, reactivar, restablecer y cambiar contraseña se auditan en la
+  misma transacción como `users.created`, `users.deactivated`,
+  `users.reactivated`, `users.password_reset` y `users.password_changed`.
+
 ## `create_product`
 
 Requiere permiso `catalog.manage`, entitlement `catalog` y licencia que permita

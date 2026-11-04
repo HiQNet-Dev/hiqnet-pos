@@ -1,6 +1,6 @@
 import type { Actor, CashRegister, CashShift, CommercialState } from "../contracts";
 import type { BranchSummary } from "../contracts";
-import { CashIcon, LogoutIcon } from "./icons";
+import { CashIcon, KeyIcon, LogoutIcon } from "./icons";
 
 interface Props {
   actor: Actor;
@@ -11,6 +11,7 @@ interface Props {
   onLogout: () => void;
   onOpenCash: () => void;
   canOpenCash: boolean;
+  onChangePassword: () => void;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -42,6 +43,7 @@ export function TopBar({
   onLogout,
   onOpenCash,
   canOpenCash,
+  onChangePassword,
 }: Props) {
   return (
     <header className="topbar">
@@ -92,6 +94,16 @@ export function TopBar({
             {ROLE_LABELS[actor.role] ?? actor.role}
           </span>
         </div>
+
+        <button
+          type="button"
+          className="icon-button"
+          onClick={onChangePassword}
+          aria-label="Cambiar mi contraseña"
+          title="Cambiar mi contraseña"
+        >
+          <KeyIcon />
+        </button>
 
         <button
           type="button"

@@ -119,6 +119,15 @@ export function ChevronIcon(props: IconProps) {
   );
 }
 
+export function KeyIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="15" r="4" />
+      <path d="m11 12 8-8 2 2-2 2 2 2-2 2-2-2-2 2" />
+    </Svg>
+  );
+}
+
 export function LogoutIcon(props: IconProps) {
   return (
     <Svg {...props}>

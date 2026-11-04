@@ -144,16 +144,20 @@ class App:
 
     def invoke(self, command: str, args: dict | None = None):
         """Invocación IPC directa; solo para preparar datos sin pantalla propia."""
+        result = self.invoke_raw(command, args)
+        if not result.get("ok"):
+            raise RuntimeError(f"IPC {command} falló: {result.get('e')}")
+        return result["v"]
+
+    def invoke_raw(self, command: str, args: dict | None = None) -> dict:
+        """Invocación IPC que devuelve `{ok, v}` o `{ok: false, e}`."""
         payload = json.dumps(args or {})
         script = (
             "const done=arguments[arguments.length-1];"
             f"window.__TAURI_INTERNALS__.invoke('{command}',{payload})"
             ".then(v=>done({ok:true,v})).catch(e=>done({ok:false,e}));"
         )
-        result = self.driver.execute_async_script(script)
-        if not result.get("ok"):
-            raise RuntimeError(f"IPC {command} falló: {result.get('e')}")
-        return result["v"]
+        return self.driver.execute_async_script(script)
 
 
 def assert_contains(text: str, expected: str, context: str):
@@ -390,6 +394,55 @@ def cerrar_turno(app: App):
     app.screenshot("arqueo-cierre")
 
 
+def gestionar_usuarios(app: App) -> dict:
+    """Alta de un cajero desde Gestión y verificación de su acceso restringido."""
+    app.nav("admin")
+    wait_screen(app, "Gestión y auditoría")
+    app.click_xpath("//button[normalize-space()='Nuevo usuario']")
+    app.wait_xpath(DIALOG)
+    app.fill(DIALOG, "Nombre del empleado", "Luis Cajero")
+    app.fill(DIALOG, "Usuario", "luis.cajero")
+    app.select(DIALOG, "Rol", "Cajero")
+    app.fill(DIALOG, "Contraseña inicial", "clave-cajero-2026")
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Crear cuenta']")
+    app.wait_text("Cuenta de Luis Cajero creada")
+    app.wait_xpath("//td[normalize-space()='luis.cajero']")
+    app.wait_text("Usuario creado")
+    app.screenshot("usuarios")
+
+    # El cajero inicia sesión y sólo ve las secciones de su rol.
+    app.click_xpath("//button[@aria-label='Cerrar sesión']")
+    wait_screen(app, "Entrar a la caja")
+    app.fill("//section", "Usuario", "luis.cajero")
+    app.fill("//section", "Contraseña", "clave-cajero-2026")
+    app.click_xpath("//button[normalize-space()='Entrar']")
+    wait_screen(app, "Ventas")
+    app.wait_xpath(NAV.format("sales"))
+    app.screenshot("shell-cajero")
+
+    sin_catalogo = not app.driver.find_elements(By.XPATH, NAV.format("catalog"))
+    sin_gestion = not app.driver.find_elements(By.XPATH, NAV.format("admin"))
+    assert sin_catalogo, "el cajero no debe ver la sección Productos"
+    assert sin_gestion, "el cajero no debe ver la sección Gestión"
+
+    # Y tampoco puede administrar usuarios invocando el IPC directamente.
+    intento = app.invoke_raw("list_users")
+    assert not intento.get("ok"), "el cajero no debe poder listar usuarios por IPC"
+
+    app.click_xpath("//button[@aria-label='Cerrar sesión']")
+    wait_screen(app, "Entrar a la caja")
+    app.fill("//section", "Usuario", "propietario")
+    app.fill("//section", "Contraseña", "contrasena-segura")
+    app.click_xpath("//button[normalize-space()='Entrar']")
+    wait_screen(app, "Ventas")
+
+    return {
+        "cajero_sin_catalogo": sin_catalogo,
+        "cajero_sin_gestion": sin_gestion,
+        "ipc_list_users_denegado": True,
+    }
+
+
 def capturar_tamanos(app_path: str) -> dict:
     """Capturas reales en las resoluciones de referencia y en formato tablet."""
     app = App(app_path)
@@ -438,6 +491,12 @@ def capturar_tamanos(app_path: str) -> dict:
             time.sleep(0.4)
             app.screenshot("ventas-tablet-ticket")
             result["capturas"].append("ventas-tablet-ticket")
+
+        # Gestión en tablet: la tabla de usuarios debe caber sin desbordar.
+        app.nav("admin")
+        time.sleep(0.5)
+        app.screenshot("gestion-tablet")
+        result["capturas"].append("gestion-tablet")
         return result
     finally:
         app.quit()
@@ -492,6 +551,9 @@ def main() -> int:
 
         cerrar_turno(app)
         steps.append("arqueo_cierre")
+
+        report["usuarios"] = gestionar_usuarios(app)
+        steps.append("usuarios")
 
         app.quit()
         report["tamanos"] = capturar_tamanos(app_path)

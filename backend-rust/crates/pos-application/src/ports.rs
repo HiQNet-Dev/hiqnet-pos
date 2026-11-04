@@ -49,6 +49,31 @@ pub trait StoreTx: Send {
 
     async fn insert_user(&mut self, user: &User) -> AppResult<()>;
     async fn find_user_by_username(&mut self, username: &str) -> AppResult<Option<User>>;
+    async fn find_user_by_id(
+        &mut self,
+        organization_id: OrganizationId,
+        user_id: UserId,
+    ) -> AppResult<Option<User>>;
+    async fn list_users(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Vec<User>>;
+    async fn update_user_active(
+        &mut self,
+        organization_id: OrganizationId,
+        user_id: UserId,
+        active: bool,
+    ) -> AppResult<()>;
+    async fn update_user_password(
+        &mut self,
+        organization_id: OrganizationId,
+        user_id: UserId,
+        password_hash: &str,
+    ) -> AppResult<()>;
+    /// Propietarios activos de la organización; protege la última cuenta
+    /// administrativa.
+    async fn count_active_owners(&mut self, organization_id: OrganizationId) -> AppResult<i64>;
     async fn count_users(&mut self, organization_id: OrganizationId) -> AppResult<i64>;
 
     async fn insert_product(&mut self, product: &Product) -> AppResult<()>;
