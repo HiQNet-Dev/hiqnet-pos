@@ -17,6 +17,7 @@ export function ModifierConfigurator({ actor, readOnly }: Props) {
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
   const [configuration, setConfiguration] = useState<ModifierConfiguration | null>(null);
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const requestId = useRef(0);
 
@@ -51,6 +52,7 @@ export function ModifierConfigurator({ actor, readOnly }: Props) {
           setOptionsByGroup(map);
           setSelectedOptionIds([]);
           setConfiguration(null);
+          setError(null);
         }
       })
       .catch((cause: unknown) => {
@@ -66,6 +68,7 @@ export function ModifierConfigurator({ actor, readOnly }: Props) {
   }, [productId]);
 
   function toggleOption(optionId: string) {
+    requestId.current += 1;
     setConfiguration(null);
     setSelectedOptionIds((current) =>
       current.includes(optionId)
@@ -76,6 +79,7 @@ export function ModifierConfigurator({ actor, readOnly }: Props) {
 
   async function handleValidate() {
     if (!productId) return;
+    const currentRequest = ++requestId.current;
     setBusy(true);
     setError(null);
     try {
@@ -84,15 +88,20 @@ export function ModifierConfigurator({ actor, readOnly }: Props) {
         variant_id: variantId || null,
         selected_option_ids: selectedOptionIds,
       });
+      if (currentRequest !== requestId.current) return;
       setConfiguration(result);
+      setNotice("Configuración validada.");
     } catch (cause) {
+      if (currentRequest !== requestId.current) return;
       setError(
         cause instanceof IpcError
           ? cause.message
           : "No fue posible validar la configuración.",
       );
     } finally {
-      setBusy(false);
+      if (currentRequest === requestId.current) {
+        setBusy(false);
+      }
     }
   }
 
@@ -106,6 +115,7 @@ export function ModifierConfigurator({ actor, readOnly }: Props) {
       </header>
 
       {error && <p className="alert alert-error">{error}</p>}
+      {notice && <p className="alert alert-success">{notice}</p>}
 
       <div className="field-row">
         <label className="field">
@@ -142,6 +152,7 @@ export function ModifierConfigurator({ actor, readOnly }: Props) {
             <select
                           value={variantId}
                           onChange={(event) => {
+                            requestId.current += 1;
                             setVariantId(event.target.value);
                             setConfiguration(null);
                           }}
