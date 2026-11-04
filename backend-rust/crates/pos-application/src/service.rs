@@ -1454,18 +1454,16 @@ impl PosService {
         let commercial = require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Sales, self.clock.now())?;
-        let shift = tx
-            .find_cash_shift(actor.organization_id, shift_id)
-            .await?
-            .ok_or(AppError::NotFound)?;
-        if shift.status != CashShiftStatus::Open || shift.branch_id != branch_id {
-            return Err(AppError::NotFound);
-        }
-
+        // La recuperación idempotente se resuelve antes de exigir un turno abierto:
+        // un reintento de una venta ya confirmada debe funcionar aunque el turno se
+        // haya cerrado después.
         if let Some(existing) = tx
             .find_sale_by_idempotency(actor.organization_id, &draft.idempotency_key)
             .await?
         {
+            if existing.branch_id != branch_id {
+                return Err(AppError::NotFound);
+            }
             if existing.request_fingerprint != fingerprint {
                 return Err(AppError::Conflict);
             }
@@ -1479,6 +1477,14 @@ impl PosService {
                 .next();
             tx.rollback().await?;
             return self.sale_view(existing, items, payment);
+        }
+
+        let shift = tx
+            .find_cash_shift(actor.organization_id, shift_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        if shift.status != CashShiftStatus::Open || shift.branch_id != branch_id {
+            return Err(AppError::NotFound);
         }
 
         let sale_id = pos_core::ids::SaleId::new();
@@ -1679,6 +1685,9 @@ impl PosService {
             .find_sale(actor.organization_id, sale_id)
             .await?
             .ok_or(AppError::NotFound)?;
+        if sale.branch_id != actor.branch_id.ok_or(AppError::NotFound)? {
+            return Err(AppError::NotFound);
+        }
         let items = tx.list_sale_items(actor.organization_id, sale_id).await?;
         let payment = tx
             .list_sale_payments(actor.organization_id, sale_id)

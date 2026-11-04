@@ -26,6 +26,19 @@ interface CartLine {
   unitTotal: string;
 }
 
+function parseMinor(value: string): number {
+  const normalized = value.trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return 0;
+  const [whole, fraction = ""] = normalized.split(".");
+  return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+}
+
+function formatMinor(minor: number): string {
+  const sign = minor < 0 ? "-" : "";
+  const absolute = Math.abs(minor);
+  return `${sign}${Math.floor(absolute / 100)}.${String(absolute % 100).padStart(2, "0")}`;
+}
+
 export function SalesPanel({ actor, readOnly }: Props) {
   const canSell = actor.permissions.includes("sales.sell");
   const [products, setProducts] = useState<Product[]>([]);
@@ -39,6 +52,8 @@ export function SalesPanel({ actor, readOnly }: Props) {
   const [optionsByGroup, setOptionsByGroup] = useState<Record<string, ModifierOption[]>>({});
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [registers, setRegisters] = useState<{ id: string; name: string; code: string }[]>([]);
+  const [registerId, setRegisterId] = useState("");
   const [shiftId, setShiftId] = useState("");
   const [cashReceived, setCashReceived] = useState("");
   const [sale, setSale] = useState<SaleView | null>(null);
@@ -46,6 +61,7 @@ export function SalesPanel({ actor, readOnly }: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const idempotencyKey = useRef<string>("");
+  const configRequest = useRef(0);
 
   useEffect(() => {
     if (!canSell) return;
@@ -71,12 +87,11 @@ export function SalesPanel({ actor, readOnly }: Props) {
     let cancelled = false;
     api
       .listCashRegisters()
-      .then(async (registers) => {
-        if (cancelled || registers.length === 0) return;
-        const register = registers[0];
-        if (!register) return;
-        const active = await api.activeCashShift(register.id);
-        if (!cancelled) setShiftId(active?.id ?? "");
+      .then((list) => {
+        if (cancelled) return;
+        setRegisters(list);
+        const first = list[0];
+        if (first) setRegisterId((current) => current || first.id);
       })
       .catch(() => {});
     return () => {
@@ -85,12 +100,32 @@ export function SalesPanel({ actor, readOnly }: Props) {
   }, [canSell]);
 
   useEffect(() => {
+    if (!registerId) return;
+    let cancelled = false;
+    const currentRequest = ++configRequest.current;
+    api
+      .activeCashShift(registerId)
+      .then((active) => {
+        if (!cancelled && currentRequest === configRequest.current) {
+          setShiftId(active?.id ?? "");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setShiftId("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [registerId]);
+
+  useEffect(() => {
     if (!selectedProduct) return;
     let cancelled = false;
+    const currentRequest = ++configRequest.current;
     api
       .listProductVariants(selectedProduct.id)
       .then((list) => {
-        if (!cancelled) {
+        if (!cancelled && currentRequest === configRequest.current) {
           setVariants(list);
           setVariantId(list[0]?.id ?? "");
         }
@@ -99,13 +134,13 @@ export function SalesPanel({ actor, readOnly }: Props) {
     api
       .listModifierGroups(selectedProduct.id)
       .then(async (list) => {
-        if (cancelled) return;
+        if (cancelled || currentRequest !== configRequest.current) return;
         setGroups(list);
         const map: Record<string, ModifierOption[]> = {};
         for (const group of list) {
           map[group.id] = await api.listModifierOptions(group.id);
         }
-        if (!cancelled) setOptionsByGroup(map);
+        if (!cancelled && currentRequest === configRequest.current) setOptionsByGroup(map);
       })
       .catch(() => {});
     return () => {
@@ -209,8 +244,13 @@ export function SalesPanel({ actor, readOnly }: Props) {
 
   if (!canSell) return null;
 
-  const total = cart.reduce((sum, line) => sum + Number.parseFloat(line.unitTotal) * line.quantity, 0);
-  const change = Math.max(0, Number.parseFloat(cashReceived || "0") - total);
+  const totalMinor = cart.reduce(
+    (sum, line) => sum + parseMinor(line.unitTotal) * line.quantity,
+    0,
+  );
+  const changeMinor = Math.max(0, parseMinor(cashReceived || "0") - totalMinor);
+  const total = formatMinor(totalMinor);
+  const change = formatMinor(changeMinor);
 
   return (
     <section className="panel" aria-labelledby="sales-title">
@@ -233,6 +273,20 @@ export function SalesPanel({ actor, readOnly }: Props) {
         <div>
           <div className="field-row">
             <label className="field field-short">
+              <span>Caja</span>
+              <select
+                value={registerId}
+                onChange={(event) => {
+                  setRegisterId(event.target.value);
+                  setShiftId("");
+                }}
+              >
+                {registers.map((register) => (
+                  <option key={register.id} value={register.id}>{register.name} · {register.code}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field field-short">
               <span>Categoría</span>
               <select value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)}>
                 <option value="">Todas</option>
@@ -254,8 +308,12 @@ export function SalesPanel({ actor, readOnly }: Props) {
                 type="button"
                 className={selectedProduct?.id === product.id ? "product-card product-card-active" : "product-card"}
                 onClick={() => {
+                  configRequest.current += 1;
                   setSelectedProduct(product);
                   setSelectedOptionIds([]);
+                  setVariants([]);
+                  setGroups([]);
+                  setOptionsByGroup({});
                 }}
               >
                 <span className="product-card-sku">{product.sku}</span>
@@ -322,7 +380,7 @@ export function SalesPanel({ actor, readOnly }: Props) {
 
           <div className="cart-total">
             <span>Total</span>
-            <strong>${total.toFixed(2)}</strong>
+            <strong>${total}</strong>
           </div>
 
           {!shiftId && <p className="alert alert-warning">Abre un turno de caja para cobrar.</p>}
@@ -337,7 +395,7 @@ export function SalesPanel({ actor, readOnly }: Props) {
                 required
               />
             </label>
-            <p className="muted">Cambio: ${change.toFixed(2)}</p>
+            <p className="muted">Cambio estimado: ${change}. El total definitivo lo calcula Rust al cobrar.</p>
             <button
               type="submit"
               className="button button-primary"

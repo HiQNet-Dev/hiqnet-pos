@@ -1,9 +1,10 @@
 use pos_application::{
-    BootstrapRequest, CashOpenShiftDraft, CashRegisterDraft, CheckoutDraft, Clock,
-    InventoryMovementDraft, LoginRequest, PosService, ProductDraft, SaleItemDraft, SharedClock,
-    SharedHasher, SharedStore,
+    BootstrapRequest, CashCloseShiftDraft, CashOpenShiftDraft, CashRegisterDraft, CheckoutDraft,
+    Clock, InventoryMovementDraft, LoginRequest, PosService, ProductDraft, SaleItemDraft,
+    SharedClock, SharedHasher, SharedStore,
 };
 use pos_core::identity::Actor;
+use pos_core::ids::BranchId;
 use pos_core::ids::ProductId;
 use pos_security::Argon2idHasher;
 use pos_storage_sqlite::{SqliteStore, open};
@@ -162,6 +163,125 @@ async fn venta_en_efectivo_actualiza_inventario_y_caja() {
             .unwrap(),
         "8"
     );
+}
+
+#[tokio::test]
+async fn idempotencia_tras_cierre_y_conflicto_por_contenido() {
+    let (_dir, pool, actor, product_id) = setup().await;
+    let service = build_service(pool);
+    let register = service.list_cash_registers(&actor).await.unwrap().remove(0);
+    let shift = service
+        .open_cash_shift(
+            &actor,
+            CashOpenShiftDraft {
+                register_id: register.id.clone(),
+                opening_amount: "0".into(),
+            },
+        )
+        .await
+        .unwrap();
+    service
+        .record_inventory_movement(
+            &actor,
+            InventoryMovementDraft {
+                product_id: product_id.to_string(),
+                kind: "inbound".into(),
+                quantity: "10".into(),
+                reason: None,
+            },
+        )
+        .await
+        .unwrap();
+    let draft = CheckoutDraft {
+        shift_id: shift.id.clone(),
+        idempotency_key: "idem-1".into(),
+        items: vec![SaleItemDraft {
+            product_id: product_id.to_string(),
+            variant_id: None,
+            quantity: "1".into(),
+            selected_option_ids: vec![],
+        }],
+        cash_received: "20.00".into(),
+    };
+    let sale = service.checkout_sale(&actor, draft.clone()).await.unwrap();
+    service
+        .close_cash_shift(
+            &actor,
+            CashCloseShiftDraft {
+                shift_id: shift.id.clone(),
+                counted_amount: "0.00".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let retry = service.checkout_sale(&actor, draft.clone()).await.unwrap();
+    assert_eq!(retry.id, sale.id);
+    assert_eq!(
+        service
+            .current_stock(&actor, product_id, None)
+            .await
+            .unwrap(),
+        "9"
+    );
+    let mut changed = draft;
+    changed.items[0].quantity = "2".into();
+    let conflict = service.checkout_sale(&actor, changed).await.unwrap_err();
+    assert!(matches!(conflict, pos_application::AppError::Conflict));
+}
+
+#[tokio::test]
+async fn get_sale_aisla_por_sucursal() {
+    let (_dir, pool, actor, product_id) = setup().await;
+    let service = build_service(pool);
+    let register = service.list_cash_registers(&actor).await.unwrap().remove(0);
+    let shift = service
+        .open_cash_shift(
+            &actor,
+            CashOpenShiftDraft {
+                register_id: register.id.clone(),
+                opening_amount: "0".into(),
+            },
+        )
+        .await
+        .unwrap();
+    service
+        .record_inventory_movement(
+            &actor,
+            InventoryMovementDraft {
+                product_id: product_id.to_string(),
+                kind: "inbound".into(),
+                quantity: "5".into(),
+                reason: None,
+            },
+        )
+        .await
+        .unwrap();
+    let sale = service
+        .checkout_sale(
+            &actor,
+            CheckoutDraft {
+                shift_id: shift.id,
+                idempotency_key: "branch-sale".into(),
+                items: vec![SaleItemDraft {
+                    product_id: product_id.to_string(),
+                    variant_id: None,
+                    quantity: "1".into(),
+                    selected_option_ids: vec![],
+                }],
+                cash_received: "20.00".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let other_actor = Actor {
+        branch_id: Some(BranchId::new()),
+        ..actor
+    };
+    let denied = service
+        .get_sale(&other_actor, sale.id.parse().unwrap())
+        .await
+        .unwrap_err();
+    assert_eq!(denied.code(), "not_found");
 }
 
 #[tokio::test]
