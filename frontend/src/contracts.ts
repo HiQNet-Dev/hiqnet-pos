@@ -107,6 +107,20 @@ export const cashRegisterSchema = z.object({
   active: z.boolean(),
 });
 
+export const branchSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  code: z.string(),
+});
+
+export const stockLevelSchema = z.object({
+  product_id: z.string(),
+  quantity: z.string(),
+});
+
+export type BranchSummary = z.infer<typeof branchSummarySchema>;
+export type StockLevel = z.infer<typeof stockLevelSchema>;
+
 export const cashRegisterDraftSchema = z.object({
   name: z.string().min(1, "Escribe el nombre de la caja"),
   code: z.string().min(2).max(16),
