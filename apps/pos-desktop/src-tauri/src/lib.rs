@@ -13,12 +13,13 @@ use pos_application::{
     ChangeOwnPasswordDraft, CheckoutDraft, CommercialStateView, InventoryMovementDraft,
     InventoryMovementView, LoginRequest, ModifierConfigurationDraft, ModifierConfigurationView,
     ModifierGroupDraft, ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PosService,
-    ProductDraft, ProductVariantDraft, ProductVariantView, ProductView, ResetUserPasswordDraft,
-    SaleView, SetUserActiveDraft, SharedClock, SharedHasher, SharedStore, StockLevelView,
+    ProductDraft, ProductVariantDraft, ProductVariantView, ProductView, PurchaseOrderDraft,
+    PurchaseOrderView, PurchaseReceiptDraft, ResetUserPasswordDraft, SaleView, SetUserActiveDraft,
+    SharedClock, SharedHasher, SharedStore, StockLevelView, SupplierDraft, SupplierView,
     SystemClock, UserDraft, UserView,
 };
 use pos_core::identity::{Actor, Permission};
-use pos_core::ids::{BranchId, ProductId};
+use pos_core::ids::{BranchId, ProductId, PurchaseOrderId};
 use pos_security::Argon2idHasher;
 use pos_storage_sqlite::SqliteStore;
 use serde::Serialize;
@@ -53,6 +54,21 @@ impl From<AppError> for IpcError {
 }
 
 type IpcResult<T> = Result<T, IpcError>;
+
+/// El driver WebView no propaga las variables de entorno al binario de la app.
+/// Esta ruta solo se acepta desde el proceso que Tauri marcó para automatización.
+fn automation_database_path() -> Option<PathBuf> {
+    if std::env::var_os("TAURI_WEBVIEW_AUTOMATION")?.as_os_str() != "true" {
+        return None;
+    }
+    let mut args = std::env::args_os();
+    while let Some(argument) = args.next() {
+        if argument == "--hiqnet-e2e-db-path" {
+            return args.next().map(PathBuf::from);
+        }
+    }
+    None
+}
 
 fn session_actor(state: &AppState) -> IpcResult<Actor> {
     state
@@ -275,6 +291,72 @@ async fn branch_summary(state: State<'_, AppState>) -> IpcResult<BranchView> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
+async fn create_supplier(
+    state: State<'_, AppState>,
+    draft: SupplierDraft,
+) -> IpcResult<SupplierView> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.create_supplier(&actor, draft).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn list_suppliers(state: State<'_, AppState>) -> IpcResult<Vec<SupplierView>> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.list_suppliers(&actor).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn create_purchase_order(
+    state: State<'_, AppState>,
+    draft: PurchaseOrderDraft,
+) -> IpcResult<PurchaseOrderView> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.create_purchase_order(&actor, draft).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn list_purchase_orders(state: State<'_, AppState>) -> IpcResult<Vec<PurchaseOrderView>> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.list_purchase_orders(&actor).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn get_purchase_order(
+    state: State<'_, AppState>,
+    order_id: String,
+) -> IpcResult<PurchaseOrderView> {
+    let actor = authenticated(&state).await?;
+    let order_id: PurchaseOrderId = order_id
+        .parse()
+        .map_err(|_| IpcError::from(AppError::NotFound))?;
+    Ok(state.service.get_purchase_order(&actor, order_id).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn confirm_purchase_order(
+    state: State<'_, AppState>,
+    order_id: String,
+) -> IpcResult<PurchaseOrderView> {
+    let actor = authenticated(&state).await?;
+    let order_id: PurchaseOrderId = order_id
+        .parse()
+        .map_err(|_| IpcError::from(AppError::NotFound))?;
+    Ok(state
+        .service
+        .confirm_purchase_order(&actor, order_id)
+        .await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn receive_purchase_order(
+    state: State<'_, AppState>,
+    draft: PurchaseReceiptDraft,
+) -> IpcResult<PurchaseOrderView> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.receive_purchase_order(&actor, draft).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
 async fn create_cash_register(
     state: State<'_, AppState>,
     draft: CashRegisterDraft,
@@ -486,8 +568,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            let db_path = std::env::var_os("HIQNET_POS_DB_PATH")
-                .map(PathBuf::from)
+            let db_path = automation_database_path()
+                .or_else(|| std::env::var_os("HIQNET_POS_DB_PATH").map(PathBuf::from))
                 .unwrap_or_else(pos_storage_sqlite::default_database_path);
 
             let pool = tauri::async_runtime::block_on(pos_storage_sqlite::open(&db_path))
@@ -520,6 +602,13 @@ pub fn run() {
             set_user_active,
             reset_user_password,
             change_password,
+            create_supplier,
+            list_suppliers,
+            create_purchase_order,
+            list_purchase_orders,
+            get_purchase_order,
+            confirm_purchase_order,
+            receive_purchase_order,
             create_cash_register,
             list_cash_registers,
             open_cash_shift,

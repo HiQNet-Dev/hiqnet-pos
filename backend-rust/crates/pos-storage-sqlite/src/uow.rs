@@ -4,12 +4,18 @@ use pos_core::audit::{AuditAction, AuditEvent};
 use pos_core::cash::{CashMovement, CashRegister, CashShift, CashShiftStatus};
 use pos_core::catalog::{Category, Product, ProductVariant};
 use pos_core::identity::{Role, User};
-use pos_core::ids::{AuditEventId, BranchId, CategoryId, OrganizationId, ProductId, UserId};
+use pos_core::ids::{
+    AuditEventId, BranchId, CategoryId, OrganizationId, ProductId, PurchaseOrderId,
+    PurchaseOrderLineId, PurchaseReceiptId, SupplierId, UserId,
+};
 use pos_core::inventory::InventoryMovement;
 use pos_core::inventory::MovementKind;
 use pos_core::modifiers::{ModifierGroup, ModifierOption};
 use pos_core::money::Money;
 use pos_core::organization::{Branch, Organization};
+use pos_core::purchasing::{
+    PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus, PurchaseReceipt, Supplier,
+};
 use pos_core::quantity::Quantity;
 use pos_core::sales::{Sale, SaleItem, SalePayment, SaleStatus};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
@@ -523,6 +529,164 @@ impl StoreTx for SqliteTx {
             })
         })
         .transpose()
+    }
+
+    async fn insert_supplier(&mut self, supplier: &Supplier) -> AppResult<()> {
+        sqlx::query("INSERT INTO supplier (id, organization_id, code, name, contact, rfc, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+            .bind(supplier.id.to_string()).bind(supplier.organization_id.to_string()).bind(&supplier.code)
+            .bind(&supplier.name).bind(&supplier.contact).bind(&supplier.rfc).bind(i64::from(supplier.active))
+            .bind(format_ts(supplier.created_at)).execute(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn list_suppliers(
+        &mut self,
+        organization_id: OrganizationId,
+    ) -> AppResult<Vec<Supplier>> {
+        let rows = sqlx::query("SELECT id, organization_id, code, name, contact, rfc, active, created_at FROM supplier WHERE organization_id = ? ORDER BY name COLLATE NOCASE")
+            .bind(organization_id.to_string()).fetch_all(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(Supplier {
+                    id: parse_id(row.get("id"))?,
+                    organization_id: parse_id(row.get("organization_id"))?,
+                    code: row.get("code"),
+                    name: row.get("name"),
+                    contact: row.get("contact"),
+                    rfc: row.get("rfc"),
+                    active: row.get::<i64, _>("active") != 0,
+                    created_at: parse_ts(row.get("created_at"))?,
+                })
+            })
+            .collect()
+    }
+
+    async fn find_supplier(
+        &mut self,
+        organization_id: OrganizationId,
+        supplier_id: SupplierId,
+    ) -> AppResult<Option<Supplier>> {
+        let row = sqlx::query("SELECT id, organization_id, code, name, contact, rfc, active, created_at FROM supplier WHERE organization_id = ? AND id = ?")
+            .bind(organization_id.to_string()).bind(supplier_id.to_string()).fetch_optional(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        row.map(|row| {
+            Ok(Supplier {
+                id: parse_id(row.get("id"))?,
+                organization_id: parse_id(row.get("organization_id"))?,
+                code: row.get("code"),
+                name: row.get("name"),
+                contact: row.get("contact"),
+                rfc: row.get("rfc"),
+                active: row.get::<i64, _>("active") != 0,
+                created_at: parse_ts(row.get("created_at"))?,
+            })
+        })
+        .transpose()
+    }
+
+    async fn insert_purchase_order(&mut self, order: &PurchaseOrder) -> AppResult<()> {
+        sqlx::query("INSERT INTO purchase_order (id, organization_id, branch_id, supplier_id, folio, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+            .bind(order.id.to_string()).bind(order.organization_id.to_string()).bind(order.branch_id.to_string()).bind(order.supplier_id.to_string()).bind(&order.folio).bind(order.status.as_str()).bind(order.created_by.to_string()).bind(format_ts(order.created_at)).execute(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn insert_purchase_order_line(&mut self, line: &PurchaseOrderLine) -> AppResult<()> {
+        sqlx::query("INSERT INTO purchase_order_line (id, order_id, product_id, requested_quantity_milli, received_quantity_milli, unit_cost_minor) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind(line.id.to_string()).bind(line.order_id.to_string()).bind(line.product_id.to_string()).bind(line.requested_quantity.milli_units()).bind(line.received_quantity.milli_units()).bind(line.unit_cost.minor_units()).execute(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn find_purchase_order(
+        &mut self,
+        organization_id: OrganizationId,
+        order_id: PurchaseOrderId,
+    ) -> AppResult<Option<PurchaseOrder>> {
+        let row = sqlx::query("SELECT id, organization_id, branch_id, supplier_id, folio, status, created_by, created_at FROM purchase_order WHERE organization_id = ? AND id = ?")
+            .bind(organization_id.to_string()).bind(order_id.to_string()).fetch_optional(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        row.map(purchase_order_from_row).transpose()
+    }
+
+    async fn list_purchase_orders(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Vec<PurchaseOrder>> {
+        let rows = sqlx::query("SELECT id, organization_id, branch_id, supplier_id, folio, status, created_by, created_at FROM purchase_order WHERE organization_id = ? AND branch_id = ? ORDER BY created_at DESC")
+            .bind(organization_id.to_string()).bind(branch_id.to_string()).fetch_all(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        rows.into_iter().map(purchase_order_from_row).collect()
+    }
+
+    async fn list_purchase_order_lines(
+        &mut self,
+        organization_id: OrganizationId,
+        order_id: PurchaseOrderId,
+    ) -> AppResult<Vec<PurchaseOrderLine>> {
+        let rows = sqlx::query("SELECT l.id, l.order_id, l.product_id, l.requested_quantity_milli, l.received_quantity_milli, l.unit_cost_minor FROM purchase_order_line l JOIN purchase_order o ON o.id = l.order_id WHERE o.organization_id = ? AND l.order_id = ? ORDER BY l.id")
+            .bind(organization_id.to_string()).bind(order_id.to_string()).fetch_all(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        rows.into_iter().map(purchase_order_line_from_row).collect()
+    }
+
+    async fn confirm_purchase_order(
+        &mut self,
+        organization_id: OrganizationId,
+        order_id: PurchaseOrderId,
+    ) -> AppResult<()> {
+        let result = sqlx::query("UPDATE purchase_order SET status = 'ordered' WHERE organization_id = ? AND id = ? AND status = 'draft'")
+            .bind(organization_id.to_string()).bind(order_id.to_string()).execute(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        if result.rows_affected() != 1 {
+            return Err(AppError::Conflict);
+        }
+        Ok(())
+    }
+
+    async fn find_purchase_receipt_by_idempotency(
+        &mut self,
+        organization_id: OrganizationId,
+        idempotency_key: &str,
+    ) -> AppResult<Option<PurchaseReceipt>> {
+        let row = sqlx::query("SELECT id, organization_id, branch_id, order_id, received_by, idempotency_key, request_fingerprint, received_at FROM purchase_receipt WHERE organization_id = ? AND idempotency_key = ?")
+            .bind(organization_id.to_string()).bind(idempotency_key).fetch_optional(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        row.map(purchase_receipt_from_row).transpose()
+    }
+
+    async fn insert_purchase_receipt(&mut self, receipt: &PurchaseReceipt) -> AppResult<bool> {
+        let result = sqlx::query("INSERT INTO purchase_receipt (id, organization_id, branch_id, order_id, received_by, idempotency_key, request_fingerprint, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (organization_id, idempotency_key) DO NOTHING")
+            .bind(receipt.id.to_string()).bind(receipt.organization_id.to_string()).bind(receipt.branch_id.to_string()).bind(receipt.order_id.to_string()).bind(receipt.received_by.to_string()).bind(&receipt.idempotency_key).bind(&receipt.request_fingerprint).bind(format_ts(receipt.received_at)).execute(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    async fn insert_purchase_receipt_line(
+        &mut self,
+        receipt_id: PurchaseReceiptId,
+        order_line_id: PurchaseOrderLineId,
+        quantity: Quantity,
+    ) -> AppResult<()> {
+        sqlx::query("INSERT INTO purchase_receipt_line (receipt_id, order_line_id, quantity_milli) VALUES (?, ?, ?)")
+            .bind(receipt_id.to_string()).bind(order_line_id.to_string()).bind(quantity.milli_units()).execute(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn apply_purchase_receipt(
+        &mut self,
+        organization_id: OrganizationId,
+        order_id: PurchaseOrderId,
+        updates: &[(PurchaseOrderLineId, Quantity)],
+        status: PurchaseOrderStatus,
+    ) -> AppResult<()> {
+        for (line_id, quantity) in updates {
+            let result = sqlx::query("UPDATE purchase_order_line SET received_quantity_milli = received_quantity_milli + ? WHERE id = ? AND order_id = ? AND received_quantity_milli + ? <= requested_quantity_milli")
+                .bind(quantity.milli_units()).bind(line_id.to_string()).bind(order_id.to_string()).bind(quantity.milli_units()).execute(&mut **self.tx()?).await.map_err(map_sqlx)?;
+            if result.rows_affected() != 1 {
+                return Err(AppError::Conflict);
+            }
+        }
+        sqlx::query("UPDATE purchase_order SET status = ? WHERE organization_id = ? AND id = ?")
+            .bind(status.as_str())
+            .bind(organization_id.to_string())
+            .bind(order_id.to_string())
+            .execute(&mut **self.tx()?)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(())
     }
 
     async fn insert_inventory_movement(&mut self, movement: &InventoryMovement) -> AppResult<()> {
@@ -1377,6 +1541,46 @@ fn user_from_row(row: sqlx::sqlite::SqliteRow) -> AppResult<User> {
         password_hash: row.get("password_hash"),
         active: row.get::<i64, _>("active") != 0,
         created_at: parse_ts(row.get("created_at"))?,
+    })
+}
+
+fn purchase_order_from_row(row: sqlx::sqlite::SqliteRow) -> AppResult<PurchaseOrder> {
+    Ok(PurchaseOrder {
+        id: parse_id(row.get("id"))?,
+        organization_id: parse_id(row.get("organization_id"))?,
+        branch_id: parse_id(row.get("branch_id"))?,
+        supplier_id: parse_id(row.get("supplier_id"))?,
+        folio: row.get("folio"),
+        status: PurchaseOrderStatus::from_key(&row.get::<String, _>("status"))
+            .ok_or(AppError::Storage)?,
+        created_by: parse_id(row.get("created_by"))?,
+        created_at: parse_ts(row.get("created_at"))?,
+    })
+}
+
+fn purchase_order_line_from_row(row: sqlx::sqlite::SqliteRow) -> AppResult<PurchaseOrderLine> {
+    Ok(PurchaseOrderLine {
+        id: parse_id(row.get("id"))?,
+        order_id: parse_id(row.get("order_id"))?,
+        product_id: parse_id(row.get("product_id"))?,
+        requested_quantity: Quantity::from_milli_units(row.get("requested_quantity_milli"))
+            .map_err(AppError::Domain)?,
+        received_quantity: Quantity::from_milli_units(row.get("received_quantity_milli"))
+            .map_err(AppError::Domain)?,
+        unit_cost: Money::from_minor_units(row.get("unit_cost_minor")).map_err(AppError::Domain)?,
+    })
+}
+
+fn purchase_receipt_from_row(row: sqlx::sqlite::SqliteRow) -> AppResult<PurchaseReceipt> {
+    Ok(PurchaseReceipt {
+        id: parse_id(row.get("id"))?,
+        organization_id: parse_id(row.get("organization_id"))?,
+        branch_id: parse_id(row.get("branch_id"))?,
+        order_id: parse_id(row.get("order_id"))?,
+        received_by: parse_id(row.get("received_by"))?,
+        idempotency_key: row.get("idempotency_key"),
+        request_fingerprint: row.get("request_fingerprint"),
+        received_at: parse_ts(row.get("received_at"))?,
     })
 }
 

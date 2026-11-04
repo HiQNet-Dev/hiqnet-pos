@@ -9,7 +9,7 @@ import {
   type IconProps,
 } from "./icons";
 
-export type SectionId = "sales" | "catalog" | "inventory" | "cash" | "admin";
+export type SectionId = "sales" | "catalog" | "inventory" | "purchasing" | "cash" | "admin";
 
 export interface SectionDefinition {
   id: SectionId;
@@ -54,6 +54,15 @@ export const SECTIONS: SectionDefinition[] = [
     description: "Existencias por producto y movimientos de inventario.",
     permissions: ["inventory.view"],
     Icon: InventoryIcon,
+  },
+  {
+    id: "purchasing",
+    label: "Compras",
+    shortLabel: "Compras",
+    title: "Compras y recepción",
+    description: "Proveedores, órdenes de compra y recepción de mercancía.",
+    permissions: ["purchasing.manage"],
+    Icon: CatalogIcon,
   },
   {
     id: "cash",

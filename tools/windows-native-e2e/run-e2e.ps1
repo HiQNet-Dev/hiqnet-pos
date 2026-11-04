@@ -9,8 +9,8 @@
     limpia todos los recursos creados por esta ejecución.
 
     Nunca toca la base real de HiQNet POS (`%LOCALAPPDATA%\HiQNet\POS\data`).
-    Solo termina el `tauri-driver` y los procesos `pos-desktop` que haya lanzado
-    esta propia ejecución.
+    Solo termina el árbol de procesos descendiente del `tauri-driver` iniciado
+    por esta ejecución. Nunca selecciona procesos por nombre o fecha de inicio.
 
 .PARAMETER Script
     Ruta al guion Python (por ejemplo `e2e_flow.py`).
@@ -31,6 +31,8 @@ param(
     [string]$AppPath = "apps/pos-desktop/src-tauri/target/debug/pos-desktop.exe",
 
     [int]$Port = 4444,
+
+    [int]$NativePort = 4445,
 
     [string]$NativeDriver = (Join-Path $env:TEMP "edgedriver\msedgedriver.exe"),
 
@@ -74,25 +76,64 @@ $driverErrorLog = Join-Path $runDirectory "tauri-driver.err.log"
 
 $previousDatabasePath = $env:HIQNET_POS_DB_PATH
 $previousArtifactDir = $env:HIQNET_E2E_ARTIFACT_DIR
+$previousE2ePort = $env:HIQNET_E2E_PORT
 $env:HIQNET_POS_DB_PATH = $databasePath
 $env:HIQNET_E2E_ARTIFACT_DIR = $runDirectory
+$env:HIQNET_E2E_PORT = $Port
 
 $driver = $null
 $exitCode = 1
 $dbState = "missing"
 
-function Stop-RunProcesses {
-    param([datetime]$Since)
+function Get-RunDescendantProcessIds {
+    param([int]$RootPid)
+    $childrenByParent = @{}
+    Get-CimInstance Win32_Process | ForEach-Object {
+        $parent = [int]$_.ParentProcessId
+        if (-not $childrenByParent.ContainsKey($parent)) { $childrenByParent[$parent] = @() }
+        $childrenByParent[$parent] += [int]$_.ProcessId
+    }
+    $result = New-Object System.Collections.Generic.List[int]
+    $seen = New-Object 'System.Collections.Generic.HashSet[int]'
+    $pending = New-Object System.Collections.Generic.Queue[int]
+    [void]$seen.Add($RootPid)
+    $pending.Enqueue($RootPid)
+    while ($pending.Count -gt 0) {
+        $parent = $pending.Dequeue()
+        foreach ($child in @($childrenByParent[$parent])) {
+            if ($seen.Add($child)) {
+                $result.Add($child)
+                $pending.Enqueue($child)
+            }
+        }
+    }
+    return $result
+}
 
-    if ($driver -and -not $driver.HasExited) {
+function Stop-RunProcesses {
+    if (-not $driver) { return }
+    # Se obtiene el árbol antes de terminar la raíz; solo estos PID fueron
+    # creados como descendientes verificables del driver de esta ejecución.
+    $owned = @(Get-RunDescendantProcessIds -RootPid $driver.Id)
+    [array]::Reverse($owned)
+    foreach ($ownedProcessId in $owned) { try { Stop-Process -Id $ownedProcessId -Force -ErrorAction Stop } catch { } }
+    if (-not $driver.HasExited) {
         try { Stop-Process -Id $driver.Id -Force -ErrorAction Stop } catch { }
     }
-    Get-Process -Name "msedgedriver" -ErrorAction SilentlyContinue |
-        Where-Object { $_.StartTime -ge $Since } |
-        ForEach-Object { try { Stop-Process -Id $_.Id -Force -ErrorAction Stop } catch { } }
-    Get-Process -Name "pos-desktop" -ErrorAction SilentlyContinue |
-        Where-Object { $_.StartTime -ge $Since } |
-        ForEach-Object { try { Stop-Process -Id $_.Id -Force -ErrorAction Stop } catch { } }
+}
+
+function Assert-LocalPortAvailable {
+    param([int]$PortToCheck)
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $PortToCheck)
+    try {
+        $listener.Start()
+    }
+    catch {
+        throw "El puerto $PortToCheck ya está en uso. Elige otro; el arnés no terminará procesos ajenos."
+    }
+    finally {
+        $listener.Stop()
+    }
 }
 
 $startedAt = Get-Date
@@ -101,8 +142,13 @@ Write-Output "database=$databasePath"
 Write-Output "application=$AppPath"
 
 try {
+    if ($Port -eq $NativePort) {
+        throw "-Port y -NativePort deben ser distintos."
+    }
+    Assert-LocalPortAvailable -PortToCheck $Port
+    Assert-LocalPortAvailable -PortToCheck $NativePort
     $driver = Start-Process -FilePath "tauri-driver" `
-        -ArgumentList @("--port", $Port, "--native-driver", $NativeDriver) `
+        -ArgumentList @("--port", $Port, "--native-port", $NativePort, "--native-driver", $NativeDriver) `
         -RedirectStandardOutput $driverLog `
         -RedirectStandardError $driverErrorLog `
         -PassThru
@@ -128,6 +174,9 @@ try {
     }
     if (-not $ready) {
         throw "tauri-driver no aceptó conexiones en el puerto $Port"
+    }
+    if ($driver.HasExited) {
+        throw "tauri-driver terminó con código $($driver.ExitCode) después del sondeo. Revisa $driverErrorLog"
     }
     Write-Output "driver_ready=True"
 
@@ -163,7 +212,7 @@ catch {
     $exitCode = 1
 }
 finally {
-    Stop-RunProcesses -Since $startedAt
+    Stop-RunProcesses
     if ($previousDatabasePath) {
         $env:HIQNET_POS_DB_PATH = $previousDatabasePath
     }
@@ -175,6 +224,12 @@ finally {
     }
     else {
         Remove-Item Env:\HIQNET_E2E_ARTIFACT_DIR -ErrorAction SilentlyContinue
+    }
+    if ($previousE2ePort) {
+        $env:HIQNET_E2E_PORT = $previousE2ePort
+    }
+    else {
+        Remove-Item Env:\HIQNET_E2E_PORT -ErrorAction SilentlyContinue
     }
 
     Write-Output "sqlite=$dbState"

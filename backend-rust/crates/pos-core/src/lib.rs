@@ -14,6 +14,7 @@ pub mod inventory;
 pub mod modifiers;
 pub mod money;
 pub mod organization;
+pub mod purchasing;
 pub mod quantity;
 pub mod sales;
 

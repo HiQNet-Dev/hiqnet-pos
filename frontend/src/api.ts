@@ -19,6 +19,8 @@ import {
   productVariantSchema,
   saleViewSchema,
   stockLevelSchema,
+  supplierSchema,
+  purchaseOrderSchema,
   userSchema,
   type Actor,
   type AppStatus,
@@ -54,6 +56,11 @@ import {
   type ProductVariant,
   type ProductVariantDraft,
   type SaleView,
+  type Supplier,
+  type SupplierDraft,
+  type PurchaseOrder,
+  type PurchaseOrderDraft,
+  type PurchaseReceiptDraft,
 } from "./contracts";
 
 /** Error estable proveniente de Rust (`code`) con mensaje en español. */
@@ -120,6 +127,26 @@ export const api = {
 
   listProducts: () =>
     call<Product[]>("list_products", undefined, productSchema.array()),
+
+  createSupplier: (draft: SupplierDraft) =>
+    call<Supplier>("create_supplier", { draft }, supplierSchema),
+
+  listSuppliers: () => call<Supplier[]>("list_suppliers", undefined, supplierSchema.array()),
+
+  createPurchaseOrder: (draft: PurchaseOrderDraft) =>
+    call<PurchaseOrder>("create_purchase_order", { draft }, purchaseOrderSchema),
+
+  listPurchaseOrders: () =>
+    call<PurchaseOrder[]>("list_purchase_orders", undefined, purchaseOrderSchema.array()),
+
+  getPurchaseOrder: (orderId: string) =>
+    call<PurchaseOrder>("get_purchase_order", { order_id: orderId }, purchaseOrderSchema),
+
+  confirmPurchaseOrder: (orderId: string) =>
+    call<PurchaseOrder>("confirm_purchase_order", { order_id: orderId }, purchaseOrderSchema),
+
+  receivePurchaseOrder: (draft: PurchaseReceiptDraft) =>
+    call<PurchaseOrder>("receive_purchase_order", { draft }, purchaseOrderSchema),
 
   createCashRegister: (draft: CashRegisterDraft) =>
     call<CashRegister>("create_cash_register", { draft }, cashRegisterSchema),

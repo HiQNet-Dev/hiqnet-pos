@@ -36,7 +36,7 @@ Estados: **VERIFICADO** (implementado y probado), **PARCIAL**, **PENDIENTE**,
 | Ledger append-only | VERIFICADO | Triggers y prueba de UPDATE/DELETE |
 | Concurrencia de salidas | VERIFICADO | Prueba con dos solicitudes y stock limitado |
 | Migración 0002 → 0003 | VERIFICADO | Prueba con datos sintéticos y triggers recreados |
-| Proveedores y compras | PENDIENTE | Fase G2 |
+| Proveedores y compras | PARCIAL | G2.7: proveedor, orden en borrador/confirmada y recepción parcial/final idempotente que actualiza el ledger; sin pagos a proveedores ni costeo avanzado |
 | Gastos y devoluciones | PENDIENTE | Fase G2 |
 | Reportes | PENDIENTE | Fase G2 |
 | Sincronización Pro | PENDIENTE | Fase G6; requiere ADR de autoridad |

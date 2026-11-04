@@ -15,6 +15,7 @@ import { AdminScreen } from "../screens/AdminScreen";
 import { CashScreen } from "../screens/CashScreen";
 import { CatalogScreen } from "../screens/CatalogScreen";
 import { InventoryScreen } from "../screens/InventoryScreen";
+import { PurchasingScreen, type PendingReceiptAttempt } from "../screens/PurchasingScreen";
 import { SalesScreen } from "../screens/SalesScreen";
 import { SideNav } from "./SideNav";
 import { TopBar } from "./TopBar";
@@ -30,6 +31,28 @@ interface Props {
 
 function messageOf(cause: unknown, fallback: string): string {
   return cause instanceof IpcError ? cause.message : fallback;
+}
+
+function receiptAttemptStorageKey(actor: Actor): string {
+  return `hiqnet.pending-receipt.${actor.organization_id}.${actor.branch_id}.${actor.user_id}`;
+}
+
+function loadPendingReceipt(key: string): PendingReceiptAttempt | null {
+  try {
+    const value: unknown = JSON.parse(window.localStorage.getItem(key) ?? "null");
+    if (
+      value && typeof value === "object" &&
+      typeof (value as PendingReceiptAttempt).orderId === "string" &&
+      typeof (value as PendingReceiptAttempt).fingerprint === "string" &&
+      typeof (value as PendingReceiptAttempt).key === "string" &&
+      typeof (value as PendingReceiptAttempt).quantities === "object"
+    ) {
+      return value as PendingReceiptAttempt;
+    }
+  } catch {
+    // El dato local es solo una ayuda de recuperación y nunca es autoridad.
+  }
+  return null;
 }
 
 /**
@@ -67,6 +90,10 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
   const shiftRequest = useRef(0);
 
   const [cart, setCart] = useState<CartLine[]>([]);
+  const receiptAttemptKey = receiptAttemptStorageKey(actor);
+  const [pendingReceipt, setPendingReceipt] = useState<PendingReceiptAttempt | null>(() =>
+    loadPendingReceipt(receiptAttemptKey),
+  );
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string } | null>(
     null,
@@ -74,6 +101,16 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
 
   const refreshCatalog = useCallback(() => setCatalogVersion((value) => value + 1), []);
   const refreshCash = useCallback(() => setCashVersion((value) => value + 1), []);
+  const updatePendingReceipt = useCallback((attempt: PendingReceiptAttempt | null) => {
+    setPendingReceipt(attempt);
+    try {
+      if (attempt) window.localStorage.setItem(receiptAttemptKey, JSON.stringify(attempt));
+      else window.localStorage.removeItem(receiptAttemptKey);
+    } catch {
+      // La recuperación en memoria sigue siendo segura si el almacenamiento local falla.
+    }
+  }, [receiptAttemptKey]);
+
 
   const availableIds = useMemo(() => sections.map((item) => item.id), [sections]);
   // Sección efectiva derivada: si el rol pierde acceso, se usa la primera disponible.
@@ -297,6 +334,17 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
                 products={products}
                 loading={catalogLoading}
                 onStockChanged={refreshCatalog}
+              />
+            )}
+
+            {activeSection === "purchasing" && (
+              <PurchasingScreen
+                actor={actor}
+                readOnly={readOnly}
+                products={products}
+                onInventoryChanged={refreshCatalog}
+                pendingReceipt={pendingReceipt}
+                onPendingReceiptChange={updatePendingReceipt}
               />
             )}
 

@@ -66,6 +66,13 @@ id_type!(CashMovementId, "Identificador de movimiento de efectivo.");
 id_type!(SaleId, "Identificador de venta.");
 id_type!(SaleItemId, "Identificador de partida de venta.");
 id_type!(SalePaymentId, "Identificador de pago de venta.");
+id_type!(SupplierId, "Identificador de proveedor.");
+id_type!(PurchaseOrderId, "Identificador de orden de compra.");
+id_type!(
+    PurchaseOrderLineId,
+    "Identificador de línea de orden de compra."
+);
+id_type!(PurchaseReceiptId, "Identificador de recepción de compra.");
 id_type!(AuditEventId, "Identificador de evento de auditoría.");
 id_type!(
     InstallationId,

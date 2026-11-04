@@ -44,23 +44,30 @@ DIALOG = "//div[@role='dialog']"
 
 
 class WryOptions(BaseOptions):
-    def __init__(self, application: str):
+    def __init__(self, application: str, args: list[str]):
         super().__init__()
         self._application = application
+        self._args = args
 
     @property
     def default_capabilities(self):
         return {"browserName": "wry"}
 
     def to_capabilities(self):
-        return {"browserName": "wry", "tauri:options": {"application": self._application}}
+        return {
+            "browserName": "wry",
+            "tauri:options": {"application": self._application, "args": self._args},
+        }
 
 
 class App:
     def __init__(self, app_path: str, timeout: int = 30):
+        port = os.environ.get("HIQNET_E2E_PORT", "4444")
+        database_path = os.environ.get("HIQNET_POS_DB_PATH")
+        args = ["--hiqnet-e2e-db-path", database_path] if database_path else []
         self.driver = webdriver.Remote(
-            command_executor="http://127.0.0.1:4444",
-            options=WryOptions(app_path),
+            command_executor=f"http://127.0.0.1:{port}",
+            options=WryOptions(app_path, args),
         )
         self.driver.set_script_timeout(20)
         self.wait = WebDriverWait(self.driver, timeout)
@@ -394,6 +401,49 @@ def cerrar_turno(app: App):
     app.screenshot("arqueo-cierre")
 
 
+def gestionar_compras(app: App) -> dict:
+    """Proveedor y recepción parcial/final mediante la interfaz real."""
+    app.nav("purchasing")
+    wait_screen(app, "Compras")
+    app.screenshot("compras-vacio")
+    app.click_xpath("//button[normalize-space()='Nuevo proveedor']")
+    app.wait_xpath(DIALOG)
+    app.fill(DIALOG, "Nombre", "Proveedor E2E")
+    app.fill(DIALOG, "Código", "SUP-E2E")
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Crear proveedor']")
+    app.wait_text("Proveedor creado")
+    app.click_xpath("//button[normalize-space()='Nueva orden']")
+    app.wait_xpath(DIALOG)
+    app.select(DIALOG, "Proveedor", "Proveedor E2E")
+    app.select(DIALOG, "Producto", "CAF-001 · Café E2E")
+    app.fill(DIALOG, "Cantidad", "5")
+    app.fill(DIALOG, "Costo neto", "8.00")
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Agregar']")
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Crear borrador']")
+    app.wait_text("Orden creada como borrador")
+    app.click_xpath("//button[normalize-space()='Confirmar']")
+    app.wait_text("confirmada")
+    app.click_xpath("//button[normalize-space()='Recibir']")
+    app.wait_xpath(DIALOG)
+    app.fill(DIALOG, "Recibir", "2")
+    app.screenshot("compras-recepcion-parcial")
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Confirmar recepción']")
+    app.wait_text("Recepción registrada")
+    order = app.invoke("list_purchase_orders")[0]
+    assert order["status"] == "partially_received", "la orden debe quedar parcialmente recibida"
+    assert app.invoke("current_stock", {"product_id": order["lines"][0]["product_id"]}) == "20", "la recepción parcial debe sumar dos"
+    app.click_xpath("//button[normalize-space()='Recibir']")
+    app.wait_xpath(DIALOG)
+    app.fill(DIALOG, "Recibir", "3")
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Confirmar recepción']")
+    app.wait_text("Recepción registrada")
+    order = app.invoke("get_purchase_order", {"order_id": order["id"]})
+    assert order["status"] == "received", "la orden debe quedar recibida"
+    assert app.invoke("current_stock", {"product_id": order["lines"][0]["product_id"]}) == "23", "el stock final debe sumar cinco"
+    app.screenshot("compras-recepcion-final")
+    return {"folio": order["folio"], "order_id": order["id"], "stock_final": "23"}
+
+
 def gestionar_usuarios(app: App) -> dict:
     """Alta de un cajero desde Gestión y verificación de su acceso restringido."""
     app.nav("admin")
@@ -422,12 +472,16 @@ def gestionar_usuarios(app: App) -> dict:
 
     sin_catalogo = not app.driver.find_elements(By.XPATH, NAV.format("catalog"))
     sin_gestion = not app.driver.find_elements(By.XPATH, NAV.format("admin"))
+    sin_compras = not app.driver.find_elements(By.XPATH, NAV.format("purchasing"))
     assert sin_catalogo, "el cajero no debe ver la sección Productos"
     assert sin_gestion, "el cajero no debe ver la sección Gestión"
+    assert sin_compras, "el cajero no debe ver la sección Compras"
 
     # Y tampoco puede administrar usuarios invocando el IPC directamente.
     intento = app.invoke_raw("list_users")
     assert not intento.get("ok"), "el cajero no debe poder listar usuarios por IPC"
+    compra = app.invoke_raw("list_purchase_orders")
+    assert not compra.get("ok"), "el cajero no debe administrar compras por IPC"
 
     app.click_xpath("//button[@aria-label='Cerrar sesión']")
     wait_screen(app, "Entrar a la caja")
@@ -440,6 +494,7 @@ def gestionar_usuarios(app: App) -> dict:
         "cajero_sin_catalogo": sin_catalogo,
         "cajero_sin_gestion": sin_gestion,
         "ipc_list_users_denegado": True,
+        "ipc_compras_denegado": True,
     }
 
 
@@ -472,6 +527,17 @@ def capturar_tamanos(app_path: str) -> dict:
             ("admin", "gestion-1366"),
         ]:
             app.nav(section)
+            time.sleep(0.5)
+            app.screenshot(name)
+            result["capturas"].append(name)
+
+        for width, height, name in [
+            (1366, 768, "compras-1366"),
+            (1024, 768, "compras-1024"),
+            (768, 1024, "compras-tablet"),
+        ]:
+            app.resize(width, height)
+            app.nav("purchasing")
             time.sleep(0.5)
             app.screenshot(name)
             result["capturas"].append(name)
@@ -549,6 +615,18 @@ def main() -> int:
         report["persistencia"] = verificar_persistencia(app)
         steps.append("persistencia")
 
+        report["compras"] = gestionar_compras(app)
+        steps.append("compras")
+
+        app.quit()
+        app = App(app_path)
+        iniciar_sesion(app)
+        persisted_order = app.invoke("get_purchase_order", {"order_id": report["compras"]["order_id"]})
+        assert persisted_order["status"] == "received", "la orden no persistió tras reiniciar"
+        steps.append("compras_reinicio")
+
+        app.nav("cash")
+        wait_screen(app, "Caja y turnos")
         cerrar_turno(app)
         steps.append("arqueo_cierre")
 
