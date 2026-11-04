@@ -213,7 +213,7 @@ export const saleReturnLineDraftSchema = z.object({
 
 export const saleReturnDraftSchema = z.object({
   sale_id: z.string().min(1),
-  shift_id: z.string().min(1, "Abre un turno de caja para reembolsar"),
+  shift_id: z.string().optional(),
   reason: z.string().min(1, "Indica el motivo de la devolución"),
   idempotency_key: z.string().min(1),
   lines: z.array(saleReturnLineDraftSchema).min(1, "Selecciona al menos una partida"),

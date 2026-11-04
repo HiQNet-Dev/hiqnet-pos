@@ -65,6 +65,8 @@ export function ReturnsScreen({
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const locked = pendingAttempt !== null;
+  // Se compara el texto monetario para no hacer aritmética en React.
+  const zeroRefund = previewTotal !== null && /^0+(\.0+)?$/.test(previewTotal);
 
   useEffect(() => {
     if (!canReturn) return;
@@ -184,7 +186,11 @@ export function ReturnsScreen({
 
   async function confirm(event: React.FormEvent) {
     event.preventDefault();
-    if (locked || !sale || !shift) return;
+    if (locked || !sale) return;
+    if (!shift && !zeroRefund) {
+      setError("Abre un turno de caja para entregar el reembolso.");
+      return;
+    }
     const lines = buildLines();
     if (lines.length === 0) {
       setError("Indica al menos una cantidad a devolver.");
@@ -196,7 +202,7 @@ export function ReturnsScreen({
     }
     const payload: SaleReturnDraft = {
       sale_id: sale.id,
-      shift_id: shift.id,
+      shift_id: shift?.id,
       reason: reason.trim(),
       idempotency_key: crypto.randomUUID(),
       lines: [...lines].sort((left, right) =>
@@ -376,7 +382,9 @@ export function ReturnsScreen({
               <p className="muted">
                 {shift
                   ? `Reembolso desde el turno abierto · saldo esperado $${shift.expected_amount}`
-                  : "Abre un turno de caja para entregar el reembolso."}
+                  : zeroRefund
+                    ? "Sin importe monetario: solo se restituirá inventario."
+                    : "Abre un turno de caja para entregar el reembolso."}
               </p>
               <p className="metric-strong">
                 Reembolso calculado por Rust:{" "}
@@ -397,7 +405,7 @@ export function ReturnsScreen({
               <button
                 type="submit"
                 className="button button-primary"
-                disabled={busy || readOnly || locked || !shift}
+                disabled={busy || readOnly || locked || (!shift && !zeroRefund)}
               >
                 {busy ? "Registrando…" : "Confirmar devolución"}
               </button>

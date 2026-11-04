@@ -224,9 +224,13 @@ modifica; el estado efectivo se deriva de las devoluciones asociadas.
 
 Reglas vigentes:
 
-- El reembolso se calcula desde los snapshots de la venta (`unit_price` y
-  `unit_tax` por unidad), de modo que la suma de devoluciones parciales nunca
-  excede la línea y una devolución completa cuadra al centavo.
+- El reembolso se calcula desde los snapshots de la venta con una distribución
+  **acumulativa** (`unit_price`/`unit_tax` por la cantidad total devuelta, redondeo
+  half-up igual que la venta, menos lo ya reembolsado), de modo que la suma de
+  devoluciones parciales nunca excede la línea y una devolución completa cuadra al
+  centavo. El preview usa exactamente el mismo cálculo que la transacción.
+- Si el incremento es de **cero centavos** se permite la devolución y la restitución
+  física, sin crear un movimiento de caja y sin exigir turno abierto.
 - El efectivo sale de un turno **abierto** de la sucursal; puede ser distinto del
   turno histórico de la venta. El turno original no se altera.
 - Se exige saldo esperado suficiente; si no hay turno abierto o saldo, se rechaza
@@ -248,6 +252,11 @@ Reglas vigentes:
 ```
 
 - El intervalo es semiabierto `[from, to)` y se interpreta en UTC.
+- `net_total` y `difference` son métricas **firmadas** del período: pueden ser
+  negativas (por ejemplo, un día sin ventas con una devolución de otro día o un
+  faltante de arqueo). `Money` sigue siendo no negativo para cobros y reembolsos.
+- El neto es una métrica del período (ventas del rango − devoluciones del rango),
+  no un cálculo por cohorte de ventas originales.
 - Devuelve agregados exactos en unidades menores para ventas (brutas, devueltas y
   netas), caja (turnos, entradas, salidas, gastos desde caja, reembolsos y
   diferencias), compras (órdenes, pendientes, cantidad y costo recibidos), gastos

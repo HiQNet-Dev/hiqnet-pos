@@ -151,7 +151,7 @@ fn return_draft(
 ) -> SaleReturnDraft {
     SaleReturnDraft {
         sale_id: sale.id.clone(),
-        shift_id: shift_id.into(),
+        shift_id: Some(shift_id.into()),
         reason: "producto en buen estado".into(),
         idempotency_key: key.into(),
         lines: vec![SaleReturnLineDraft {
@@ -166,6 +166,95 @@ async fn stock(fixture: &Fixture) -> String {
     fixture
         .service
         .current_stock(&fixture.actor, fixture.product_id.parse().unwrap(), None)
+        .await
+        .unwrap()
+}
+
+async fn new_product(fixture: &Fixture, sku: &str, price: &str, tax_rate_bp: u16) -> String {
+    fixture
+        .service
+        .create_product(
+            &fixture.actor,
+            ProductDraft {
+                sku: sku.into(),
+                name: format!("Producto {sku}"),
+                price: price.into(),
+                tax_rate_bp,
+                category_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id
+        .to_string()
+}
+
+async fn add_stock(fixture: &Fixture, product_id: &str, quantity: &str) {
+    fixture
+        .service
+        .record_inventory_movement(
+            &fixture.actor,
+            InventoryMovementDraft {
+                product_id: product_id.into(),
+                kind: "inbound".into(),
+                quantity: quantity.into(),
+                reason: None,
+            },
+        )
+        .await
+        .unwrap();
+}
+
+async fn sell_product(
+    service: &PosService,
+    actor: &Actor,
+    shift_id: &str,
+    product_id: &str,
+    quantity: &str,
+    cash_received: &str,
+    key: &str,
+) -> pos_application::SaleView {
+    service
+        .checkout_sale(
+            actor,
+            CheckoutDraft {
+                shift_id: shift_id.into(),
+                idempotency_key: key.into(),
+                items: vec![SaleItemDraft {
+                    product_id: product_id.into(),
+                    variant_id: None,
+                    quantity: quantity.into(),
+                    selected_option_ids: Vec::new(),
+                }],
+                cash_received: cash_received.into(),
+            },
+        )
+        .await
+        .unwrap()
+}
+
+fn money_text(minor: i64) -> String {
+    format!("{}.{:02}", minor / 100, minor % 100)
+}
+
+async fn report_between(
+    service: &PosService,
+    actor: &Actor,
+    from: OffsetDateTime,
+    to: OffsetDateTime,
+) -> pos_application::ReportsView {
+    service
+        .reports_summary(
+            actor,
+            ReportsQuery {
+                from: from
+                    .format(&time::format_description::well_known::Rfc3339)
+                    .unwrap(),
+                to: to
+                    .format(&time::format_description::well_known::Rfc3339)
+                    .unwrap(),
+            },
+        )
         .await
         .unwrap()
 }
@@ -876,4 +965,384 @@ async fn reportes_requieren_permiso_de_consulta() {
         .await
         .unwrap_err();
     assert_eq!(error.code(), "access_denied");
+}
+
+#[tokio::test]
+async fn reembolso_fraccionario_acumulado_no_excede_la_linea() {
+    let fixture = fixture().await;
+    let product = new_product(&fixture, "CENT-1", "0.01", 0).await;
+    add_stock(&fixture, &product, "10").await;
+    let sale = sell_product(
+        &fixture.service,
+        &fixture.actor,
+        &fixture.shift_id,
+        &product,
+        "3",
+        "1.00",
+        "frac-sale",
+    )
+    .await;
+    assert_eq!(sale.total, "0.03", "cinco centavos de línea");
+
+    for index in 0..6 {
+        fixture
+            .service
+            .create_sale_return(
+                &fixture.actor,
+                return_draft(
+                    &sale,
+                    &fixture.shift_id,
+                    &format!("frac-{index}"),
+                    "0.5",
+                    "restock",
+                ),
+            )
+            .await
+            .unwrap();
+    }
+
+    let row = sqlx::query(
+        "SELECT COALESCE(SUM(refund_total_minor), 0) AS refunded, COUNT(*) AS returns FROM sale_return",
+    )
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<i64, _>("refunded"), 3, "nunca más que la línea");
+    assert_eq!(row.get::<i64, _>("returns"), 6);
+
+    // Los incrementos de cero centavos no crean movimientos de caja ficticios.
+    let cash = sqlx::query(
+        "SELECT COALESCE(SUM(amount_minor), 0) AS total, COUNT(*) AS movements FROM cash_movement WHERE kind = 'out'",
+    )
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(cash.get::<i64, _>("total"), 3);
+    assert_eq!(cash.get::<i64, _>("movements"), 3);
+
+    let active = fixture
+        .service
+        .active_cash_shift(&fixture.actor, fixture.register_id.parse().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(active.expected_amount, "100.00");
+    assert_eq!(
+        fixture
+            .service
+            .current_stock(&fixture.actor, product.parse().unwrap(), None)
+            .await
+            .unwrap(),
+        "10"
+    );
+}
+
+#[tokio::test]
+async fn preview_coincide_con_la_transaccion_en_cantidades_fraccionarias() {
+    let fixture = fixture().await;
+    let product = new_product(&fixture, "TRE-3", "0.03", 0).await;
+    add_stock(&fixture, &product, "2").await;
+    let sale = sell_product(
+        &fixture.service,
+        &fixture.actor,
+        &fixture.shift_id,
+        &product,
+        "0.5",
+        "1.00",
+        "frac-preview-sale",
+    )
+    .await;
+    assert_eq!(sale.total, "0.02");
+
+    let preview = fixture
+        .service
+        .preview_sale_return(
+            &fixture.actor,
+            SaleReturnPreviewDraft {
+                sale_id: sale.id.clone(),
+                lines: vec![SaleReturnLineDraft {
+                    sale_item_id: sale.items[0].id.clone(),
+                    quantity: "0.25".into(),
+                    disposition: "restock".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(preview.refund_total, "0.01");
+    let first = fixture
+        .service
+        .create_sale_return(
+            &fixture.actor,
+            return_draft(
+                &sale,
+                &fixture.shift_id,
+                "frac-preview-a",
+                "0.25",
+                "restock",
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.refund_total, preview.refund_total);
+
+    let second_preview = fixture
+        .service
+        .preview_sale_return(
+            &fixture.actor,
+            SaleReturnPreviewDraft {
+                sale_id: sale.id.clone(),
+                lines: vec![SaleReturnLineDraft {
+                    sale_item_id: sale.items[0].id.clone(),
+                    quantity: "0.25".into(),
+                    disposition: "restock".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(second_preview.refund_total, "0.01");
+    let second = fixture
+        .service
+        .create_sale_return(
+            &fixture.actor,
+            return_draft(
+                &sale,
+                &fixture.shift_id,
+                "frac-preview-b",
+                "0.25",
+                "restock",
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.refund_total, second_preview.refund_total);
+    assert_eq!(
+        first.refund_total.parse::<MoneyView>().unwrap().0
+            + second.refund_total.parse::<MoneyView>().unwrap().0,
+        2,
+        "la devolución completa cuadra con el total vendido"
+    );
+}
+
+#[tokio::test]
+async fn devolucion_de_cero_centavos_no_exige_turno_ni_mueve_caja() {
+    let fixture = fixture().await;
+    let product = new_product(&fixture, "MIL-1", "0.01", 0).await;
+    add_stock(&fixture, &product, "10").await;
+    let sale = sell_product(
+        &fixture.service,
+        &fixture.actor,
+        &fixture.shift_id,
+        &product,
+        "1",
+        "1.00",
+        "zero-sale",
+    )
+    .await;
+    fixture
+        .service
+        .close_cash_shift(
+            &fixture.actor,
+            CashCloseShiftDraft {
+                shift_id: fixture.shift_id.clone(),
+                counted_amount: "100.01".into(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let created = fixture
+        .service
+        .create_sale_return(
+            &fixture.actor,
+            SaleReturnDraft {
+                sale_id: sale.id.clone(),
+                shift_id: None,
+                reason: "reintegro sin importe".into(),
+                idempotency_key: "zero-refund".into(),
+                lines: vec![SaleReturnLineDraft {
+                    sale_item_id: sale.items[0].id.clone(),
+                    quantity: "0.001".into(),
+                    disposition: "restock".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(created.refund_total, "0.00");
+    assert_eq!(created.lines[0].refund_total, "0.00");
+
+    let row = sqlx::query(
+        "SELECT (SELECT COUNT(*) FROM cash_movement WHERE kind = 'out') AS exits, (SELECT shift_id IS NULL AND cash_movement_id IS NULL FROM sale_return WHERE id = ?) AS sin_caja",
+    )
+    .bind(&created.id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        row.get::<i64, _>("exits"),
+        0,
+        "sin movimiento de caja ficticio"
+    );
+    assert_eq!(row.get::<i64, _>("sin_caja"), 1);
+    assert_eq!(
+        fixture
+            .service
+            .current_stock(&fixture.actor, product.parse().unwrap(), None)
+            .await
+            .unwrap(),
+        "9.001",
+        "la restitución física sí ocurre"
+    );
+}
+
+#[tokio::test]
+async fn reportes_con_devolucion_total_dejan_neto_cero() {
+    let fixture = fixture().await;
+    let sale = sell(&fixture, "2").await;
+    fixture
+        .service
+        .create_sale_return(
+            &fixture.actor,
+            return_draft(&sale, &fixture.shift_id, "neto-cero", "2", "restock"),
+        )
+        .await
+        .unwrap();
+
+    let report = report_between(
+        &fixture.service,
+        &fixture.actor,
+        OffsetDateTime::now_utc() - time::Duration::days(1),
+        OffsetDateTime::now_utc() + time::Duration::days(1),
+    )
+    .await;
+    assert_eq!(report.sales.total, "23.20");
+    assert_eq!(report.sales.returned_total, "23.20");
+    assert_eq!(report.sales.net_total, "0.00");
+}
+
+#[tokio::test]
+async fn reportes_neto_negativo_cuando_la_venta_cae_fuera_del_periodo() {
+    let fixture = fixture().await;
+    let past = build_service_with_clock(
+        open(fixture.dir.path().join("returns.db")).await.unwrap(),
+        OffsetDateTime::now_utc() - time::Duration::days(2),
+    );
+    let past_actor = past
+        .login(LoginRequest {
+            username: "owner".into(),
+            password: "contrasena-segura".into(),
+        })
+        .await
+        .unwrap();
+    let sale = sell_product(
+        &past,
+        &past_actor,
+        &fixture.shift_id,
+        &fixture.product_id,
+        "2",
+        "50.00",
+        "past-sale",
+    )
+    .await;
+    fixture
+        .service
+        .create_sale_return(
+            &fixture.actor,
+            return_draft(&sale, &fixture.shift_id, "neto-fuera", "2", "restock"),
+        )
+        .await
+        .unwrap();
+
+    let report = report_between(
+        &fixture.service,
+        &fixture.actor,
+        OffsetDateTime::now_utc() - time::Duration::days(1),
+        OffsetDateTime::now_utc() + time::Duration::days(1),
+    )
+    .await;
+    assert_eq!(report.sales.count, 0, "la venta quedó fuera del período");
+    assert_eq!(report.sales.total, "0.00");
+    assert_eq!(report.sales.returned_total, "23.20");
+    assert_eq!(report.sales.net_total, "-23.20");
+}
+
+#[tokio::test]
+async fn reportes_soportan_faltantes_sobrantes_y_arqueo_exacto() {
+    for (delta_minor, expected) in [(0_i64, "0.00"), (500, "5.00"), (-1000, "-10.00")] {
+        let fixture = fixture().await;
+        sell(&fixture, "2").await;
+        let counted = money_text(12_320 + delta_minor);
+        fixture
+            .service
+            .close_cash_shift(
+                &fixture.actor,
+                CashCloseShiftDraft {
+                    shift_id: fixture.shift_id.clone(),
+                    counted_amount: counted,
+                },
+            )
+            .await
+            .unwrap();
+        let report = report_between(
+            &fixture.service,
+            &fixture.actor,
+            OffsetDateTime::now_utc() - time::Duration::days(1),
+            OffsetDateTime::now_utc() + time::Duration::days(1),
+        )
+        .await;
+        assert_eq!(report.cash.difference, expected, "diferencia {delta_minor}");
+        assert_eq!(report.cash.shifts_closed, 1);
+        assert_eq!(report.cash.entries, "23.20");
+    }
+}
+
+#[tokio::test]
+async fn reportes_por_producto_reconcilian_con_cantidades_fraccionarias() {
+    let fixture = fixture().await;
+    let product = new_product(&fixture, "REC-3", "0.03", 0).await;
+    add_stock(&fixture, &product, "2").await;
+    let sale = sell_product(
+        &fixture.service,
+        &fixture.actor,
+        &fixture.shift_id,
+        &product,
+        "0.5",
+        "1.00",
+        "reconcile-sale",
+    )
+    .await;
+    assert_eq!(sale.subtotal, "0.02");
+    assert_eq!(sale.total, "0.02");
+
+    let report = report_between(
+        &fixture.service,
+        &fixture.actor,
+        OffsetDateTime::now_utc() - time::Duration::days(1),
+        OffsetDateTime::now_utc() + time::Duration::days(1),
+    )
+    .await;
+    assert_eq!(report.sales.subtotal, "0.02");
+    assert_eq!(report.sales.total, "0.02");
+    assert_eq!(report.sales.products.len(), 1);
+    let row = &report.sales.products[0];
+    assert_eq!(row.quantity, "0.5");
+    assert_eq!(row.net, "0.02", "half-up, no truncamiento");
+    assert_eq!(row.tax, "0.00");
+    assert_eq!(row.total, "0.02");
+}
+
+/// Vista auxiliar para comparar importes exactos en las pruebas.
+struct MoneyView(i64);
+
+impl std::str::FromStr for MoneyView {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (units, cents) = value.split_once('.').ok_or(())?;
+        let units: i64 = units.parse().map_err(|_| ())?;
+        let cents: i64 = cents.parse().map_err(|_| ())?;
+        Ok(MoneyView(units * 100 + cents))
+    }
 }

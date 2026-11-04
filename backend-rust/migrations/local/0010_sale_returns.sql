@@ -6,15 +6,20 @@ CREATE TABLE sale_return (
     organization_id TEXT NOT NULL REFERENCES organization(id),
     branch_id TEXT NOT NULL REFERENCES branch(id),
     sale_id TEXT NOT NULL REFERENCES sale(id),
-    shift_id TEXT NOT NULL REFERENCES cash_shift(id),
-    cash_movement_id TEXT NOT NULL UNIQUE REFERENCES cash_movement(id),
+    shift_id TEXT REFERENCES cash_shift(id),
+    cash_movement_id TEXT UNIQUE REFERENCES cash_movement(id),
     operator_id TEXT NOT NULL REFERENCES app_user(id),
     reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
-    refund_total_minor INTEGER NOT NULL CHECK (refund_total_minor > 0),
+    refund_total_minor INTEGER NOT NULL CHECK (refund_total_minor >= 0),
     idempotency_key TEXT NOT NULL,
     request_fingerprint TEXT NOT NULL,
     occurred_at TEXT NOT NULL,
-    UNIQUE (organization_id, idempotency_key)
+    UNIQUE (organization_id, idempotency_key),
+    -- Un reembolso de cero centavos solo restituye inventario y no toca caja.
+    CHECK (
+        (refund_total_minor = 0 AND shift_id IS NULL AND cash_movement_id IS NULL)
+        OR (refund_total_minor > 0 AND shift_id IS NOT NULL AND cash_movement_id IS NOT NULL)
+    )
 );
 
 CREATE INDEX idx_sale_return_org_branch_occurred
@@ -51,8 +56,8 @@ CREATE TRIGGER sale_return_same_scope
 BEFORE INSERT ON sale_return
 WHEN (SELECT branch_id FROM sale WHERE id = NEW.sale_id) <> NEW.branch_id
   OR (SELECT organization_id FROM sale WHERE id = NEW.sale_id) <> NEW.organization_id
-  OR (SELECT branch_id FROM cash_shift WHERE id = NEW.shift_id) <> NEW.branch_id
-  OR (SELECT organization_id FROM cash_shift WHERE id = NEW.shift_id) <> NEW.organization_id
+  OR (NEW.shift_id IS NOT NULL AND (SELECT branch_id FROM cash_shift WHERE id = NEW.shift_id) <> NEW.branch_id)
+  OR (NEW.shift_id IS NOT NULL AND (SELECT organization_id FROM cash_shift WHERE id = NEW.shift_id) <> NEW.organization_id)
 BEGIN SELECT RAISE(ABORT, 'sale_return debe pertenecer a la venta y sucursal'); END;
 
 CREATE TRIGGER sale_return_line_same_sale

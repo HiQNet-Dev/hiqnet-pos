@@ -44,9 +44,11 @@ pub struct SaleReturn {
     pub organization_id: OrganizationId,
     pub branch_id: BranchId,
     pub sale_id: SaleId,
-    /// Turno abierto desde el que se entrega el efectivo del reembolso.
-    pub shift_id: CashShiftId,
-    pub cash_movement_id: CashMovementId,
+    /// Turno abierto desde el que se entrega el efectivo. Es `None` cuando la
+    /// devolución no tiene importe monetario (solo restitución física).
+    pub shift_id: Option<CashShiftId>,
+    /// Salida de caja única. Es `None` cuando el reembolso es de cero centavos.
+    pub cash_movement_id: Option<CashMovementId>,
     pub operator_id: UserId,
     pub reason: String,
     pub refund_total: Money,
@@ -68,24 +70,71 @@ pub struct SaleReturnLine {
     pub inbound_movement_id: Option<InventoryMovementId>,
 }
 
-/// Importe reembolsable de `quantity` unidades según los snapshots de la venta.
+/// Acumulados previos de una partida, necesarios para distribuir el importe
+/// original sin sumar redondeos independientes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RefundBasis {
+    pub returned_quantity: Quantity,
+    pub refunded_net: Money,
+    pub refunded_tax: Money,
+}
+
+impl RefundBasis {
+    pub const EMPTY: RefundBasis = RefundBasis {
+        returned_quantity: Quantity::ZERO,
+        refunded_net: Money::ZERO,
+        refunded_tax: Money::ZERO,
+    };
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LineRefund {
+    pub net: Money,
+    pub tax: Money,
+    pub total: Money,
+}
+
+/// Incremento de reembolso de `quantity` unidades adicionales.
 ///
-/// Los precios unitarios ya están redondeados en la venta original, de modo que
-/// multiplicar por unidades enteras es exacto: la suma de devoluciones parciales
-/// nunca excede la línea y una devolución completa cuadra al centavo.
-pub fn refund_for_quantity(
+/// Política acumulativa: el importe se calcula redondeando (half-up, la misma
+/// regla que la venta) el importe correspondiente a la cantidad **acumulada**
+/// devuelta y se resta lo ya reembolsado. Así:
+///
+/// - la suma de incrementos nunca excede el importe original de la línea;
+/// - devolver toda la cantidad cuadra exactamente con el importe vendido;
+/// - varias devoluciones parciales dan el mismo total que una sola;
+/// - el cálculo de vista previa y el transaccional son idénticos.
+///
+/// Un incremento puede ser de cero centavos (por ejemplo cantidades muy
+/// pequeñas de productos baratos); en ese caso se permite la restitución física
+/// sin movimiento de caja ficticio.
+pub fn refund_increment(
     item: &SaleItem,
+    basis: &RefundBasis,
     quantity: Quantity,
-) -> DomainResult<(Money, Money, Money)> {
+) -> DomainResult<LineRefund> {
     if quantity.is_zero() {
         return Err(DomainError::NegativeQuantity);
     }
-    if quantity.milli_units() > item.quantity.milli_units() {
-        return Err(DomainError::NegativeQuantity);
+    let total_quantity = basis.returned_quantity.checked_add(quantity)?;
+    if total_quantity.milli_units() > item.quantity.milli_units() {
+        return Err(DomainError::ReturnExceedsSale);
     }
-    let net = item.unit_price.multiply_by(quantity)?;
-    let tax = item.unit_tax.multiply_by(quantity)?;
-    Ok((net, tax, net.checked_add(tax)?))
+    let cumulative_net = item.unit_price.multiply_by(total_quantity)?;
+    let cumulative_tax = item.unit_tax.multiply_by(total_quantity)?;
+    if basis.refunded_net.minor_units() > cumulative_net.minor_units()
+        || basis.refunded_tax.minor_units() > cumulative_tax.minor_units()
+    {
+        // Los datos previos ya superan el importe vendido: nunca reembolsar más.
+        return Err(DomainError::ReturnExceedsSale);
+    }
+    let net = cumulative_net.checked_sub(basis.refunded_net)?;
+    let tax = cumulative_tax.checked_sub(basis.refunded_tax)?;
+    Ok(LineRefund {
+        net,
+        tax,
+        total: net.checked_add(tax)?,
+    })
 }
 
 #[cfg(test)]
@@ -109,23 +158,82 @@ mod tests {
         }
     }
 
+    fn quantity(value: &str) -> Quantity {
+        value.parse().unwrap()
+    }
+
     #[test]
-    fn devoluciones_parciales_suman_exactamente_la_linea() {
+    fn devoluciones_enteras_suman_exactamente_la_linea() {
         let item = item("3", 1400, 224);
-        let (net_a, tax_a, total_a) = refund_for_quantity(&item, "1".parse().unwrap()).unwrap();
-        let (_net_b, _tax_b, total_b) = refund_for_quantity(&item, "2".parse().unwrap()).unwrap();
-        assert_eq!((net_a.minor_units(), tax_a.minor_units()), (1400, 224));
-        assert_eq!(total_a.minor_units(), 1624);
-        assert_eq!(total_b.minor_units(), 3248);
-        assert_eq!(
-            total_a.minor_units() + total_b.minor_units(),
-            item.unit_price.minor_units() * 3 + item.unit_tax.minor_units() * 3
-        );
+        let first = refund_increment(&item, &RefundBasis::EMPTY, quantity("1")).unwrap();
+        assert_eq!(first.total.minor_units(), 1624);
+        let basis = RefundBasis {
+            returned_quantity: quantity("1"),
+            refunded_net: first.net,
+            refunded_tax: first.tax,
+        };
+        let second = refund_increment(&item, &basis, quantity("2")).unwrap();
+        assert_eq!(second.total.minor_units(), 3248);
+        assert_eq!(first.total.minor_units() + second.total.minor_units(), 4872);
     }
 
     #[test]
     fn no_permite_devolver_mas_de_lo_vendido_en_la_linea() {
         let item = item("2", 1000, 0);
-        assert!(refund_for_quantity(&item, "3".parse().unwrap()).is_err());
+        assert_eq!(
+            refund_increment(&item, &RefundBasis::EMPTY, quantity("3")),
+            Err(DomainError::ReturnExceedsSale)
+        );
+    }
+
+    #[test]
+    fn importe_acumulado_no_supera_la_linea_con_fracciones() {
+        // 3 unidades de $0.01: la línea vale $0.03.
+        let item = item("3", 1, 0);
+        let mut basis = RefundBasis::EMPTY;
+        let mut total = 0_i64;
+        for _ in 0..6 {
+            let step = refund_increment(&item, &basis, quantity("0.5")).unwrap();
+            total += step.total.minor_units();
+            basis = RefundBasis {
+                returned_quantity: basis
+                    .returned_quantity
+                    .checked_add(quantity("0.5"))
+                    .unwrap(),
+                refunded_net: basis.refunded_net.checked_add(step.net).unwrap(),
+                refunded_tax: basis.refunded_tax.checked_add(step.tax).unwrap(),
+            };
+        }
+        assert_eq!(total, 3, "el acumulado debe cuadrar con la línea");
+    }
+
+    #[test]
+    fn incremento_cero_es_valido_y_no_altera_el_acumulado() {
+        let item = item("1", 1, 0);
+        let first = refund_increment(&item, &RefundBasis::EMPTY, quantity("0.001")).unwrap();
+        assert_eq!(first.total.minor_units(), 0);
+        let basis = RefundBasis {
+            returned_quantity: quantity("0.001"),
+            refunded_net: first.net,
+            refunded_tax: first.tax,
+        };
+        let rest = refund_increment(&item, &basis, quantity("0.999")).unwrap();
+        assert_eq!(rest.total.minor_units(), 1);
+        assert_eq!(first.total.minor_units() + rest.total.minor_units(), 1);
+    }
+
+    #[test]
+    fn devoluciones_parciales_no_cambian_el_total_final() {
+        let item = item("0.5", 3, 0); // línea = round(0.015) = 0.02
+        let first = refund_increment(&item, &RefundBasis::EMPTY, quantity("0.25")).unwrap();
+        assert_eq!(first.total.minor_units(), 1);
+        let basis = RefundBasis {
+            returned_quantity: quantity("0.25"),
+            refunded_net: first.net,
+            refunded_tax: first.tax,
+        };
+        let second = refund_increment(&item, &basis, quantity("0.25")).unwrap();
+        assert_eq!(second.total.minor_units(), 1);
+        assert_eq!(first.total.minor_units() + second.total.minor_units(), 2);
     }
 }

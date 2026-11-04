@@ -87,6 +87,15 @@ pub struct InventoryReportTotals {
     pub adjustment_out_milli: i64,
 }
 
+/// Acumulados ya devueltos de una partida, usados para distribuir el importe
+/// original sin sumar redondeos independientes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReturnedTotals {
+    pub quantity_milli: i64,
+    pub net_minor: i64,
+    pub tax_minor: i64,
+}
+
 /// Estado persistido de la instalación local y su licencia comercial.
 #[derive(Debug, Clone, Serialize)]
 pub struct InstallationState {
@@ -365,12 +374,12 @@ pub trait StoreTx: Send {
         branch_id: BranchId,
         folio: &str,
     ) -> AppResult<Option<Sale>>;
-    /// Cantidad ya devuelta de una partida, sumando todas sus devoluciones.
-    async fn returned_quantity(
+    /// Cantidad y montos ya devueltos de una partida, sumando sus devoluciones.
+    async fn returned_totals(
         &mut self,
         organization_id: OrganizationId,
         sale_item_id: pos_core::ids::SaleItemId,
-    ) -> AppResult<pos_core::quantity::Quantity>;
+    ) -> AppResult<ReturnedTotals>;
     /// Inserta la cabecera; `false` indica que la clave ya existía y se debe recuperar.
     async fn insert_sale_return(&mut self, value: &SaleReturn) -> AppResult<bool>;
     async fn insert_sale_return_line(&mut self, line: &SaleReturnLine) -> AppResult<()>;

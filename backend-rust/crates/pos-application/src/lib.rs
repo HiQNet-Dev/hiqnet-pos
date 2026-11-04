@@ -11,8 +11,8 @@ pub use error::{AppError, AppResult, ErrorView};
 pub use ports::{
     CashReportTotals, Clock, ExpenseCategoryReportRow, ExpensesReportTotals, InstallationState,
     InventoryReportTotals, LicenseVerifier, PasswordHasher, ProductSalesReportRow,
-    PurchasesReportTotals, ReturnsReportTotals, SalesReportTotals, SharedClock, SharedHasher,
-    SharedStore, Store, StoreTx, SystemClock,
+    PurchasesReportTotals, ReturnedTotals, ReturnsReportTotals, SalesReportTotals, SharedClock,
+    SharedHasher, SharedStore, Store, StoreTx, SystemClock,
 };
 pub use service::{
     AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, BranchView,

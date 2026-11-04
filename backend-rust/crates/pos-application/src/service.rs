@@ -21,7 +21,9 @@ use pos_core::purchasing::{
     PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus, PurchaseReceipt, Supplier,
 };
 use pos_core::quantity::Quantity;
-use pos_core::returns::{ReturnDisposition, SaleReturn, SaleReturnLine, refund_for_quantity};
+use pos_core::returns::{
+    RefundBasis, ReturnDisposition, SaleReturn, SaleReturnLine, refund_increment,
+};
 use pos_core::sales::{Sale, SaleItem, SalePayment, SaleStatus, validate_payment};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -620,7 +622,8 @@ pub struct SaleReturnLineDraft {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SaleReturnDraft {
     pub sale_id: String,
-    pub shift_id: String,
+    /// Turno de reembolso. Puede faltar cuando la devolución no mueve efectivo.
+    pub shift_id: Option<String>,
     pub reason: String,
     pub idempotency_key: String,
     pub lines: Vec<SaleReturnLineDraft>,
@@ -1919,7 +1922,7 @@ impl PosService {
             actor.organization_id,
             open_shift.id,
             actor.user_id,
-            OffsetDateTime::now_utc(),
+            self.clock.now(),
             expected,
             counted,
             difference_minor,
@@ -2208,7 +2211,7 @@ impl PosService {
             }
         }
 
-        let occurred_at = OffsetDateTime::now_utc();
+        let occurred_at = self.clock.now();
         let sale = Sale {
             id: sale_id,
             organization_id: actor.organization_id,
@@ -3014,15 +3017,15 @@ impl PosService {
         let items = tx.list_sale_items(actor.organization_id, sale.id).await?;
         let mut views = Vec::new();
         for item in &items {
-            let returned = tx.returned_quantity(actor.organization_id, item.id).await?;
-            let returnable_milli = (item.quantity.milli_units() - returned.milli_units()).max(0);
+            let totals = tx.returned_totals(actor.organization_id, item.id).await?;
+            let returnable_milli = (item.quantity.milli_units() - totals.quantity_milli).max(0);
             views.push(ReturnableSaleItemView {
                 id: item.id.to_string(),
                 product_name: item.product_name.clone(),
                 variant_name: item.variant_name.clone(),
                 modifiers_summary: item.modifiers_summary.clone(),
                 quantity: item.quantity.to_string(),
-                returned_quantity: returned.to_string(),
+                returned_quantity: Quantity::from_milli_units(totals.quantity_milli)?.to_string(),
                 returnable_quantity: Quantity::from_milli_units(returnable_milli)?.to_string(),
                 unit_refund: item.unit_price.checked_add(item.unit_tax)?.to_string(),
             });
@@ -3104,7 +3107,6 @@ impl PosService {
         }
         let sale_id: pos_core::ids::SaleId =
             draft.sale_id.parse().map_err(|_| AppError::NotFound)?;
-        let shift_id: CashShiftId = draft.shift_id.parse().map_err(|_| AppError::NotFound)?;
         let fingerprint = sale_return_fingerprint(&draft, &reason)?;
         let mut tx = self.store.begin().await?;
         if let Some(existing) = tx
@@ -3142,13 +3144,6 @@ impl PosService {
         if sale.branch_id != branch_id {
             return Err(AppError::NotFound);
         }
-        let shift = tx
-            .find_cash_shift(actor.organization_id, shift_id)
-            .await?
-            .ok_or(AppError::NotFound)?;
-        if shift.status != CashShiftStatus::Open || shift.branch_id != branch_id {
-            return Err(AppError::Conflict);
-        }
         let items = tx.list_sale_items(actor.organization_id, sale_id).await?;
         let resolved =
             resolve_return_lines(tx.as_mut(), actor.organization_id, &items, &draft.lines).await?;
@@ -3156,35 +3151,53 @@ impl PosService {
         for line in &resolved {
             refund_total = refund_total.checked_add(line.total)?;
         }
-        if refund_total == Money::ZERO {
-            return Err(AppError::InvalidRequest);
-        }
-        let expected = expected_amount(
-            &shift,
-            &tx.list_cash_movements(actor.organization_id, shift.id)
-                .await?,
-        )?;
-        if expected.minor_units() < refund_total.minor_units() {
-            return Err(pos_core::DomainError::InsufficientCash.into());
-        }
-        let movement = CashMovement::new(
-            actor.organization_id,
-            branch_id,
-            shift.register_id,
-            shift.id,
-            CashMovementKind::Out,
-            refund_total,
-            format!("devolución {}", sale.folio),
-            Some(actor.user_id),
-        )?;
-        tx.insert_cash_movement(&movement).await?;
+        // Un reembolso de cero centavos solo restituye inventario: no exige turno
+        // abierto ni crea un movimiento de caja ficticio.
+        let (shift_id, cash_movement_id) = if refund_total.minor_units() > 0 {
+            let raw_shift = draft
+                .shift_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or(AppError::InvalidRequest)?;
+            let shift_id: CashShiftId = raw_shift.parse().map_err(|_| AppError::NotFound)?;
+            let shift = tx
+                .find_cash_shift(actor.organization_id, shift_id)
+                .await?
+                .ok_or(AppError::NotFound)?;
+            if shift.status != CashShiftStatus::Open || shift.branch_id != branch_id {
+                return Err(AppError::Conflict);
+            }
+            let expected = expected_amount(
+                &shift,
+                &tx.list_cash_movements(actor.organization_id, shift.id)
+                    .await?,
+            )?;
+            if expected.minor_units() < refund_total.minor_units() {
+                return Err(pos_core::DomainError::InsufficientCash.into());
+            }
+            let movement = CashMovement::new(
+                actor.organization_id,
+                branch_id,
+                shift.register_id,
+                shift.id,
+                CashMovementKind::Out,
+                refund_total,
+                format!("devolución {}", sale.folio),
+                Some(actor.user_id),
+            )?;
+            tx.insert_cash_movement(&movement).await?;
+            (Some(shift.id), Some(movement.id))
+        } else {
+            (None, None)
+        };
         let return_entity = SaleReturn {
             id: pos_core::ids::SaleReturnId::new(),
             organization_id: actor.organization_id,
             branch_id,
             sale_id,
-            shift_id: shift.id,
-            cash_movement_id: movement.id,
+            shift_id,
+            cash_movement_id,
             operator_id: actor.user_id,
             reason: reason.clone(),
             refund_total,
@@ -3252,7 +3265,7 @@ impl PosService {
                 "sale_folio": sale.folio,
                 "refund": refund_total.to_string(),
                 "lines": resolved.len(),
-                "shift_id": shift.id.to_string(),
+                "shift_id": shift_id.map(|id| id.to_string()),
             }),
         ))
         .await?;
@@ -3328,8 +3341,10 @@ impl PosService {
 
         let returned_total =
             Money::from_minor_units(returns.total_minor).map_err(AppError::Domain)?;
-        let gross_total = Money::from_minor_units(sales.total_minor).map_err(AppError::Domain)?;
-        let net_total = gross_total.checked_sub(returned_total)?;
+        let net_minor = sales
+            .total_minor
+            .checked_sub(returns.total_minor)
+            .ok_or(AppError::Storage)?;
         Ok(ReportsView {
             from,
             to,
@@ -3340,7 +3355,7 @@ impl PosService {
                 total: money_minor(sales.total_minor)?,
                 returned_count: returns.count,
                 returned_total: returned_total.to_string(),
-                net_total: net_total.to_string(),
+                net_total: signed_money_minor(net_minor),
                 products: by_product
                     .into_iter()
                     .map(|row| {
@@ -3362,7 +3377,7 @@ impl PosService {
                 exits: money_minor(cash.exits_minor)?,
                 expenses_from_cash: money_minor(cash.expenses_from_cash_minor)?,
                 refunds: money_minor(cash.refunds_minor)?,
-                difference: money_minor(cash.difference_minor)?,
+                difference: signed_money_minor(cash.difference_minor),
             },
             purchases: ReportsPurchasesView {
                 orders_created: purchases.orders_created,
@@ -3445,19 +3460,24 @@ async fn resolve_return_lines(
             .iter()
             .find(|item| item.id == item_id)
             .ok_or(AppError::NotFound)?;
-        let returned = tx.returned_quantity(organization_id, item_id).await?;
-        let remaining = item.quantity.milli_units() - returned.milli_units();
+        let totals = tx.returned_totals(organization_id, item_id).await?;
+        let remaining = item.quantity.milli_units() - totals.quantity_milli;
         if remaining < 0 || quantity.milli_units() > remaining {
             return Err(AppError::Conflict);
         }
-        let (net, tax, total) = refund_for_quantity(item, quantity)?;
+        let basis = RefundBasis {
+            returned_quantity: Quantity::from_milli_units(totals.quantity_milli)?,
+            refunded_net: Money::from_minor_units(totals.net_minor).map_err(AppError::Domain)?,
+            refunded_tax: Money::from_minor_units(totals.tax_minor).map_err(AppError::Domain)?,
+        };
+        let refund = refund_increment(item, &basis, quantity)?;
         resolved.push(ResolvedReturnLine {
             item: item.clone(),
             quantity,
             disposition,
-            net,
-            tax,
-            total,
+            net: refund.net,
+            tax: refund.tax,
+            total: refund.total,
         });
     }
     Ok(resolved)
@@ -3480,7 +3500,7 @@ fn sale_return_fingerprint(draft: &SaleReturnDraft, reason: &str) -> AppResult<S
     Ok(format!(
         "{}|{}|{reason}|{}",
         draft.sale_id.trim(),
-        draft.shift_id.trim(),
+        draft.shift_id.as_deref().unwrap_or("").trim(),
         rows.join(",")
     ))
 }
@@ -3526,6 +3546,14 @@ fn money_minor(value: i64) -> AppResult<String> {
     Ok(Money::from_minor_units(value)
         .map_err(AppError::Domain)?
         .to_string())
+}
+
+/// Métrica firmada del período (ventas netas, diferencias de arqueo).
+/// `Money` sigue siendo no negativo para cobros y reembolsos.
+fn signed_money_minor(value: i64) -> String {
+    let sign = if value < 0 { "-" } else { "" };
+    let absolute = value.unsigned_abs();
+    format!("{sign}{}.{:02}", absolute / 100, absolute % 100)
 }
 
 fn expense_view(expense: Expense) -> ExpenseView {

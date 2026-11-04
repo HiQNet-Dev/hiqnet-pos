@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use pos_application::{
     AppError, AppResult, CashReportTotals, ExpenseCategoryReportRow, ExpensesReportTotals,
     InstallationState, InventoryReportTotals, ProductSalesReportRow, PurchasesReportTotals,
-    ReturnsReportTotals, SalesReportTotals, Store, StoreTx,
+    ReturnedTotals, ReturnsReportTotals, SalesReportTotals, Store, StoreTx,
 };
 use pos_core::audit::{AuditAction, AuditEvent};
 use pos_core::cash::{CashMovement, CashRegister, CashShift, CashShiftStatus};
@@ -789,20 +789,24 @@ impl StoreTx for SqliteTx {
         row.map(|row| sale_from_row(&row)).transpose()
     }
 
-    async fn returned_quantity(
+    async fn returned_totals(
         &mut self,
         organization_id: OrganizationId,
         sale_item_id: pos_core::ids::SaleItemId,
-    ) -> AppResult<Quantity> {
-        let value: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(SUM(line.quantity_milli), 0) FROM sale_return_line line JOIN sale_return ret ON ret.id = line.return_id WHERE ret.organization_id = ? AND line.sale_item_id = ?",
+    ) -> AppResult<ReturnedTotals> {
+        let row = sqlx::query(
+            "SELECT COALESCE(SUM(line.quantity_milli), 0) AS quantity, COALESCE(SUM(line.refund_net_minor), 0) AS net, COALESCE(SUM(line.refund_tax_minor), 0) AS tax FROM sale_return_line line JOIN sale_return ret ON ret.id = line.return_id WHERE ret.organization_id = ? AND line.sale_item_id = ?",
         )
         .bind(organization_id.to_string())
         .bind(sale_item_id.to_string())
         .fetch_one(&mut **self.tx()?)
         .await
         .map_err(map_sqlx)?;
-        Quantity::from_milli_units(value).map_err(AppError::Domain)
+        Ok(ReturnedTotals {
+            quantity_milli: row.get("quantity"),
+            net_minor: row.get("net"),
+            tax_minor: row.get("tax"),
+        })
     }
 
     async fn insert_sale_return(&mut self, value: &SaleReturn) -> AppResult<bool> {
@@ -813,8 +817,8 @@ impl StoreTx for SqliteTx {
         .bind(value.organization_id.to_string())
         .bind(value.branch_id.to_string())
         .bind(value.sale_id.to_string())
-        .bind(value.shift_id.to_string())
-        .bind(value.cash_movement_id.to_string())
+        .bind(value.shift_id.map(|id| id.to_string()))
+        .bind(value.cash_movement_id.map(|id| id.to_string()))
         .bind(value.operator_id.to_string())
         .bind(&value.reason)
         .bind(value.refund_total.minor_units())
@@ -929,7 +933,7 @@ impl StoreTx for SqliteTx {
         to: OffsetDateTime,
     ) -> AppResult<Vec<ProductSalesReportRow>> {
         let rows = sqlx::query(
-            "SELECT item.product_id AS product_id, item.product_name AS product_name, SUM(item.quantity_milli) AS quantity, SUM(item.unit_price_minor * item.quantity_milli / 1000) AS net, SUM(item.unit_tax_minor * item.quantity_milli / 1000) AS tax, SUM(item.line_total_minor) AS total FROM sale_item item JOIN sale ON sale.id = item.sale_id WHERE sale.organization_id = ? AND sale.branch_id = ? AND julianday(sale.occurred_at) >= julianday(?) AND julianday(sale.occurred_at) < julianday(?) GROUP BY item.product_id, item.product_name ORDER BY net DESC",
+            "SELECT item.product_id AS product_id, item.product_name AS product_name, SUM(item.quantity_milli) AS quantity, SUM((item.unit_price_minor * item.quantity_milli + 500) / 1000) AS net, SUM((item.unit_tax_minor * item.quantity_milli + 500) / 1000) AS tax, SUM(item.line_total_minor) AS total FROM sale_item item JOIN sale ON sale.id = item.sale_id WHERE sale.organization_id = ? AND sale.branch_id = ? AND julianday(sale.occurred_at) >= julianday(?) AND julianday(sale.occurred_at) < julianday(?) GROUP BY item.product_id, item.product_name ORDER BY net DESC",
         )
         .bind(organization_id.to_string())
         .bind(branch_id.to_string())
@@ -1087,7 +1091,7 @@ impl StoreTx for SqliteTx {
         .await
         .map_err(map_sqlx)?;
         let row = sqlx::query(
-            "SELECT COALESCE(SUM(line.quantity_milli), 0) AS quantity, COALESCE(SUM(order_line.unit_cost_minor * line.quantity_milli / 1000), 0) AS cost FROM purchase_receipt_line line JOIN purchase_receipt receipt ON receipt.id = line.receipt_id JOIN purchase_order_line order_line ON order_line.id = line.order_line_id WHERE receipt.organization_id = ? AND receipt.branch_id = ? AND julianday(receipt.received_at) >= julianday(?) AND julianday(receipt.received_at) < julianday(?)",
+            "SELECT COALESCE(SUM(line.quantity_milli), 0) AS quantity, COALESCE(SUM((order_line.unit_cost_minor * line.quantity_milli + 500) / 1000), 0) AS cost FROM purchase_receipt_line line JOIN purchase_receipt receipt ON receipt.id = line.receipt_id JOIN purchase_order_line order_line ON order_line.id = line.order_line_id WHERE receipt.organization_id = ? AND receipt.branch_id = ? AND julianday(receipt.received_at) >= julianday(?) AND julianday(receipt.received_at) < julianday(?)",
         )
         .bind(&organization)
         .bind(&branch)
@@ -2135,8 +2139,8 @@ fn sale_return_from_row(row: sqlx::sqlite::SqliteRow) -> AppResult<SaleReturn> {
         organization_id: parse_id(row.get("organization_id"))?,
         branch_id: parse_id(row.get("branch_id"))?,
         sale_id: parse_id(row.get("sale_id"))?,
-        shift_id: parse_id(row.get("shift_id"))?,
-        cash_movement_id: parse_id(row.get("cash_movement_id"))?,
+        shift_id: parse_optional_id(row.get("shift_id"))?,
+        cash_movement_id: parse_optional_id(row.get("cash_movement_id"))?,
         operator_id: parse_id(row.get("operator_id"))?,
         reason: row.get("reason"),
         refund_total: Money::from_minor_units(row.get("refund_total_minor"))

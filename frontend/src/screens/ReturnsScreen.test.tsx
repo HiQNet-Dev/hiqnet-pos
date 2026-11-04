@@ -190,6 +190,25 @@ describe("ReturnsScreen", () => {
     expect(screen.getByText(/abre un turno de caja/i)).toBeVisible();
   });
 
+  it("permite restituir inventario sin turno cuando el reembolso es de cero", async () => {
+    api.previewSaleReturn.mockResolvedValueOnce({
+      refund_total: "0.00",
+      lines: [{ sale_item_id: "item-1", quantity: "0.001", refund_total: "0.00" }],
+    });
+    api.createSaleReturn.mockResolvedValueOnce({ ...created, refund_total: "0.00" });
+    renderScreen({ shift: null });
+    const user = userEvent.setup();
+    await prepareReturn(user);
+    expect(screen.getByRole("button", { name: /confirmar devolución/i })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /calcular reembolso/i }));
+    expect(await screen.findByText(/solo se restituirá inventario/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: /confirmar devolución/i })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: /confirmar devolución/i }));
+    await waitFor(() => expect(api.createSaleReturn).toHaveBeenCalledTimes(1));
+    const draft = api.createSaleReturn.mock.calls[0]?.[0] as SaleReturnDraft;
+    expect(draft.shift_id).toBeUndefined();
+  });
+
   it("conserva el intento incierto al navegar y lo reintenta igual", async () => {
     const { IpcError } = await import("../api");
     api.createSaleReturn

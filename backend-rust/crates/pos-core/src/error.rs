@@ -97,6 +97,9 @@ pub enum DomainError {
 
     #[error("la versión de autorización comercial no es compatible")]
     UnsupportedLicenseVersion,
+
+    #[error("la devolución excede la cantidad o el importe vendido")]
+    ReturnExceedsSale,
 }
 
 pub type DomainResult<T> = Result<T, DomainError>;
