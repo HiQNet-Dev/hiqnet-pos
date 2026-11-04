@@ -3,8 +3,11 @@ use async_trait::async_trait;
 use pos_core::audit::AuditEvent;
 use pos_core::cash::{CashMovement, CashRegister, CashShift};
 use pos_core::catalog::{Category, Product, ProductVariant};
+use pos_core::expenses::{Expense, ExpenseCategory, WasteRecord};
 use pos_core::identity::User;
-use pos_core::ids::{BranchId, CategoryId, InstallationId, OrganizationId, ProductId, UserId};
+use pos_core::ids::{
+    BranchId, CategoryId, ExpenseCategoryId, InstallationId, OrganizationId, ProductId, UserId,
+};
 use pos_core::inventory::InventoryMovement;
 use pos_core::modifiers::{ModifierGroup, ModifierOption};
 use pos_core::money::Money;
@@ -252,6 +255,39 @@ pub trait StoreTx: Send {
         )],
         status: pos_core::purchasing::PurchaseOrderStatus,
     ) -> AppResult<()>;
+
+    async fn insert_expense_category(&mut self, category: &ExpenseCategory) -> AppResult<()>;
+    async fn list_expense_categories(
+        &mut self,
+        organization_id: OrganizationId,
+    ) -> AppResult<Vec<ExpenseCategory>>;
+    async fn find_expense_category(
+        &mut self,
+        organization_id: OrganizationId,
+        category_id: ExpenseCategoryId,
+    ) -> AppResult<Option<ExpenseCategory>>;
+    async fn find_expense_by_idempotency(
+        &mut self,
+        organization_id: OrganizationId,
+        idempotency_key: &str,
+    ) -> AppResult<Option<Expense>>;
+    async fn insert_expense(&mut self, expense: &Expense) -> AppResult<bool>;
+    async fn list_expenses(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Vec<Expense>>;
+    async fn find_waste_by_idempotency(
+        &mut self,
+        organization_id: OrganizationId,
+        idempotency_key: &str,
+    ) -> AppResult<Option<WasteRecord>>;
+    async fn insert_waste(&mut self, waste: &WasteRecord) -> AppResult<bool>;
+    async fn list_waste(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Vec<WasteRecord>>;
 
     async fn insert_inventory_movement(&mut self, movement: &InventoryMovement) -> AppResult<()>;
     async fn current_stock(

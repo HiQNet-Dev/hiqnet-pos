@@ -1,10 +1,10 @@
-//! La migración 0008 debe actualizar una instalación que ya alcanzó 0007.
+//! Las migraciones 0008 y 0009 deben actualizar una instalación que ya alcanzó 0007.
 
 use sqlx::Row;
 use sqlx::sqlite::SqlitePoolOptions;
 
 #[tokio::test]
-async fn actualiza_0007_a_0008_y_conserva_el_esquema_previo() {
+async fn actualiza_0007_a_0009_y_conserva_el_esquema_previo() {
     let dir = tempfile::tempdir().unwrap();
     let migrations = dir.path().join("migrations");
     std::fs::create_dir_all(&migrations).unwrap();
@@ -42,13 +42,16 @@ async fn actualiza_0007_a_0008_y_conserva_el_esquema_previo() {
         .await
         .unwrap()
         .get("total");
-    assert_eq!(migrations, 8);
+    assert_eq!(migrations, 9);
     for table in [
         "organization",
         "sale",
         "supplier",
         "purchase_order",
         "purchase_receipt",
+        "expense_category",
+        "expense",
+        "waste_record",
     ] {
         let exists: i64 = sqlx::query(
             "SELECT COUNT(*) AS total FROM sqlite_master WHERE type = 'table' AND name = ?",

@@ -3,10 +3,11 @@ use pos_application::{AppError, AppResult, InstallationState, Store, StoreTx};
 use pos_core::audit::{AuditAction, AuditEvent};
 use pos_core::cash::{CashMovement, CashRegister, CashShift, CashShiftStatus};
 use pos_core::catalog::{Category, Product, ProductVariant};
+use pos_core::expenses::{Expense, ExpenseCategory, WasteRecord};
 use pos_core::identity::{Role, User};
 use pos_core::ids::{
-    AuditEventId, BranchId, CategoryId, OrganizationId, ProductId, PurchaseOrderId,
-    PurchaseOrderLineId, PurchaseReceiptId, SupplierId, UserId,
+    AuditEventId, BranchId, CategoryId, ExpenseCategoryId, ExpenseId, OrganizationId, ProductId,
+    PurchaseOrderId, PurchaseOrderLineId, PurchaseReceiptId, SupplierId, UserId, WasteId,
 };
 use pos_core::inventory::InventoryMovement;
 use pos_core::inventory::MovementKind;
@@ -687,6 +688,81 @@ impl StoreTx for SqliteTx {
             .await
             .map_err(map_sqlx)?;
         Ok(())
+    }
+
+    async fn insert_expense_category(&mut self, category: &ExpenseCategory) -> AppResult<()> {
+        sqlx::query("INSERT INTO expense_category (id, organization_id, name, active, created_at) VALUES (?, ?, ?, ?, ?)")
+            .bind(category.id.to_string()).bind(category.organization_id.to_string()).bind(&category.name).bind(i64::from(category.active)).bind(format_ts(category.created_at))
+            .execute(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn list_expense_categories(
+        &mut self,
+        organization_id: OrganizationId,
+    ) -> AppResult<Vec<ExpenseCategory>> {
+        let rows = sqlx::query("SELECT id, organization_id, name, active, created_at FROM expense_category WHERE organization_id = ? ORDER BY name COLLATE NOCASE")
+            .bind(organization_id.to_string()).fetch_all(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        rows.into_iter().map(expense_category_from_row).collect()
+    }
+
+    async fn find_expense_category(
+        &mut self,
+        organization_id: OrganizationId,
+        category_id: ExpenseCategoryId,
+    ) -> AppResult<Option<ExpenseCategory>> {
+        sqlx::query("SELECT id, organization_id, name, active, created_at FROM expense_category WHERE organization_id = ? AND id = ?")
+            .bind(organization_id.to_string()).bind(category_id.to_string()).fetch_optional(&mut **self.tx()?).await.map_err(map_sqlx)?.map(expense_category_from_row).transpose()
+    }
+
+    async fn find_expense_by_idempotency(
+        &mut self,
+        organization_id: OrganizationId,
+        idempotency_key: &str,
+    ) -> AppResult<Option<Expense>> {
+        sqlx::query("SELECT id, organization_id, branch_id, category_id, amount_minor, concept, cash_shift_id, cash_movement_id, idempotency_key, request_fingerprint, created_by, occurred_at FROM expense WHERE organization_id = ? AND idempotency_key = ?")
+            .bind(organization_id.to_string()).bind(idempotency_key).fetch_optional(&mut **self.tx()?).await.map_err(map_sqlx)?.map(expense_from_row).transpose()
+    }
+
+    async fn insert_expense(&mut self, expense: &Expense) -> AppResult<bool> {
+        let result = sqlx::query("INSERT INTO expense (id, organization_id, branch_id, category_id, amount_minor, concept, cash_shift_id, cash_movement_id, idempotency_key, request_fingerprint, created_by, occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (organization_id, idempotency_key) DO NOTHING")
+            .bind(expense.id.to_string()).bind(expense.organization_id.to_string()).bind(expense.branch_id.to_string()).bind(expense.category_id.to_string()).bind(expense.amount.minor_units()).bind(&expense.concept).bind(expense.cash_shift_id.map(|id| id.to_string())).bind(expense.cash_movement_id.map(|id| id.to_string())).bind(&expense.idempotency_key).bind(&expense.request_fingerprint).bind(expense.created_by.to_string()).bind(format_ts(expense.occurred_at)).execute(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    async fn list_expenses(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Vec<Expense>> {
+        let rows = sqlx::query("SELECT id, organization_id, branch_id, category_id, amount_minor, concept, cash_shift_id, cash_movement_id, idempotency_key, request_fingerprint, created_by, occurred_at FROM expense WHERE organization_id = ? AND branch_id = ? ORDER BY occurred_at DESC")
+            .bind(organization_id.to_string()).bind(branch_id.to_string()).fetch_all(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        rows.into_iter().map(expense_from_row).collect()
+    }
+
+    async fn find_waste_by_idempotency(
+        &mut self,
+        organization_id: OrganizationId,
+        idempotency_key: &str,
+    ) -> AppResult<Option<WasteRecord>> {
+        sqlx::query("SELECT id, organization_id, branch_id, product_id, quantity_milli, reason, inventory_movement_id, idempotency_key, request_fingerprint, created_by, occurred_at FROM waste_record WHERE organization_id = ? AND idempotency_key = ?")
+            .bind(organization_id.to_string()).bind(idempotency_key).fetch_optional(&mut **self.tx()?).await.map_err(map_sqlx)?.map(waste_from_row).transpose()
+    }
+
+    async fn insert_waste(&mut self, waste: &WasteRecord) -> AppResult<bool> {
+        let result = sqlx::query("INSERT INTO waste_record (id, organization_id, branch_id, product_id, quantity_milli, reason, inventory_movement_id, idempotency_key, request_fingerprint, created_by, occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (organization_id, idempotency_key) DO NOTHING")
+            .bind(waste.id.to_string()).bind(waste.organization_id.to_string()).bind(waste.branch_id.to_string()).bind(waste.product_id.to_string()).bind(waste.quantity.milli_units()).bind(&waste.reason).bind(waste.inventory_movement_id.to_string()).bind(&waste.idempotency_key).bind(&waste.request_fingerprint).bind(waste.created_by.to_string()).bind(format_ts(waste.occurred_at)).execute(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    async fn list_waste(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Vec<WasteRecord>> {
+        let rows = sqlx::query("SELECT id, organization_id, branch_id, product_id, quantity_milli, reason, inventory_movement_id, idempotency_key, request_fingerprint, created_by, occurred_at FROM waste_record WHERE organization_id = ? AND branch_id = ? ORDER BY occurred_at DESC")
+            .bind(organization_id.to_string()).bind(branch_id.to_string()).fetch_all(&mut **self.tx()?).await.map_err(map_sqlx)?;
+        rows.into_iter().map(waste_from_row).collect()
     }
 
     async fn insert_inventory_movement(&mut self, movement: &InventoryMovement) -> AppResult<()> {
@@ -1568,6 +1644,55 @@ fn purchase_order_line_from_row(row: sqlx::sqlite::SqliteRow) -> AppResult<Purch
         received_quantity: Quantity::from_milli_units(row.get("received_quantity_milli"))
             .map_err(AppError::Domain)?,
         unit_cost: Money::from_minor_units(row.get("unit_cost_minor")).map_err(AppError::Domain)?,
+    })
+}
+
+fn expense_category_from_row(row: sqlx::sqlite::SqliteRow) -> AppResult<ExpenseCategory> {
+    Ok(ExpenseCategory {
+        id: parse_id(row.get("id"))?,
+        organization_id: parse_id(row.get("organization_id"))?,
+        name: row.get("name"),
+        active: row.get::<i64, _>("active") != 0,
+        created_at: parse_ts(row.get("created_at"))?,
+    })
+}
+
+fn expense_from_row(row: sqlx::sqlite::SqliteRow) -> AppResult<Expense> {
+    Ok(Expense {
+        id: parse_id::<ExpenseId>(row.get("id"))?,
+        organization_id: parse_id(row.get("organization_id"))?,
+        branch_id: parse_id(row.get("branch_id"))?,
+        category_id: parse_id(row.get("category_id"))?,
+        amount: Money::from_minor_units(row.get("amount_minor"))?,
+        concept: row.get("concept"),
+        cash_shift_id: row
+            .get::<Option<String>, _>("cash_shift_id")
+            .map(parse_id)
+            .transpose()?,
+        cash_movement_id: row
+            .get::<Option<String>, _>("cash_movement_id")
+            .map(parse_id)
+            .transpose()?,
+        idempotency_key: row.get("idempotency_key"),
+        request_fingerprint: row.get("request_fingerprint"),
+        created_by: parse_id(row.get("created_by"))?,
+        occurred_at: parse_ts(row.get("occurred_at"))?,
+    })
+}
+
+fn waste_from_row(row: sqlx::sqlite::SqliteRow) -> AppResult<WasteRecord> {
+    Ok(WasteRecord {
+        id: parse_id::<WasteId>(row.get("id"))?,
+        organization_id: parse_id(row.get("organization_id"))?,
+        branch_id: parse_id(row.get("branch_id"))?,
+        product_id: parse_id(row.get("product_id"))?,
+        quantity: Quantity::from_milli_units(row.get("quantity_milli"))?,
+        reason: row.get("reason"),
+        inventory_movement_id: parse_id(row.get("inventory_movement_id"))?,
+        idempotency_key: row.get("idempotency_key"),
+        request_fingerprint: row.get("request_fingerprint"),
+        created_by: parse_id(row.get("created_by"))?,
+        occurred_at: parse_ts(row.get("occurred_at"))?,
     })
 }
 

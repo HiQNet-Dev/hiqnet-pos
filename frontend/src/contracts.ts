@@ -151,6 +151,19 @@ export const stockLevelSchema = z.object({
 export type BranchSummary = z.infer<typeof branchSummarySchema>;
 export type StockLevel = z.infer<typeof stockLevelSchema>;
 
+export const expenseCategorySchema = z.object({ id: z.string(), name: z.string(), active: z.boolean() });
+export const expenseCategoryDraftSchema = z.object({ name: z.string().min(1, "Escribe el nombre de la categoría") });
+export const expenseSchema = z.object({ id: z.string(), category_id: z.string(), amount: z.string(), concept: z.string(), paid_from_cash: z.boolean(), occurred_at: z.string() });
+export const expenseDraftSchema = z.object({ category_id: z.string().min(1, "Selecciona una categoría"), amount: z.string().regex(/^\d+(\.\d{1,2})?$/, "Usa un importe válido"), concept: z.string().min(1, "Escribe el concepto"), paid_from_cash: z.boolean(), shift_id: z.string().nullable().optional(), idempotency_key: z.string().min(1) });
+export const wasteSchema = z.object({ id: z.string(), product_id: z.string(), quantity: z.string(), reason: z.string(), occurred_at: z.string() });
+export const wasteDraftSchema = z.object({ product_id: z.string().min(1, "Selecciona un producto"), quantity: z.string().regex(/^\d+(\.\d{1,3})?$/, "Usa una cantidad válida"), reason: z.string().min(1, "Indica el motivo"), idempotency_key: z.string().min(1) });
+export type ExpenseCategory = z.infer<typeof expenseCategorySchema>;
+export type ExpenseCategoryDraft = z.infer<typeof expenseCategoryDraftSchema>;
+export type Expense = z.infer<typeof expenseSchema>;
+export type ExpenseDraft = z.infer<typeof expenseDraftSchema>;
+export type Waste = z.infer<typeof wasteSchema>;
+export type WasteDraft = z.infer<typeof wasteDraftSchema>;
+
 export const cashRegisterDraftSchema = z.object({
   name: z.string().min(1, "Escribe el nombre de la caja"),
   code: z.string().min(2).max(16),
