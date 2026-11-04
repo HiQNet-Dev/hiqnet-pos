@@ -25,7 +25,7 @@ function formatTimestamp(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("es-MX", {
-    dateStyle: "short",
+    dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
 }
@@ -37,7 +37,8 @@ function formatDuration(from: string, to?: string | null): string {
   const minutes = Math.round((end - start) / 60000);
   if (minutes < 60) return `${minutes} min`;
   const hours = Math.floor(minutes / 60);
-  return `${hours} h ${minutes % 60} min`;
+  const remainder = minutes % 60;
+  return remainder === 0 ? `${hours} h` : `${hours} h ${remainder} min`;
 }
 
 export function CashScreen({
@@ -56,7 +57,12 @@ export function CashScreen({
   const canMove = actor.permissions.includes("cash.movement.record");
 
   const [history, setHistory] = useState<CashShift[]>([]);
-  const [lastClosed, setLastClosed] = useState<CashShift | null>(null);
+  const [lastClosedState, setLastClosedState] = useState<{
+    registerId: string;
+    shift: CashShift;
+  } | null>(null);
+  const lastClosed =
+    lastClosedState?.registerId === registerId ? lastClosedState.shift : null;
   const [registerName, setRegisterName] = useState("");
   const [registerCode, setRegisterCode] = useState("");
   const [openingAmount, setOpeningAmount] = useState("");
@@ -65,7 +71,10 @@ export function CashScreen({
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{
+    tone: "success" | "warning";
+    text: string;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -95,7 +104,10 @@ export function CashScreen({
       setRegisterName("");
       setRegisterCode("");
       onRegisterCreated();
-      setNotice("Caja creada. Registra el fondo inicial para abrir el turno.");
+      setNotice({
+        tone: "success",
+        text: "Caja creada. Registra el fondo inicial para abrir el turno.",
+      });
     } catch (cause) {
       setError(cause instanceof IpcError ? cause.message : "No fue posible crear la caja.");
     } finally {
@@ -111,8 +123,8 @@ export function CashScreen({
     try {
       await api.openCashShift({ register_id: registerId, opening_amount: openingAmount });
       setOpeningAmount("");
-      setLastClosed(null);
-      setNotice("Turno abierto.");
+      setLastClosedState(null);
+      setNotice({ tone: "success", text: "Turno abierto." });
       onShiftChanged();
     } catch (cause) {
       setError(cause instanceof IpcError ? cause.message : "No fue posible abrir el turno.");
@@ -131,7 +143,7 @@ export function CashScreen({
       await api.registerCashMovement(draft);
       setAmount("");
       setReason("");
-      setNotice("Movimiento registrado.");
+      setNotice({ tone: "success", text: "Movimiento registrado." });
       onShiftChanged();
     } catch (cause) {
       setError(
@@ -152,10 +164,13 @@ export function CashScreen({
         shift_id: shift.id,
         counted_amount: countedAmount,
       });
-      setLastClosed(closed);
+      setLastClosedState({ registerId, shift: closed });
       setCountedAmount("");
       setHistory(await api.listCashShiftHistory());
-      setNotice(`Turno cerrado. Diferencia: ${formatDifference(closed.difference_minor)}.`);
+      setNotice({
+        tone: closed.difference_minor === 0 ? "success" : "warning",
+        text: `Turno cerrado. Diferencia: ${formatDifference(closed.difference_minor)}.`,
+      });
       onShiftChanged();
     } catch (cause) {
       setError(cause instanceof IpcError ? cause.message : "No fue posible cerrar el turno.");
@@ -198,7 +213,15 @@ export function CashScreen({
       {(error || notice) && (
         <div aria-live="polite" className="screen-inline-alert">
           {error && <p className="alert alert-error">{error}</p>}
-          {notice && <p className="alert alert-success">{notice}</p>}
+          {notice && (
+            <p
+              className={
+                notice.tone === "warning" ? "alert alert-warning" : "alert alert-success"
+              }
+            >
+              {notice.text}
+            </p>
+          )}
         </div>
       )}
 
@@ -206,7 +229,6 @@ export function CashScreen({
         <section className="surface">
           <header className="surface-header">
             <div>
-              <p className="eyebrow">Configuración inicial</p>
               <h2>Crea la caja principal</h2>
             </div>
           </header>
@@ -228,19 +250,19 @@ export function CashScreen({
                 required
               />
             </label>
-            <button type="submit" className="button button-primary" disabled={busy}>
+            <button type="submit" className="button button-primary" disabled={busy || !registerName.trim() || registerCode.trim().length < 2}>
               Crear caja
             </button>
           </form>
         </section>
       )}
 
-      {registers.length > 0 && !shift && canOpen && !readOnly && (
+      {registers.length > 0 && !shift && canOpen && !readOnly && !lastClosed && (
         <section className="surface attention">
           <header className="surface-header">
             <div>
-              <p className="eyebrow">Apertura</p>
               <h2>Abrir turno</h2>
+              <p className="muted">Registra el fondo inicial para comenzar a cobrar</p>
             </div>
             <span className="badge badge-neutral">
               {register ? `${register.name} · ${register.code}` : "Caja"}
@@ -257,7 +279,7 @@ export function CashScreen({
                 required
               />
             </label>
-            <button type="submit" className="button button-primary" disabled={busy}>
+            <button type="submit" className="button button-primary" disabled={busy || !openingAmount.trim()}>
               Abrir turno
             </button>
           </form>
@@ -273,8 +295,8 @@ export function CashScreen({
             <>
               <header className="surface-header">
                 <div>
-                  <p className="eyebrow">Turno en curso</p>
                   <h2>{register ? `${register.name} · ${register.code}` : "Caja"}</h2>
+                  <p className="muted">Fondo inicial ${shift.opening_amount}</p>
                 </div>
                 <span className="badge badge-success">
                   Abierto hace {formatDuration(shift.opened_at)}
@@ -329,14 +351,14 @@ export function CashScreen({
                       required
                     />
                   </label>
-                  <button type="submit" className="button" disabled={busy}>
+                  <button type="submit" className="button" disabled={busy || !amount.trim() || !reason.trim()}>
                     Registrar
                   </button>
                 </form>
               )}
 
               <div className="movement-list">
-                <p className="eyebrow">Movimientos del turno</p>
+                <h3 className="section-label">Movimientos del turno</h3>
                 {shift.movements.length === 0 ? (
                   <p className="muted">Sin movimientos manuales.</p>
                 ) : (
@@ -366,7 +388,6 @@ export function CashScreen({
               {canClose && !readOnly && (
                 <form className="close-panel" onSubmit={closeShift} noValidate>
                   <div>
-                    <p className="eyebrow">Arqueo</p>
                     <h3>Cerrar turno</h3>
                     <p className="muted">
                       Cuenta el efectivo físico. La diferencia se registra tal cual.
@@ -381,7 +402,7 @@ export function CashScreen({
                       required
                     />
                   </label>
-                  <button type="submit" className="button button-primary" disabled={busy}>
+                  <button type="submit" className="button button-primary" disabled={busy || !countedAmount.trim()}>
                     Cerrar turno
                   </button>
                 </form>
@@ -393,11 +414,19 @@ export function CashScreen({
             <>
               <header className="surface-header">
                 <div>
-                  <p className="eyebrow">Turno cerrado</p>
                   <h2>Resultado del arqueo</h2>
+                  <p className="muted">
+                    Cerrado {formatTimestamp(lastClosed.closed_at ?? lastClosed.opened_at)}
+                  </p>
                 </div>
-                <span className="badge badge-neutral">
-                  {formatTimestamp(lastClosed.closed_at ?? lastClosed.opened_at)}
+                <span
+                  className={
+                    lastClosed.difference_minor === 0
+                      ? "badge badge-success"
+                      : "badge badge-warning"
+                  }
+                >
+                  {lastClosed.difference_minor === 0 ? "Arqueo exacto" : "Con diferencia"}
                 </span>
               </header>
               <dl className="metric-grid">
@@ -409,11 +438,26 @@ export function CashScreen({
                   <dt>Contado</dt>
                   <dd>${lastClosed.counted_amount ?? "—"}</dd>
                 </div>
-                <div className="metric-strong">
+                <div
+                  className={
+                    lastClosed.difference_minor === 0
+                      ? "metric-strong metric-ok"
+                      : "metric-strong metric-alert"
+                  }
+                >
                   <dt>Diferencia</dt>
                   <dd>{formatDifference(lastClosed.difference_minor)}</dd>
                 </div>
               </dl>
+              <div className="form-actions result-actions">
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => setLastClosedState(null)}
+                >
+                  Abrir nuevo turno
+                </button>
+              </div>
             </>
           )}
 
@@ -429,8 +473,8 @@ export function CashScreen({
         <section className="surface" aria-label="Historial de turnos">
           <header className="surface-header">
             <div>
-              <p className="eyebrow">Historial</p>
               <h2>Turnos cerrados</h2>
+              <p className="muted">Últimos arqueos de la sucursal</p>
             </div>
             <span className="badge badge-neutral">{history.length}</span>
           </header>
@@ -450,6 +494,7 @@ export function CashScreen({
                     </span>
                   </span>
                   <span className="ledger-side">
+                    <span className="ledger-sub">Esperado</span>
                     <span className="mono">${item.expected_amount}</span>
                     <span
                       className={

@@ -137,7 +137,7 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
         <div>
           <h1>Inventario</h1>
           <p className="screen-subtitle">
-            Existencias por sucursal y ledger de movimientos.
+            Existencias por sucursal y movimientos de inventario.
           </p>
         </div>
         <label className="field field-inline">
@@ -172,7 +172,7 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
       )}
 
       {loading ? (
-        <p className="muted">Cargando catálogo…</p>
+        <p className="muted">Cargando inventario…</p>
       ) : !selectedProduct ? (
         <div className="empty-state">
           <p>Selecciona un producto para ver sus existencias.</p>
@@ -185,8 +185,8 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
           <section className="surface" aria-label="Existencias del producto">
             <header className="surface-header">
               <div>
-                <p className="eyebrow">Existencia actual</p>
                 <h2>{selectedProduct.name}</h2>
+                <p className="muted">Existencias de la sucursal activa</p>
               </div>
               <span className="stock-figure">
                 {loadingDetail ? "…" : formatQuantity(stock ?? "0")}
@@ -209,7 +209,7 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
             </dl>
 
             {canManage && !readOnly && (
-              <form className="form-grid form-compact" onSubmit={submit} noValidate>
+              <form className="form-grid form-compact movement-form" onSubmit={submit} noValidate>
                 <h3>Registrar movimiento</h3>
                 <div className="field-row">
                   <label className="field field-short">
@@ -234,16 +234,14 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
                       required
                     />
                   </label>
-                  <label className="field">
-                    <span>Motivo (ajustes)</span>
-                    <input value={reason} onChange={(event) => setReason(event.target.value)} />
-                  </label>
                 </div>
-                <div className="form-actions">
-                  <button type="submit" className="button button-primary" disabled={busy}>
-                    Registrar
-                  </button>
-                </div>
+                <label className="field">
+                  <span>Motivo (solo ajustes)</span>
+                  <input value={reason} onChange={(event) => setReason(event.target.value)} />
+                </label>
+                <button type="submit" className="button button-primary button-block" disabled={busy}>
+                  Registrar movimiento
+                </button>
               </form>
             )}
           </section>
@@ -251,8 +249,8 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
           <section className="surface" aria-label="Historial de movimientos">
             <header className="surface-header">
               <div>
-                <p className="eyebrow">Ledger</p>
-                <h2>Historial reciente</h2>
+                <h2>Movimientos recientes</h2>
+                <p className="muted">Cada entrada, salida y ajuste con su motivo</p>
               </div>
               <span className="badge badge-neutral">{movements.length}</span>
             </header>
@@ -265,24 +263,40 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
                 <p className="muted">Registra una entrada para comenzar a vender.</p>
               </div>
             ) : (
-              <ol className="ledger">
-                {movements.map((movement) => (
-                  <li key={movement.id}>
-                    <span
-                      className={
-                        movement.kind === "inbound" || movement.kind === "adjustment_in"
-                          ? "ledger-kind ledger-in"
-                          : "ledger-kind ledger-out"
-                      }
-                    >
-                      {KIND_LABELS[movement.kind] ?? movement.kind}
-                    </span>
-                    <span className="ledger-quantity mono">{movement.quantity}</span>
-                    <span className="ledger-reason">{movement.reason ?? "sin motivo"}</span>
-                    <span className="ledger-date">{formatDate(movement.occurred_at)}</span>
-                  </li>
-                ))}
-              </ol>
+              <div className="table-scroll">
+                <table className="data-table ledger-table">
+                  <thead>
+                    <tr>
+                      <th>Tipo</th>
+                      <th>Cantidad</th>
+                      <th>Motivo</th>
+                      <th className="align-end">Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movements.map((movement) => (
+                      <tr key={movement.id}>
+                        <td>
+                          <span
+                            className={
+                              movement.kind === "inbound" || movement.kind === "adjustment_in"
+                                ? "ledger-kind ledger-in"
+                                : "ledger-kind ledger-out"
+                            }
+                          >
+                            {KIND_LABELS[movement.kind] ?? movement.kind}
+                          </span>
+                        </td>
+                        <td className="mono">{movement.quantity}</td>
+                        <td>{movement.reason ?? "Sin motivo"}</td>
+                        <td className="align-end ledger-date">
+                          {formatDate(movement.occurred_at)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </section>
         </div>
@@ -295,7 +309,7 @@ function formatDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("es-MX", {
-    dateStyle: "short",
+    dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
 }

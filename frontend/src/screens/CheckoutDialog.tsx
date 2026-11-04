@@ -32,6 +32,7 @@ export function CheckoutDialog({ cart, shift, readOnly, onClose, onCompleted }: 
 
   const change = estimatedChange(cashReceived, totals.totalMinor);
   const insufficient = change !== null && change < 0;
+  const canConfirm = !busy && !readOnly && cart.length > 0 && change !== null && change >= 0;
 
   function keyFor(payload: string): string {
     if (attempt.current?.payload === payload) return attempt.current.key;
@@ -120,7 +121,7 @@ export function CheckoutDialog({ cart, shift, readOnly, onClose, onCompleted }: 
             type="button"
             className="button button-primary"
             onClick={() => void confirm()}
-            disabled={busy || readOnly || cart.length === 0}
+            disabled={!canConfirm}
           >
             {busy ? "Procesando…" : "Confirmar cobro"}
           </button>

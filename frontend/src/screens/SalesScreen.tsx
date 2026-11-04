@@ -17,6 +17,7 @@ import {
   type CartLine,
 } from "../lib/cart";
 import { formatMinor, formatQuantity } from "../lib/money";
+import { Modal } from "../components/Modal";
 import { CheckoutDialog } from "./CheckoutDialog";
 import { ProductConfigDialog, type ConfigTarget } from "./ProductConfigDialog";
 import { MinusIcon, PlusIcon, SearchIcon, TrashIcon } from "../shell/icons";
@@ -64,10 +65,12 @@ export function SalesScreen({
   loading,
 }: Props) {
   const canSell = actor.permissions.includes("sales.sell");
+  const canManageCatalog = actor.permissions.includes("catalog.manage");
   const [query, setQuery] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [configTarget, setConfigTarget] = useState<ConfigTarget | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
   const [selectingId, setSelectingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"catalog" | "ticket">("catalog");
@@ -139,7 +142,9 @@ export function SalesScreen({
     onCartChange(
       cart
         .map((line) =>
-          line.key === key ? { ...line, quantity: line.quantity + delta } : line,
+          line.key === key && line.quantity + delta >= 1
+            ? { ...line, quantity: line.quantity + delta }
+            : line,
         )
         .filter((line) => line.quantity > 0),
     );
@@ -228,16 +233,22 @@ export function SalesScreen({
 
         <div className="product-scroll">
           {loading ? (
-            <p className="muted">Cargando catálogo…</p>
+            <div className="product-grid" aria-label="Cargando productos" aria-busy="true">
+              {Array.from({ length: 8 }, (_, index) => (
+                <div key={index} className="product-card skeleton-card" aria-hidden="true" />
+              ))}
+            </div>
           ) : visibleProducts.length === 0 ? (
             <div className="empty-state">
               <p>No hay productos que coincidan.</p>
               <p className="muted">
                 Ajusta la búsqueda o registra productos en la sección Productos.
               </p>
-              <button type="button" className="button" onClick={onOpenCatalog}>
-                Ir a Productos
-              </button>
+              {canManageCatalog && (
+                <button type="button" className="button" onClick={onOpenCatalog}>
+                  Ir a Productos
+                </button>
+              )}
             </div>
           ) : (
             <div className="product-grid" aria-label="Productos disponibles">
@@ -292,7 +303,7 @@ export function SalesScreen({
             <button
               type="button"
               className="button button-quiet"
-              onClick={() => onCartChange([])}
+              onClick={() => setClearOpen(true)}
             >
               Vaciar
             </button>
@@ -324,6 +335,7 @@ export function SalesScreen({
                         type="button"
                         className="stepper-button"
                         onClick={() => updateQuantity(line.key, -1)}
+                        disabled={line.quantity <= 1}
                         aria-label={`Disminuir ${line.name}`}
                       >
                         <MinusIcon size={14} />
@@ -419,6 +431,42 @@ export function SalesScreen({
           onClose={() => setConfigTarget(null)}
           onAdded={addLine}
         />
+      )}
+
+      {clearOpen && (
+        <Modal
+          title="Vaciar ticket"
+          subtitle="Se quitarán todos los artículos de la venta en curso"
+          onClose={() => setClearOpen(false)}
+          footer={
+            <>
+              <button
+                type="button"
+                className="button"
+                onClick={() => setClearOpen(false)}
+              >
+                Conservar ticket
+              </button>
+              <button
+                type="button"
+                className="button button-danger"
+                onClick={() => {
+                  onCartChange([]);
+                  setClearOpen(false);
+                }}
+              >
+                Vaciar ticket
+              </button>
+            </>
+          }
+        >
+          <p>
+            {totals.items === 1
+              ? "Se quitará 1 artículo del ticket."
+              : `Se quitarán ${totals.items} artículos del ticket.`}{" "}
+            Esta acción no se puede deshacer.
+          </p>
+        </Modal>
       )}
 
       {checkoutOpen && shift && (

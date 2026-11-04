@@ -14,6 +14,8 @@ export type SectionId = "sales" | "catalog" | "inventory" | "cash" | "admin";
 export interface SectionDefinition {
   id: SectionId;
   label: string;
+  /** Etiqueta de la barra estrecha (tablet y ventanas pequeñas). */
+  shortLabel: string;
   title: string;
   description: string;
   /** Permisos que habilitan la sección (basta uno). */
@@ -29,6 +31,7 @@ export const SECTIONS: SectionDefinition[] = [
   {
     id: "sales",
     label: "Ventas",
+    shortLabel: "Ventas",
     title: "Punto de venta",
     description: "Catálogo, ticket y cobro en efectivo.",
     permissions: ["sales.sell"],
@@ -37,6 +40,7 @@ export const SECTIONS: SectionDefinition[] = [
   {
     id: "catalog",
     label: "Productos",
+    shortLabel: "Productos",
     title: "Productos y catálogo",
     description: "Productos, categorías, variantes y modificadores.",
     permissions: ["catalog.manage"],
@@ -45,14 +49,16 @@ export const SECTIONS: SectionDefinition[] = [
   {
     id: "inventory",
     label: "Inventario",
+    shortLabel: "Inventario",
     title: "Existencias y movimientos",
-    description: "Existencias por producto y ledger de movimientos.",
+    description: "Existencias por producto y movimientos de inventario.",
     permissions: ["inventory.view"],
     Icon: InventoryIcon,
   },
   {
     id: "cash",
     label: "Cajas y turnos",
+    shortLabel: "Caja",
     title: "Caja y turnos",
     description: "Apertura, movimientos, arqueo y cierre.",
     permissions: ["cash.shift.view", "cash.register.manage"],
@@ -61,6 +67,7 @@ export const SECTIONS: SectionDefinition[] = [
   {
     id: "admin",
     label: "Gestión",
+    shortLabel: "Gestión",
     title: "Gestión y auditoría",
     description: "Licencia, respaldos y eventos del sistema.",
     permissions: ["audit.view", "backups.manage"],

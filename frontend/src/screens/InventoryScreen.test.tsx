@@ -89,7 +89,7 @@ describe("InventoryScreen", () => {
 
     await user.selectOptions(screen.getByLabelText("Producto"), "p-1");
     await user.type(screen.getByLabelText("Cantidad"), "5");
-    await user.click(screen.getByRole("button", { name: /^registrar$/i }));
+    await user.click(screen.getByRole("button", { name: /registrar movimiento/i }));
 
     await waitFor(() =>
       expect(api.recordInventoryMovement).toHaveBeenCalledWith({
@@ -110,7 +110,7 @@ describe("InventoryScreen", () => {
     await user.selectOptions(screen.getByLabelText("Producto"), "p-1");
     await user.selectOptions(screen.getByLabelText("Tipo"), "adjustment_in");
     await user.type(screen.getByLabelText("Cantidad"), "3");
-    await user.click(screen.getByRole("button", { name: /^registrar$/i }));
+    await user.click(screen.getByRole("button", { name: /registrar movimiento/i }));
 
     expect(await screen.findByText(/los ajustes requieren un motivo/i)).toBeVisible();
     expect(api.recordInventoryMovement).not.toHaveBeenCalled();

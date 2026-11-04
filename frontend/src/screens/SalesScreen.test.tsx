@@ -301,6 +301,52 @@ describe("SalesScreen", () => {
     expect(completed).toHaveBeenCalledWith(sale);
   });
 
+  it("impide bajar la cantidad por debajo de uno", async () => {
+    render(<Harness shift={shift} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+
+    expect(
+      await screen.findByRole("button", { name: /disminuir café americano/i }),
+    ).toBeDisabled();
+    expect(within(screen.getByRole("complementary", { name: /ticket actual/i })).getByText(/1 artículo/i)).toBeVisible();
+  });
+
+  it("confirma antes de vaciar el ticket", async () => {
+    render(<Harness shift={shift} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+
+    await user.click(screen.getByRole("button", { name: /^vaciar$/i }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: /vaciar ticket/i })).toBeVisible();
+
+    await user.click(within(dialog).getByRole("button", { name: /conservar ticket/i }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText(/sin artículos/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^vaciar$/i }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: /^vaciar ticket$/i }),
+    );
+    expect(await screen.findByText(/sin artículos/i)).toBeVisible();
+  });
+
+  it("bloquea el cobro cuando el efectivo no cubre el total", async () => {
+    render(<Harness shift={shift} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+    await user.click(await screen.findByRole("button", { name: /^cobrar \$/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    const cash = within(dialog).getByLabelText(/efectivo recibido/i);
+    await user.clear(cash);
+    await user.type(cash, "5.00");
+
+    expect(within(dialog).getByText(/faltan \$9\.50/i)).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: /confirmar cobro/i })).toBeDisabled();
+  });
+
   it("no pierde el ticket cuando el cobro falla", async () => {
     const { IpcError } = await import("../api");
     api.checkoutSale.mockRejectedValueOnce(new IpcError("validation_error", "pago insuficiente"));

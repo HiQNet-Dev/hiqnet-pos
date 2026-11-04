@@ -72,7 +72,6 @@ export function OnboardingScreen({ onDone }: Props) {
       className="panel panel-onboarding"
       aria-labelledby="onboarding-title"
     >
-      <p className="eyebrow">Primera ejecución</p>
       <h1 id="onboarding-title">Configura tu negocio</h1>
       <p className="lede">
         HiQNet POS crea los datos en este equipo. Dispones de 30 días de prueba
@@ -164,10 +163,10 @@ export function OnboardingScreen({ onDone }: Props) {
           </p>
         )}
 
-        <div className="form-actions">
+        <div className="form-actions form-actions-stack">
           <button
             type="submit"
-            className="button button-primary"
+            className="button button-primary button-block"
             disabled={busy}
           >
             {busy ? "Creando instalación…" : "Crear instalación y entrar"}

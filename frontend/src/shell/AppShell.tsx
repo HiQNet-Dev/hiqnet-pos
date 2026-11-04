@@ -194,6 +194,10 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
 
   return (
     <div className="app">
+      <a className="skip-link" href="#contenido">
+        Saltar al contenido
+      </a>
+
       <TopBar
         actor={actor}
         branch={branch}

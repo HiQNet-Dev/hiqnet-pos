@@ -45,5 +45,9 @@ playwright-report/
 .DS_Store
 Thumbs.db
 
+# --- Herramientas de diseño instaladas localmente ---
+.github/skills/impeccable/
+.github/agents/impeccable-*.agent.md
+
 # Contexto agéntico local (privado)
 .devkit/

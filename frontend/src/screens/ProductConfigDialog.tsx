@@ -130,8 +130,10 @@ export function ProductConfigDialog({ target, onClose, onAdded }: Props) {
               {group.name}
               <span className={missing ? "config-rule config-rule-missing" : "config-rule"}>
                 {group.min > 0
-                  ? `${count}/${group.max} · obligatorio`
-                  : `hasta ${group.max}`}
+                  ? missing
+                    ? `Elige ${group.min - count}`
+                    : "Listo"
+                  : `Opcional · hasta ${group.max}`}
               </span>
             </legend>
             <div className="option-grid">
@@ -154,7 +156,7 @@ export function ProductConfigDialog({ target, onClose, onAdded }: Props) {
                       <span className="option-price">+${option.price_delta}</span>
                     ) : (
                       <span className="option-price option-price-muted">
-                        {option.active ? "sin costo" : "no disponible"}
+                        {option.active ? "Sin costo" : "No disponible"}
                       </span>
                     )}
                   </label>

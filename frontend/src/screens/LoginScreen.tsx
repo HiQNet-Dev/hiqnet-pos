@@ -39,7 +39,6 @@ export function LoginScreen({ onAuthenticated }: Props) {
 
   return (
     <section className="panel panel-narrow" aria-labelledby="login-title">
-      <p className="eyebrow">Sesión</p>
       <h1 id="login-title">Entrar a la caja</h1>
       <p className="lede">Usa tu usuario local de HiQNet POS.</p>
 
@@ -75,7 +74,7 @@ export function LoginScreen({ onAuthenticated }: Props) {
         <div className="form-actions">
           <button
             type="submit"
-            className="button button-primary"
+            className="button button-primary button-block"
             disabled={busy}
           >
             {busy ? "Verificando…" : "Entrar"}

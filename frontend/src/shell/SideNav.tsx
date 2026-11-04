@@ -35,8 +35,12 @@ export function SideNav({
             >
               <section.Icon />
               <span className="nav-label">{section.label}</span>
+              <span className="nav-label-short">{section.shortLabel}</span>
               {section.id === "sales" && cartCount > 0 && (
-                <span className="nav-count" aria-label={`${cartCount} partidas en el ticket`}>
+                <span
+                  className="nav-count"
+                  aria-label={`${cartCount} ${cartCount === 1 ? "artículo" : "artículos"} en el ticket`}
+                >
                   {cartCount}
                 </span>
               )}

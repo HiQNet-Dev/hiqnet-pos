@@ -278,7 +278,7 @@ export function CatalogScreen({
             <>
               <header className="detail-header">
                 <div>
-                  <p className="eyebrow">{selected.sku}</p>
+                  <p className="sku-label mono">{selected.sku}</p>
                   <h2>{selected.name}</h2>
                 </div>
                 <span className="badge badge-neutral">${selected.unit_price}</span>
@@ -353,7 +353,11 @@ export function CatalogScreen({
                           <header>
                             <span className="modifier-group-name">{group.name}</span>
                             <span className="muted">
-                              {group.min > 0 ? `obligatorio · ${group.min} a ${group.max}` : `hasta ${group.max}`}
+                              {group.min > 0
+                                ? group.min === group.max
+                                  ? `Obligatorio · elige ${group.min}`
+                                  : `Obligatorio · entre ${group.min} y ${group.max}`
+                                : `Opcional · hasta ${group.max}`}
                             </span>
                           </header>
                           <ul className="tag-list">
