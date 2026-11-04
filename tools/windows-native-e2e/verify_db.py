@@ -151,6 +151,23 @@ def main() -> int:
         if auditoria != 1:
             failures.append("no se registró exactamente un evento de auditoría de venta")
 
+        cajero = one(
+            connection,
+            "SELECT username, role, active FROM app_user WHERE username = 'luis.cajero'",
+        )
+        if cajero is None:
+            failures.append("no se persistió el cajero creado desde la interfaz")
+        else:
+            checks["cajero"] = dict(cajero)
+            if cajero["role"] != "cashier" or cajero["active"] != 1:
+                failures.append("el cajero no quedó activo con rol cashier")
+
+        if one(
+            connection,
+            "SELECT COUNT(*) AS n FROM audit_event WHERE action = 'users.created'",
+        )["n"] != 1:
+            failures.append("no se auditó la creación del usuario")
+
         for action in ("cash.shift_opened", "cash.shift_closed"):
             if one(connection, "SELECT COUNT(*) AS n FROM audit_event WHERE action = ?", action)["n"] < 1:
                 failures.append(f"falta auditoría de {action}")

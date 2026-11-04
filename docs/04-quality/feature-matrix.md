@@ -9,7 +9,8 @@ Estados: **VERIFICADO** (implementado y probado), **PARCIAL**, **PENDIENTE**,
 | `Money` / `Quantity` exactos | VERIFICADO | Pruebas unitarias en `pos-core` |
 | Organización y sucursal | VERIFICADO | Bootstrap transaccional + pruebas SQLite |
 | Identidad local y Argon2id | VERIFICADO | Hash/verify + login + rechazo de credenciales |
-| RBAC deny-by-default | VERIFICADO | Prueba: cajero no puede administrar catálogo |
+| RBAC deny-by-default | VERIFICADO | Prueba: cajero no puede administrar catálogo ni usuarios |
+| Administración de usuarios locales | VERIFICADO | Alta, listado, activación, desactivación, restablecimiento y cambio de contraseña; `users.manage` en Rust, Argon2id, auditoría transaccional y revocación de sesión |
 | Auditoría append-only | VERIFICADO | Triggers + prueba de `UPDATE` rechazado |
 | Migración inicial SQLite | VERIFICADO | `0001_init.sql` aplicada al arrancar |
 | Persistencia entre reinicios | VERIFICADO | Prueba de cierre y reapertura |
