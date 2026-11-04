@@ -278,7 +278,7 @@ def registrar_inventario(app: App):
     app.screenshot("inventario-vacio")
     app.select("//section[@aria-label='Existencias del producto']", "Tipo", "Entrada")
     app.fill("//section[@aria-label='Existencias del producto']", "Cantidad", STOCK_INICIAL)
-    app.click_xpath("//button[normalize-space()='Registrar']")
+    app.click_xpath("//button[normalize-space()='Registrar movimiento']")
     app.wait_text("Movimiento registrado")
     app.wait_text(STOCK_INICIAL)
 
