@@ -721,7 +721,7 @@ impl PosService {
     }
 
     /// Activa o desactiva una cuenta. Nunca deja la instalación sin propietario
-    /// activo y no permite desactivar la cuenta propia.
+    /// activo; la cuenta propia puede desactivarse si permanece otro propietario activo.
     pub async fn set_user_active(
         &self,
         actor: &Actor,
