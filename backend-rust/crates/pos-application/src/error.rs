@@ -34,6 +34,7 @@ impl AppError {
             AppError::Domain(DomainError::FeatureNotEntitled { .. }) => "feature_not_entitled",
             AppError::Domain(DomainError::CommercialStateBlocked) => "commercial_state_blocked",
             AppError::Domain(DomainError::DuplicateUsername) => "duplicate_username",
+            AppError::Domain(DomainError::LastActiveOwner) => "last_active_owner",
             AppError::Domain(_) => "validation_error",
             AppError::Unauthenticated => "unauthenticated",
             AppError::NotFound => "not_found",

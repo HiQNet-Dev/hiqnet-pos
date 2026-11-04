@@ -23,6 +23,11 @@ pub enum AuditAction {
     SaleCompleted,
     InventoryMovementRegistered,
     BackupCreated,
+    UserCreated,
+    UserDeactivated,
+    UserReactivated,
+    UserPasswordReset,
+    UserPasswordChanged,
 }
 
 impl AuditAction {
@@ -44,6 +49,11 @@ impl AuditAction {
             "sales.completed" => Some(AuditAction::SaleCompleted),
             "inventory.movement_registered" => Some(AuditAction::InventoryMovementRegistered),
             "backup.created" => Some(AuditAction::BackupCreated),
+            "users.created" => Some(AuditAction::UserCreated),
+            "users.deactivated" => Some(AuditAction::UserDeactivated),
+            "users.reactivated" => Some(AuditAction::UserReactivated),
+            "users.password_reset" => Some(AuditAction::UserPasswordReset),
+            "users.password_changed" => Some(AuditAction::UserPasswordChanged),
             _ => None,
         }
     }
@@ -66,6 +76,11 @@ impl AuditAction {
             AuditAction::SaleCompleted => "sales.completed",
             AuditAction::InventoryMovementRegistered => "inventory.movement_registered",
             AuditAction::BackupCreated => "backup.created",
+            AuditAction::UserCreated => "users.created",
+            AuditAction::UserDeactivated => "users.deactivated",
+            AuditAction::UserReactivated => "users.reactivated",
+            AuditAction::UserPasswordReset => "users.password_reset",
+            AuditAction::UserPasswordChanged => "users.password_changed",
         }
     }
 }

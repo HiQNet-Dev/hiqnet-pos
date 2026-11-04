@@ -114,6 +114,18 @@ impl fmt::Display for Role {
     }
 }
 
+impl Role {
+    /// Interpreta la clave persistida. Cualquier otro valor se rechaza: los
+    /// roles son fijos y no se crean desde el frontend.
+    pub fn from_key(value: &str) -> Option<Self> {
+        match value {
+            "owner" => Some(Role::Owner),
+            "cashier" => Some(Role::Cashier),
+            _ => None,
+        }
+    }
+}
+
 /// Usuario operador local. El hash de contraseña nunca sale del backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct User {
@@ -159,6 +171,24 @@ impl User {
 
     pub fn permissions(&self) -> BTreeSet<Permission> {
         self.role.permissions()
+    }
+
+    pub fn is_owner(&self) -> bool {
+        self.role == Role::Owner
+    }
+
+    /// Desactiva la cuenta. La regla del último propietario se valida en la capa
+    /// de aplicación, que es la única que conoce el resto de cuentas.
+    pub fn deactivate(&mut self) {
+        self.active = false;
+    }
+
+    pub fn activate(&mut self) {
+        self.active = true;
+    }
+
+    pub fn set_password_hash(&mut self, password_hash: impl Into<String>) {
+        self.password_hash = password_hash.into();
     }
 }
 
@@ -266,5 +296,24 @@ mod tests {
         assert_eq!(normalize_username(" Admin.User ").unwrap(), "admin.user");
         assert!(normalize_username("ab").is_err());
         assert!(normalize_username("bad user").is_err());
+    }
+
+    #[test]
+    fn interpreta_solo_los_roles_existentes() {
+        assert_eq!(Role::from_key("owner"), Some(Role::Owner));
+        assert_eq!(Role::from_key("cashier"), Some(Role::Cashier));
+        assert_eq!(Role::from_key("admin"), None);
+        assert_eq!(Role::from_key("Owner"), None);
+    }
+
+    #[test]
+    fn activa_y_desactiva_sin_cambiar_la_identidad() {
+        let mut cashier = user(Role::Cashier);
+        assert!(cashier.active);
+        cashier.deactivate();
+        assert!(!cashier.active);
+        assert!(!cashier.is_owner());
+        cashier.activate();
+        assert!(cashier.active);
     }
 }

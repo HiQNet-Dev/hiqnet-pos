@@ -9,12 +9,13 @@ use std::sync::{Arc, RwLock};
 use pos_application::{
     AppError, AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, BranchView,
     CashCloseShiftDraft, CashMovementDraft, CashMovementView, CashOpenShiftDraft,
-    CashRegisterDraft, CashRegisterView, CashShiftView, CategoryDraft, CategoryView, CheckoutDraft,
-    CommercialStateView, InventoryMovementDraft, InventoryMovementView, LoginRequest,
-    ModifierConfigurationDraft, ModifierConfigurationView, ModifierGroupDraft, ModifierGroupView,
-    ModifierOptionDraft, ModifierOptionView, PosService, ProductDraft, ProductVariantDraft,
-    ProductVariantView, ProductView, SaleView, SharedClock, SharedHasher, SharedStore,
-    StockLevelView, SystemClock,
+    CashRegisterDraft, CashRegisterView, CashShiftView, CategoryDraft, CategoryView,
+    ChangeOwnPasswordDraft, CheckoutDraft, CommercialStateView, InventoryMovementDraft,
+    InventoryMovementView, LoginRequest, ModifierConfigurationDraft, ModifierConfigurationView,
+    ModifierGroupDraft, ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PosService,
+    ProductDraft, ProductVariantDraft, ProductVariantView, ProductView, ResetUserPasswordDraft,
+    SaleView, SetUserActiveDraft, SharedClock, SharedHasher, SharedStore, StockLevelView,
+    SystemClock, UserDraft, UserView,
 };
 use pos_core::identity::{Actor, Permission};
 use pos_core::ids::{BranchId, ProductId};
@@ -62,6 +63,23 @@ fn session_actor(state: &AppState) -> IpcResult<Actor> {
         .ok_or(AppError::Unauthenticated.into())
 }
 
+/// Revalida la sesión contra la base en cada comando: una cuenta desactivada,
+/// eliminada o con otro rol pierde el acceso aunque su `Actor` siga en memoria
+/// dentro de la capa IPC.
+async fn authenticated(state: &AppState) -> IpcResult<Actor> {
+    let stored = session_actor(state)?;
+    match state.service.refresh_actor(&stored).await {
+        Ok(actor) => {
+            *state.session.write().map_err(|_| AppError::Storage)? = Some(actor.clone());
+            Ok(actor)
+        }
+        Err(_) => {
+            *state.session.write().map_err(|_| AppError::Storage)? = None;
+            Err(AppError::Unauthenticated.into())
+        }
+    }
+}
+
 // Todos los comandos declaran `rename_all = "snake_case"` para que los
 // argumentos conserven los nombres publicados en `docs/03-contracts/ipc.md`
 // (`product_id`, `register_id`, `shift_id`, ...). Tauri 2 los renombraría a
@@ -99,19 +117,66 @@ fn logout(state: State<'_, AppState>) -> IpcResult<()> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn current_session(state: State<'_, AppState>) -> IpcResult<Option<Actor>> {
-    Ok(state.session.read().map_err(|_| AppError::Storage)?.clone())
+async fn current_session(state: State<'_, AppState>) -> IpcResult<Option<Actor>> {
+    if state
+        .session
+        .read()
+        .map_err(|_| AppError::Storage)?
+        .is_none()
+    {
+        return Ok(None);
+    }
+    Ok(authenticated(&state).await.ok())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn create_user(state: State<'_, AppState>, draft: UserDraft) -> IpcResult<UserView> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.create_user(&actor, draft).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn list_users(state: State<'_, AppState>) -> IpcResult<Vec<UserView>> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.list_users(&actor).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn set_user_active(
+    state: State<'_, AppState>,
+    draft: SetUserActiveDraft,
+) -> IpcResult<UserView> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.set_user_active(&actor, draft).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn reset_user_password(
+    state: State<'_, AppState>,
+    draft: ResetUserPasswordDraft,
+) -> IpcResult<()> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.reset_user_password(&actor, draft).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn change_password(
+    state: State<'_, AppState>,
+    draft: ChangeOwnPasswordDraft,
+) -> IpcResult<()> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.change_own_password(&actor, draft).await?)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 async fn create_product(state: State<'_, AppState>, draft: ProductDraft) -> IpcResult<ProductView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.create_product(&actor, draft).await?)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 async fn list_products(state: State<'_, AppState>) -> IpcResult<Vec<ProductView>> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.list_products(&actor).await?)
 }
 
@@ -121,7 +186,7 @@ async fn assign_product_category(
     product_id: String,
     category_id: Option<String>,
 ) -> IpcResult<ProductView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     let product_id: ProductId = product_id
         .parse()
         .map_err(|_| IpcError::from(AppError::NotFound))?;
@@ -136,7 +201,7 @@ async fn create_modifier_group(
     state: State<'_, AppState>,
     draft: ModifierGroupDraft,
 ) -> IpcResult<ModifierGroupView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.create_modifier_group(&actor, draft).await?)
 }
 
@@ -145,7 +210,7 @@ async fn list_modifier_groups(
     state: State<'_, AppState>,
     product_id: String,
 ) -> IpcResult<Vec<ModifierGroupView>> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     let product_id: ProductId = product_id
         .parse()
         .map_err(|_| IpcError::from(AppError::NotFound))?;
@@ -160,7 +225,7 @@ async fn create_modifier_option(
     state: State<'_, AppState>,
     draft: ModifierOptionDraft,
 ) -> IpcResult<ModifierOptionView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.create_modifier_option(&actor, draft).await?)
 }
 
@@ -169,7 +234,7 @@ async fn list_modifier_options(
     state: State<'_, AppState>,
     group_id: String,
 ) -> IpcResult<Vec<ModifierOptionView>> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     let group_id: pos_core::ids::ModifierGroupId = group_id
         .parse()
         .map_err(|_| IpcError::from(AppError::NotFound))?;
@@ -184,19 +249,19 @@ async fn configure_product(
     state: State<'_, AppState>,
     draft: ModifierConfigurationDraft,
 ) -> IpcResult<ModifierConfigurationView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.configure_product(&actor, draft).await?)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 async fn checkout_sale(state: State<'_, AppState>, draft: CheckoutDraft) -> IpcResult<SaleView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.checkout_sale(&actor, draft).await?)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 async fn get_sale(state: State<'_, AppState>, sale_id: String) -> IpcResult<SaleView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     let sale_id: pos_core::ids::SaleId = sale_id
         .parse()
         .map_err(|_| IpcError::from(AppError::NotFound))?;
@@ -205,7 +270,7 @@ async fn get_sale(state: State<'_, AppState>, sale_id: String) -> IpcResult<Sale
 
 #[tauri::command(rename_all = "snake_case")]
 async fn branch_summary(state: State<'_, AppState>) -> IpcResult<BranchView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.branch_summary(&actor).await?)
 }
 
@@ -214,13 +279,13 @@ async fn create_cash_register(
     state: State<'_, AppState>,
     draft: CashRegisterDraft,
 ) -> IpcResult<CashRegisterView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.create_cash_register(&actor, draft).await?)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 async fn list_cash_registers(state: State<'_, AppState>) -> IpcResult<Vec<CashRegisterView>> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.list_cash_registers(&actor).await?)
 }
 
@@ -229,7 +294,7 @@ async fn open_cash_shift(
     state: State<'_, AppState>,
     draft: CashOpenShiftDraft,
 ) -> IpcResult<CashShiftView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.open_cash_shift(&actor, draft).await?)
 }
 
@@ -238,7 +303,7 @@ async fn active_cash_shift(
     state: State<'_, AppState>,
     register_id: String,
 ) -> IpcResult<Option<CashShiftView>> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     let register_id: pos_core::ids::CashRegisterId = register_id
         .parse()
         .map_err(|_| IpcError::from(AppError::NotFound))?;
@@ -250,13 +315,13 @@ async fn register_cash_movement(
     state: State<'_, AppState>,
     draft: CashMovementDraft,
 ) -> IpcResult<CashMovementView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.register_cash_movement(&actor, draft).await?)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 async fn list_cash_shift_history(state: State<'_, AppState>) -> IpcResult<Vec<CashShiftView>> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.list_cash_shift_history(&actor).await?)
 }
 
@@ -265,7 +330,7 @@ async fn close_cash_shift(
     state: State<'_, AppState>,
     draft: CashCloseShiftDraft,
 ) -> IpcResult<CashShiftView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.close_cash_shift(&actor, draft).await?)
 }
 
@@ -274,13 +339,13 @@ async fn create_category(
     state: State<'_, AppState>,
     draft: CategoryDraft,
 ) -> IpcResult<CategoryView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.create_category(&actor, draft).await?)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 async fn list_categories(state: State<'_, AppState>) -> IpcResult<Vec<CategoryView>> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.list_categories(&actor).await?)
 }
 
@@ -289,7 +354,7 @@ async fn create_product_variant(
     state: State<'_, AppState>,
     draft: ProductVariantDraft,
 ) -> IpcResult<ProductVariantView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.create_product_variant(&actor, draft).await?)
 }
 
@@ -298,7 +363,7 @@ async fn list_product_variants(
     state: State<'_, AppState>,
     product_id: String,
 ) -> IpcResult<Vec<ProductVariantView>> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     let product_id: ProductId = product_id
         .parse()
         .map_err(|_| IpcError::from(AppError::NotFound))?;
@@ -314,7 +379,7 @@ async fn current_stock(
     product_id: String,
     branch_id: Option<String>,
 ) -> IpcResult<String> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     let product_id: ProductId = product_id
         .parse()
         .map_err(|_| IpcError::from(AppError::NotFound))?;
@@ -333,7 +398,7 @@ async fn current_stock(
 
 #[tauri::command(rename_all = "snake_case")]
 async fn list_stock_levels(state: State<'_, AppState>) -> IpcResult<Vec<StockLevelView>> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state.service.list_stock_levels(&actor).await?)
 }
 
@@ -342,7 +407,7 @@ async fn record_inventory_movement(
     state: State<'_, AppState>,
     draft: InventoryMovementDraft,
 ) -> IpcResult<InventoryMovementView> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state
         .service
         .record_inventory_movement(&actor, draft)
@@ -355,7 +420,7 @@ async fn list_inventory_movements(
     product_id: Option<String>,
     limit: Option<u32>,
 ) -> IpcResult<Vec<InventoryMovementView>> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     let product_id: Option<ProductId> = product_id
         .map(|value| {
             value
@@ -374,7 +439,7 @@ async fn list_audit_events(
     state: State<'_, AppState>,
     limit: Option<u32>,
 ) -> IpcResult<Vec<AuditEventView>> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     Ok(state
         .service
         .list_audit(&actor, limit.unwrap_or(50))
@@ -389,7 +454,7 @@ async fn commercial_state(state: State<'_, AppState>) -> IpcResult<CommercialSta
 /// Crea un respaldo consistente de la base local y lo registra en auditoría.
 #[tauri::command(rename_all = "snake_case")]
 async fn backup_database(state: State<'_, AppState>) -> IpcResult<String> {
-    let actor = session_actor(&state)?;
+    let actor = authenticated(&state).await?;
     actor.require(Permission::ManageBackups)?;
 
     let stamp = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -450,6 +515,11 @@ pub fn run() {
             checkout_sale,
             get_sale,
             branch_summary,
+            create_user,
+            list_users,
+            set_user_active,
+            reset_user_password,
+            change_password,
             create_cash_register,
             list_cash_registers,
             open_cash_shift,
