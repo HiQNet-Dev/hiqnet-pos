@@ -206,17 +206,19 @@ pub async fn restore_from_backup(
             .await
             .map_err(|_| StorageError::Restore)?;
 
-        // Si la copia de recuperación no es utilizable, no se continúa: debe
-        // existir una vía comprobada de volver atrás.
-        verify_backup(&path).await?;
+        // La copia de recuperación es una salida de emergencia, no un respaldo
+        // distribuible: si la base está dañada o con el historial incompleto,
+        // exigir el esquema completo impediría recuperarla. Basta con que sea
+        // un SQLite íntegro.
+        verify_snapshot(&path).await?;
         recovery = Some(path);
     }
 
     remove_sidecars(database_path)?;
 
-    if let Err(error) = replace_with(database_path, backup_path).await {
+    if let Err(error) = replace_with(database_path, backup_path, true).await {
         if let Some(path) = &recovery {
-            let _ = replace_with(database_path, path).await;
+            let _ = replace_with(database_path, path, false).await;
         }
         return Err(error);
     }
@@ -224,21 +226,55 @@ pub async fn restore_from_backup(
     if let Err(error) = verify_backup(database_path).await {
         if let Some(path) = &recovery {
             // Best effort: nunca dejar una base restaurada inválida.
-            let _ = replace_with(database_path, path).await;
+            let _ = replace_with(database_path, path, false).await;
         }
         return Err(error);
     }
     Ok(())
 }
 
+/// Verifica que un archivo sea un SQLite legible e íntegro, sin exigir el
+/// esquema de HiQNet POS. Se usa para la copia de recuperación.
+async fn verify_snapshot(path: &Path) -> Result<(), StorageError> {
+    if !path.is_file() {
+        return Err(StorageError::Restore);
+    }
+    let options = SqliteConnectOptions::new().filename(path).read_only(true);
+    let mut connection = options.connect().await.map_err(|_| StorageError::Restore)?;
+    let verdict: String = sqlx::query_scalar("PRAGMA integrity_check")
+        .fetch_one(&mut connection)
+        .await
+        .map_err(|_| StorageError::Restore)?;
+    connection
+        .close()
+        .await
+        .map_err(|_| StorageError::Restore)?;
+    if verdict != "ok" {
+        return Err(StorageError::Restore);
+    }
+    Ok(())
+}
+
 /// Copia `source` a un archivo temporal de la misma carpeta, lo verifica y lo
 /// mueve sobre `database_path`. El archivo temporal nunca se deja atrás.
-async fn replace_with(database_path: &Path, source: &Path) -> Result<(), StorageError> {
+///
+/// `strict` exige que el archivo sea un respaldo válido; sin él solo se pide
+/// integridad, que es lo que necesita la copia de recuperación.
+async fn replace_with(
+    database_path: &Path,
+    source: &Path,
+    strict: bool,
+) -> Result<(), StorageError> {
     let staged = staged_path(database_path);
     let _ = std::fs::remove_file(&staged);
     std::fs::copy(source, &staged).map_err(|_| StorageError::Restore)?;
 
-    if let Err(error) = verify_backup(&staged).await {
+    let validation = if strict {
+        verify_backup(&staged).await
+    } else {
+        verify_snapshot(&staged).await
+    };
+    if let Err(error) = validation {
         let _ = std::fs::remove_file(&staged);
         return Err(error);
     }

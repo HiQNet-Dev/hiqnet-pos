@@ -71,7 +71,8 @@ La utilidad:
 4. crea y verifica una **copia de recuperación**
    `hiqnet-pos.db.pre-restore-<epoch>.db` mediante `VACUUM INTO`, incluyendo el
    estado del WAL. Cada restauración crea una copia nueva; nunca sobrescribe una
-   anterior;
+   anterior. La copia se valida por integridad, no por esquema: así también sirve
+   para volver atrás desde una base con una migración fallida o dañada;
 5. copia el respaldo a `hiqnet-pos.db.restore-tmp`, verifica esa copia y solo
    entonces la mueve sobre la base. Si algo falla antes, la base actual queda
    intacta;
@@ -127,6 +128,13 @@ arrancar. Revertir el ejecutable **no** revierte la base.
 - restauración con respaldo inválido deja la base intacta;
 - sin archivos `.restore-tmp` residuales;
 - detección de base corrupta al abrir.
+
+`backend-rust/crates/pos-storage-sqlite/tests/migration_failure.rs`:
+
+- una migración que no puede aplicarse devuelve `Migrate`;
+- los datos previos permanecen, no se crean tablas posteriores y la migración no
+  queda registrada como aplicada;
+- la restauración del respaldo previo recupera el esquema completo.
 
 `tools/windows-native-e2e/e2e_restore_guard.py` (ejecutable real, base aislada):
 
