@@ -21,6 +21,7 @@ MIGRACIONES_ESPERADAS = {
     "catalog modifiers",
     "cash registers shifts",
     "sales checkout",
+    "purchasing",
 }
 
 
@@ -140,8 +141,8 @@ def main() -> int:
                 product["id"],
             )
             checks["stock_milli"] = stock["stock"]
-            if stock["stock"] != 18000:
-                failures.append("el inventario no descontó la venta")
+            if stock["stock"] != 23000:
+                failures.append("el inventario no refleja venta y las cinco unidades recibidas")
 
         auditoria = one(
             connection,
@@ -168,7 +169,19 @@ def main() -> int:
         )["n"] != 1:
             failures.append("no se auditó la creación del usuario")
 
-        for action in ("cash.shift_opened", "cash.shift_closed"):
+        purchase = one(connection, "SELECT id, status FROM purchase_order")
+        if purchase is None or purchase["status"] != "received":
+            failures.append("la orden de compra no quedó recibida")
+        else:
+            receipt_count = one(connection, "SELECT COUNT(*) AS n FROM purchase_receipt WHERE order_id = ?", purchase["id"])["n"]
+            inbound = one(connection, "SELECT COALESCE(SUM(quantity_milli), 0) AS quantity FROM inventory_movement WHERE reason LIKE 'compra %'")["quantity"]
+            checks["compras"] = {"recepciones": receipt_count, "inbound_milli": inbound}
+            if receipt_count != 2 or inbound != 5000:
+                failures.append("las recepciones no cuadran con el ledger de compras")
+        if one(connection, "SELECT COUNT(*) AS n FROM audit_event WHERE action = 'purchasing.received'")["n"] != 2:
+            failures.append("falta auditoría de las recepciones")
+
+        for action in ("cash.shift_opened", "cash.shift_closed"): 
             if one(connection, "SELECT COUNT(*) AS n FROM audit_event WHERE action = ?", action)["n"] < 1:
                 failures.append(f"falta auditoría de {action}")
     finally:

@@ -7,7 +7,7 @@ const api = vi.hoisted(() => ({
   listSuppliers: vi.fn(), listPurchaseOrders: vi.fn(), createSupplier: vi.fn(),
   createPurchaseOrder: vi.fn(), confirmPurchaseOrder: vi.fn(), receivePurchaseOrder: vi.fn(),
 }));
-vi.mock("../api", () => ({ api, IpcError: class IpcError extends Error { code = "conflict"; } }));
+vi.mock("../api", () => ({ api, IpcError: class IpcError extends Error { constructor(code: string, message: string) { super(message); this.code = code; } code: string; } }));
 import { PurchasingScreen } from "./PurchasingScreen";
 
 const actor: Actor = { user_id: "u-1", organization_id: "o-1", branch_id: "b-1", display_name: "Ana", role: "owner", permissions: ["purchasing.manage"] };
@@ -31,6 +31,26 @@ describe("PurchasingScreen", () => {
     first.unmount();
     renderScreen([]);
     expect(await screen.findByText(/no tienes permiso/i)).toBeVisible();
+  });
+
+  it("reintenta una recepción incierta con la misma clave y payload", async () => {
+    const { IpcError } = await import("../api");
+    api.receivePurchaseOrder
+      .mockRejectedValueOnce(new IpcError("unknown_error", "respuesta perdida"))
+      .mockResolvedValueOnce({ ...order, status: "partially_received" });
+    renderScreen();
+    const user = userEvent.setup();
+    await screen.findByText("Proveedor Uno");
+    await user.click(screen.getByRole("button", { name: "Recibir" }));
+    await user.clear(screen.getByLabelText("Recibir"));
+    await user.type(screen.getByLabelText("Recibir"), "2");
+    await user.click(screen.getByRole("button", { name: /confirmar recepción/i }));
+    expect(await screen.findByText(/no se confirmó el resultado/i)).toBeVisible();
+    const first = api.receivePurchaseOrder.mock.calls[0]?.[0];
+    expect(screen.getByLabelText("Recibir")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /reintentar recepción/i }));
+    await waitFor(() => expect(api.receivePurchaseOrder).toHaveBeenCalledTimes(2));
+    expect(api.receivePurchaseOrder.mock.calls[1]?.[0]).toEqual(first);
   });
 
   it("crea un proveedor y refresca la lista", async () => {

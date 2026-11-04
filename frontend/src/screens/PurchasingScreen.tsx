@@ -115,7 +115,30 @@ function OrderDialog({ suppliers, products, onClose, onSaved }: { suppliers: Sup
 }
 
 function ReceiptDialog({ order, products, onClose, onSaved }: { order: PurchaseOrder; products: Product[]; onClose: () => void; onSaved: () => Promise<void> }) {
-  const [quantities, setQuantities] = useState<Record<string, string>>(() => Object.fromEntries(order.lines.map((line) => [line.id, "0"]))); const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
-  async function submit(event: React.FormEvent) { event.preventDefault(); const lines = order.lines.map((line) => ({ order_line_id: line.id, quantity: quantities[line.id] ?? "0" })).filter((line) => Number(line.quantity) > 0); const parsed = purchaseReceiptDraftSchema.safeParse({ order_id: order.id, idempotency_key: crypto.randomUUID(), lines }); if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? "Indica una cantidad válida."); return; } setBusy(true); try { await api.receivePurchaseOrder(parsed.data); await onSaved(); } catch (cause) { setError(messageOf(cause, "No fue posible registrar la recepción.")); } finally { setBusy(false); } }
-  return <Modal title={`Recibir ${order.folio}`} onClose={onClose}><form className="form-grid" onSubmit={submit} noValidate>{error && <p className="alert alert-error" role="alert">{error}</p>}<p className="muted">Solo las cantidades confirmadas incrementan existencias.</p><div className="receipt-lines">{order.lines.map((line) => { const product = products.find((item) => item.id === line.product_id); const pending = Math.max(0, Number(line.quantity) - Number(line.received_quantity)); return <div className="receipt-line" key={line.id}><div><strong>{product?.name ?? line.product_id}</strong><small>Solicitado {formatQuantity(line.quantity)} · Pendiente {formatQuantity(String(pending))}</small></div><label className="field field-short"><span>Recibir</span><input inputMode="decimal" value={quantities[line.id] ?? "0"} onChange={(event) => setQuantities((current) => ({ ...current, [line.id]: event.target.value }))} /></label></div>; })}</div><div className="dialog-actions"><button type="button" className="button button-quiet" onClick={onClose}>Cancelar</button><button type="submit" className="button button-primary" disabled={busy}>{busy ? "Registrando…" : "Confirmar recepción"}</button></div></form></Modal>;
+  const [quantities, setQuantities] = useState<Record<string, string>>(() => Object.fromEntries(order.lines.map((line) => [line.id, "0"])));
+  const [attempt, setAttempt] = useState<{ fingerprint: string; key: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const locked = attempt !== null;
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const lines = order.lines.map((line) => ({ order_line_id: line.id, quantity: quantities[line.id] ?? "0" })).filter((line) => Number(line.quantity) > 0);
+    const fingerprint = JSON.stringify({ order_id: order.id, lines });
+    const operation = attempt?.fingerprint === fingerprint ? attempt : { fingerprint, key: crypto.randomUUID() };
+    const parsed = purchaseReceiptDraftSchema.safeParse({ order_id: order.id, idempotency_key: operation.key, lines });
+    if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? "Indica una cantidad válida."); return; }
+    setAttempt(operation); setBusy(true); setError(null);
+    try { await api.receivePurchaseOrder(parsed.data); await onSaved(); }
+    catch (cause) {
+      const uncertain = cause instanceof IpcError && (cause.code === "unknown_error" || cause.code === "storage_error");
+      if (uncertain) {
+        setError("No se confirmó el resultado. Reintenta sin modificar las cantidades; se usará la misma operación.");
+      } else {
+        setAttempt(null);
+        setError(messageOf(cause, "No fue posible registrar la recepción."));
+      }
+    } finally { setBusy(false); }
+  }
+  return <Modal title={`Recibir ${order.folio}`} onClose={onClose}><form className="form-grid" onSubmit={submit} noValidate>{error && <p className="alert alert-error" role="alert">{error}</p>}<p className="muted">Solo las cantidades confirmadas incrementan existencias.</p><div className="receipt-lines">{order.lines.map((line) => { const product = products.find((item) => item.id === line.product_id); const pending = Math.max(0, Number(line.quantity) - Number(line.received_quantity)); return <div className="receipt-line" key={line.id}><div><strong>{product?.name ?? line.product_id}</strong><small>Solicitado {formatQuantity(line.quantity)} · Pendiente {formatQuantity(String(pending))}</small></div><label className="field field-short"><span>Recibir</span><input inputMode="decimal" value={quantities[line.id] ?? "0"} disabled={locked} onChange={(event) => setQuantities((current) => ({ ...current, [line.id]: event.target.value }))} /></label></div>; })}</div><div className="dialog-actions"><button type="button" className="button button-quiet" onClick={onClose} disabled={busy}>Cancelar</button><button type="submit" className="button button-primary" disabled={busy}>{busy ? "Registrando…" : locked ? "Reintentar recepción" : "Confirmar recepción"}</button></div></form></Modal>;
 }
