@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Actor, Product, PurchaseOrder, Supplier } from "../contracts";
@@ -16,7 +17,17 @@ const supplier: Supplier = { id: "s-1", code: "SUP-1", name: "Proveedor Uno", co
 const order: PurchaseOrder = { id: "o-1", supplier_id: "s-1", folio: "OC-1", status: "ordered", created_at: "2026-11-04T00:00:00Z", lines: [{ id: "l-1", product_id: "p-1", quantity: "5", received_quantity: "0", unit_cost: "8.00" }] };
 
 function renderScreen(permissions = actor.permissions) {
-  return render(<PurchasingScreen actor={{ ...actor, permissions }} readOnly={false} products={[product]} onInventoryChanged={vi.fn()} />);
+  return render(<PurchasingScreen actor={{ ...actor, permissions }} readOnly={false} products={[product]} onInventoryChanged={vi.fn()} pendingReceipt={null} onPendingReceiptChange={vi.fn()} />);
+}
+
+function ReceiptAttemptHarness() {
+  const [pendingReceipt, setPendingReceipt] = useState<import("./PurchasingScreen").PendingReceiptAttempt | null>(null);
+  const [purchasingOpen, setPurchasingOpen] = useState(true);
+  return <>
+    <button type="button" onClick={() => setPurchasingOpen(false)}>Ir a Ventas</button>
+    <button type="button" onClick={() => setPurchasingOpen(true)}>Ir a Compras</button>
+    {purchasingOpen && <PurchasingScreen actor={actor} readOnly={false} products={[product]} onInventoryChanged={vi.fn()} pendingReceipt={pendingReceipt} onPendingReceiptChange={setPendingReceipt} />}
+  </>;
 }
 
 describe("PurchasingScreen", () => {
@@ -38,7 +49,7 @@ describe("PurchasingScreen", () => {
     api.receivePurchaseOrder
       .mockRejectedValueOnce(new IpcError("unknown_error", "respuesta perdida"))
       .mockResolvedValueOnce({ ...order, status: "partially_received" });
-    renderScreen();
+    render(<ReceiptAttemptHarness />);
     const user = userEvent.setup();
     await screen.findByText("Proveedor Uno");
     await user.click(screen.getByRole("button", { name: "Recibir" }));
@@ -51,11 +62,33 @@ describe("PurchasingScreen", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: /recibir oc-1/i })).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent(/recepción pendiente/i);
-    await user.click(screen.getByRole("button", { name: "Recibir" }));
+    await user.click(screen.getByRole("button", { name: "Ir a Ventas" }));
+    expect(screen.queryByText("Órdenes de compra")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Ir a Compras" }));
+    await user.click(await screen.findByRole("button", { name: "Recibir" }));
     expect(screen.getByLabelText("Recibir")).toBeDisabled();
     await user.click(screen.getByRole("button", { name: /reintentar recepción/i }));
     await waitFor(() => expect(api.receivePurchaseOrder).toHaveBeenCalledTimes(2));
     expect(api.receivePurchaseOrder.mock.calls[1]?.[0]).toEqual(first);
+  });
+
+  it("conserva el intento incierto al cerrar con botón o backdrop", async () => {
+    const { IpcError } = await import("../api");
+    api.receivePurchaseOrder.mockRejectedValueOnce(new IpcError("storage_error", "resultado incierto"));
+    render(<ReceiptAttemptHarness />);
+    const user = userEvent.setup();
+    await screen.findByText("Proveedor Uno");
+    await user.click(screen.getByRole("button", { name: "Recibir" }));
+    await user.clear(screen.getByLabelText("Recibir"));
+    await user.type(screen.getByLabelText("Recibir"), "2");
+    await user.click(screen.getByRole("button", { name: /confirmar recepción/i }));
+    await screen.findByText(/no se confirmó el resultado/i);
+    await user.click(screen.getByRole("button", { name: "Cerrar" }));
+    await user.click(screen.getByRole("button", { name: "Recibir" }));
+    expect(screen.getByLabelText("Recibir")).toBeDisabled();
+    fireEvent.mouseDown(document.querySelector(".modal-backdrop")!);
+    await user.click(screen.getByRole("button", { name: "Recibir" }));
+    expect(screen.getByLabelText("Recibir")).toBeDisabled();
   });
 
   it("crea un proveedor y refresca la lista", async () => {

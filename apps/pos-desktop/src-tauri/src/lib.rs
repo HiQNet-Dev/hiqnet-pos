@@ -55,6 +55,21 @@ impl From<AppError> for IpcError {
 
 type IpcResult<T> = Result<T, IpcError>;
 
+/// El driver WebView no propaga las variables de entorno al binario de la app.
+/// Esta ruta solo se acepta desde el proceso que Tauri marcó para automatización.
+fn automation_database_path() -> Option<PathBuf> {
+    if std::env::var_os("TAURI_WEBVIEW_AUTOMATION")?.as_os_str() != "true" {
+        return None;
+    }
+    let mut args = std::env::args_os();
+    while let Some(argument) = args.next() {
+        if argument == "--hiqnet-e2e-db-path" {
+            return args.next().map(PathBuf::from);
+        }
+    }
+    None
+}
+
 fn session_actor(state: &AppState) -> IpcResult<Actor> {
     state
         .session
@@ -553,8 +568,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            let db_path = std::env::var_os("HIQNET_POS_DB_PATH")
-                .map(PathBuf::from)
+            let db_path = automation_database_path()
+                .or_else(|| std::env::var_os("HIQNET_POS_DB_PATH").map(PathBuf::from))
                 .unwrap_or_else(pos_storage_sqlite::default_database_path);
 
             let pool = tauri::async_runtime::block_on(pos_storage_sqlite::open(&db_path))

@@ -44,23 +44,30 @@ DIALOG = "//div[@role='dialog']"
 
 
 class WryOptions(BaseOptions):
-    def __init__(self, application: str):
+    def __init__(self, application: str, args: list[str]):
         super().__init__()
         self._application = application
+        self._args = args
 
     @property
     def default_capabilities(self):
         return {"browserName": "wry"}
 
     def to_capabilities(self):
-        return {"browserName": "wry", "tauri:options": {"application": self._application}}
+        return {
+            "browserName": "wry",
+            "tauri:options": {"application": self._application, "args": self._args},
+        }
 
 
 class App:
     def __init__(self, app_path: str, timeout: int = 30):
+        port = os.environ.get("HIQNET_E2E_PORT", "4444")
+        database_path = os.environ.get("HIQNET_POS_DB_PATH")
+        args = ["--hiqnet-e2e-db-path", database_path] if database_path else []
         self.driver = webdriver.Remote(
-            command_executor="http://127.0.0.1:4444",
-            options=WryOptions(app_path),
+            command_executor=f"http://127.0.0.1:{port}",
+            options=WryOptions(app_path, args),
         )
         self.driver.set_script_timeout(20)
         self.wait = WebDriverWait(self.driver, timeout)
@@ -520,6 +527,17 @@ def capturar_tamanos(app_path: str) -> dict:
             ("admin", "gestion-1366"),
         ]:
             app.nav(section)
+            time.sleep(0.5)
+            app.screenshot(name)
+            result["capturas"].append(name)
+
+        for width, height, name in [
+            (1366, 768, "compras-1366"),
+            (1024, 768, "compras-1024"),
+            (768, 1024, "compras-tablet"),
+        ]:
+            app.resize(width, height)
+            app.nav("purchasing")
             time.sleep(0.5)
             app.screenshot(name)
             result["capturas"].append(name)

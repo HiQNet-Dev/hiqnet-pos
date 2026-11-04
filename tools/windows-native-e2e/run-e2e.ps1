@@ -32,6 +32,8 @@ param(
 
     [int]$Port = 4444,
 
+    [int]$NativePort = 4445,
+
     [string]$NativeDriver = (Join-Path $env:TEMP "edgedriver\msedgedriver.exe"),
 
     [int]$TimeoutSeconds = 300,
@@ -74,8 +76,10 @@ $driverErrorLog = Join-Path $runDirectory "tauri-driver.err.log"
 
 $previousDatabasePath = $env:HIQNET_POS_DB_PATH
 $previousArtifactDir = $env:HIQNET_E2E_ARTIFACT_DIR
+$previousE2ePort = $env:HIQNET_E2E_PORT
 $env:HIQNET_POS_DB_PATH = $databasePath
 $env:HIQNET_E2E_ARTIFACT_DIR = $runDirectory
+$env:HIQNET_E2E_PORT = $Port
 
 $driver = $null
 $exitCode = 1
@@ -118,14 +122,33 @@ function Stop-RunProcesses {
     }
 }
 
+function Assert-LocalPortAvailable {
+    param([int]$PortToCheck)
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $PortToCheck)
+    try {
+        $listener.Start()
+    }
+    catch {
+        throw "El puerto $PortToCheck ya está en uso. Elige otro; el arnés no terminará procesos ajenos."
+    }
+    finally {
+        $listener.Stop()
+    }
+}
+
 $startedAt = Get-Date
 Write-Output "run_directory=$runDirectory"
 Write-Output "database=$databasePath"
 Write-Output "application=$AppPath"
 
 try {
+    if ($Port -eq $NativePort) {
+        throw "-Port y -NativePort deben ser distintos."
+    }
+    Assert-LocalPortAvailable -PortToCheck $Port
+    Assert-LocalPortAvailable -PortToCheck $NativePort
     $driver = Start-Process -FilePath "tauri-driver" `
-        -ArgumentList @("--port", $Port, "--native-driver", $NativeDriver) `
+        -ArgumentList @("--port", $Port, "--native-port", $NativePort, "--native-driver", $NativeDriver) `
         -RedirectStandardOutput $driverLog `
         -RedirectStandardError $driverErrorLog `
         -PassThru
@@ -151,6 +174,9 @@ try {
     }
     if (-not $ready) {
         throw "tauri-driver no aceptó conexiones en el puerto $Port"
+    }
+    if ($driver.HasExited) {
+        throw "tauri-driver terminó con código $($driver.ExitCode) después del sondeo. Revisa $driverErrorLog"
     }
     Write-Output "driver_ready=True"
 
@@ -198,6 +224,12 @@ finally {
     }
     else {
         Remove-Item Env:\HIQNET_E2E_ARTIFACT_DIR -ErrorAction SilentlyContinue
+    }
+    if ($previousE2ePort) {
+        $env:HIQNET_E2E_PORT = $previousE2ePort
+    }
+    else {
+        Remove-Item Env:\HIQNET_E2E_PORT -ErrorAction SilentlyContinue
     }
 
     Write-Output "sqlite=$dbState"

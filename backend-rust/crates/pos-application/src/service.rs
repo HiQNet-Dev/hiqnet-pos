@@ -2316,6 +2316,26 @@ impl PosService {
         actor: &Actor,
         draft: PurchaseReceiptDraft,
     ) -> AppResult<PurchaseOrderView> {
+        // Dos procesos locales pueden intentar la misma clave simultáneamente.
+        // SQLite puede devolver una contención transitoria antes de que la segunda
+        // transacción alcance la restricción única; se reintenta el mismo payload
+        // inmutable para recuperar el resultado idempotente confirmado.
+        for delay_ms in [20_u64, 50_u64] {
+            match self.receive_purchase_order_once(actor, draft.clone()).await {
+                Err(error) if error.is_storage() => {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                }
+                result => return result,
+            }
+        }
+        self.receive_purchase_order_once(actor, draft).await
+    }
+
+    async fn receive_purchase_order_once(
+        &self,
+        actor: &Actor,
+        draft: PurchaseReceiptDraft,
+    ) -> AppResult<PurchaseOrderView> {
         actor.require(pos_core::identity::Permission::ManagePurchasing)?;
         let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
         let order_id: PurchaseOrderId = draft.order_id.parse().map_err(|_| AppError::NotFound)?;

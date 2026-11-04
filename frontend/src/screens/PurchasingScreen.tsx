@@ -12,11 +12,20 @@ import {
 import { Modal } from "../components/Modal";
 import { displayMoney, formatQuantity } from "../lib/money";
 
+export interface PendingReceiptAttempt {
+  orderId: string;
+  fingerprint: string;
+  key: string;
+  quantities: Record<string, string>;
+}
+
 interface Props {
   actor: Actor;
   readOnly: boolean;
   products: Product[];
   onInventoryChanged: () => void;
+  pendingReceipt: PendingReceiptAttempt | null;
+  onPendingReceiptChange: (attempt: PendingReceiptAttempt | null) => void;
 }
 
 const STATUS: Record<PurchaseOrder["status"], string> = {
@@ -30,7 +39,14 @@ function messageOf(cause: unknown, fallback: string) {
   return cause instanceof IpcError ? cause.message : fallback;
 }
 
-export function PurchasingScreen({ actor, readOnly, products, onInventoryChanged }: Props) {
+export function PurchasingScreen({
+  actor,
+  readOnly,
+  products,
+  onInventoryChanged,
+  pendingReceipt,
+  onPendingReceiptChange,
+}: Props) {
   const canManage = actor.permissions.includes("purchasing.manage");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
@@ -40,7 +56,6 @@ export function PurchasingScreen({ actor, readOnly, products, onInventoryChanged
   const [supplierOpen, setSupplierOpen] = useState(false);
   const [orderOpen, setOrderOpen] = useState(false);
   const [receiptOrder, setReceiptOrder] = useState<PurchaseOrder | null>(null);
-  const [pendingReceipt, setPendingReceipt] = useState<{ orderId: string; fingerprint: string; key: string; quantities: Record<string, string> } | null>(null);
   const [busy, setBusy] = useState(false);
   const requestRef = useRef(0);
 
@@ -99,7 +114,7 @@ export function PurchasingScreen({ actor, readOnly, products, onInventoryChanged
     {supplierOpen && <SupplierDialog onClose={() => setSupplierOpen(false)} onSaved={async () => { setSupplierOpen(false); setNotice("Proveedor creado."); await refresh(); }} />}
     {orderOpen && <OrderDialog suppliers={suppliers.filter((item) => item.active)} products={products.filter((item) => item.active)} onClose={() => setOrderOpen(false)} onSaved={async () => { setOrderOpen(false); setNotice("Orden creada como borrador."); await refresh(); }} />}
     {pendingReceipt && <p className="banner banner-warning" role="status">Hay una recepción pendiente de confirmar. Ábrela para reintentar sin duplicar inventario.</p>}
-    {receiptOrder && <ReceiptDialog order={receiptOrder} products={products} pendingAttempt={pendingReceipt?.orderId === receiptOrder.id ? pendingReceipt : null} onPending={setPendingReceipt} onClose={() => setReceiptOrder(null)} onSaved={async () => { setPendingReceipt(null); setReceiptOrder(null); setNotice("Recepción registrada e inventario actualizado."); onInventoryChanged(); await refresh(); }} />}
+    {receiptOrder && <ReceiptDialog order={receiptOrder} products={products} pendingAttempt={pendingReceipt?.orderId === receiptOrder.id ? pendingReceipt : null} onPending={onPendingReceiptChange} onClose={() => setReceiptOrder(null)} onSaved={async () => { onPendingReceiptChange(null); setReceiptOrder(null); setNotice("Recepción registrada e inventario actualizado."); onInventoryChanged(); await refresh(); }} />}
   </div>;
 }
 
@@ -116,7 +131,7 @@ function OrderDialog({ suppliers, products, onClose, onSaved }: { suppliers: Sup
   return <Modal title="Nueva orden de compra" onClose={onClose}><form className="form-grid" onSubmit={submit} noValidate>{error && <p className="alert alert-error" role="alert">{error}</p>}<label className="field"><span>Proveedor</span><select value={supplierId} onChange={(event) => setSupplierId(event.target.value)} required><option value="">Selecciona un proveedor</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label><div className="field-row"><label className="field"><span>Producto</span><select value={productId} onChange={(event) => setProductId(event.target.value)}><option value="">Selecciona un producto</option>{products.map((product) => <option key={product.id} value={product.id}>{product.sku} · {product.name}</option>)}</select></label><label className="field field-short"><span>Cantidad</span><input inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><label className="field field-short"><span>Costo neto</span><input inputMode="decimal" value={unitCost} onChange={(event) => setUnitCost(event.target.value)} /></label><button type="button" className="button button-quiet" onClick={addLine}>Agregar</button></div>{lines.length > 0 && <ul className="compact-list">{lines.map((line) => <li key={line.product_id}>{products.find((product) => product.id === line.product_id)?.name ?? line.product_id} · {formatQuantity(line.quantity)} × {displayMoney(line.unit_cost)}<button type="button" className="button-link" onClick={() => setLines((current) => current.filter((item) => item.product_id !== line.product_id))}>Quitar</button></li>)}</ul>}<div className="dialog-actions"><button type="button" className="button button-quiet" onClick={onClose}>Cancelar</button><button type="submit" className="button button-primary" disabled={busy || lines.length === 0}>{busy ? "Guardando…" : "Crear borrador"}</button></div></form></Modal>;
 }
 
-function ReceiptDialog({ order, products, pendingAttempt, onPending, onClose, onSaved }: { order: PurchaseOrder; products: Product[]; pendingAttempt: { orderId: string; fingerprint: string; key: string; quantities: Record<string, string> } | null; onPending: (attempt: { orderId: string; fingerprint: string; key: string; quantities: Record<string, string> } | null) => void; onClose: () => void; onSaved: () => Promise<void> }) {
+function ReceiptDialog({ order, products, pendingAttempt, onPending, onClose, onSaved }: { order: PurchaseOrder; products: Product[]; pendingAttempt: PendingReceiptAttempt | null; onPending: (attempt: PendingReceiptAttempt | null) => void; onClose: () => void; onSaved: () => Promise<void> }) {
   const [quantities, setQuantities] = useState<Record<string, string>>(() => pendingAttempt?.quantities ?? Object.fromEntries(order.lines.map((line) => [line.id, "0"])));
   const [attempt, setAttempt] = useState<{ fingerprint: string; key: string } | null>(() => pendingAttempt ? { fingerprint: pendingAttempt.fingerprint, key: pendingAttempt.key } : null);
   const [error, setError] = useState<string | null>(null);
