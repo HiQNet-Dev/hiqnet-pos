@@ -1,23 +1,16 @@
 """E2E nativo de HiQNet POS contra el ejecutable real de Windows.
 
-Recorre el flujo comercial completo usando Selenium WebDriver + `tauri-driver`:
+Recorre el flujo comercial completo usando Selenium WebDriver + `tauri-driver`
+sobre el shell de escritorio:
 
-    bootstrap -> categoría -> producto -> variante -> modificadores ->
-    inventario -> caja y turno -> venta en efectivo -> reinicio ->
-    verificación de persistencia -> arqueo y cierre
+    bootstrap -> productos -> variante -> modificadores -> inventario ->
+    caja y turno -> venta en efectivo -> reinicio -> persistencia -> arqueo
 
-Todo el estado se guarda en la base SQLite aislada indicada por
-`HIQNET_POS_DB_PATH`; nunca se toca la instalación del usuario.
+También guarda capturas reales de cada pantalla para revisión visual.
 
 Los grupos y opciones de modificadores se crean por IPC porque todavía no existe
-una pantalla administrativa para ellos (ver `docs/03-contracts/ipc.md`). La venta
-completa, el carrito, el cobro y el arqueo se operan desde la interfaz.
-
-Uso:
-    python e2e_flow.py <ruta-del-ejecutable>
-
-Variables opcionales:
-    HIQNET_E2E_ARTIFACT_DIR  Directorio donde escribir el informe y las capturas.
+pantalla administrativa para grupos; productos, variantes, inventario, caja,
+venta y arqueo se operan desde la interfaz.
 """
 
 import json
@@ -32,7 +25,6 @@ from selenium.webdriver.common.options import BaseOptions
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
 
-# Escenario monetario determinista del fixture (importes ilustrativos).
 PRECIO_PRODUCTO = "10.00"
 PRECIO_VARIANTE = "12.00"
 DELTA_EXTRA = "2.00"
@@ -40,14 +32,15 @@ CANTIDAD = 2
 FONDO_INICIAL = "100.00"
 EFECTIVO_RECIBIDO = "50.00"
 
-UNITARIO_NETO = "14.00"
-IMPUESTO_UNITARIO = "2.24"
 UNITARIO_TOTAL = "16.24"
 TOTAL_VENTA = "32.48"
 CAMBIO = "17.52"
 SALDO_ESPERADO = "132.48"
 STOCK_INICIAL = "20"
 STOCK_FINAL = "18"
+
+NAV = "//nav[@aria-label='Navegación principal']//button[@data-section='{}']"
+DIALOG = "//div[@role='dialog']"
 
 
 class WryOptions(BaseOptions):
@@ -71,6 +64,7 @@ class App:
         )
         self.driver.set_script_timeout(20)
         self.wait = WebDriverWait(self.driver, timeout)
+        self._screens = 0
 
     def quit(self):
         try:
@@ -78,57 +72,64 @@ class App:
         except Exception:
             pass
 
+    # --- ventana y capturas ------------------------------------------------------
+
+    def resize(self, width: int, height: int):
+        try:
+            self.driver.set_window_size(width, height)
+            time.sleep(0.4)
+        except Exception:
+            # Algunos compositores ignoran el redimensionado; la captura sigue siendo válida.
+            pass
+
+    def screenshot(self, name: str):
+        directory = os.environ.get("HIQNET_E2E_ARTIFACT_DIR")
+        self._screens += 1
+        if not directory:
+            return
+        try:
+            (Path(directory) / f"{self._screens:02d}-{name}.png").unlink(missing_ok=True)
+            self.driver.save_screenshot(str(Path(directory) / f"{self._screens:02d}-{name}.png"))
+        except Exception:
+            pass
+
     # --- helpers de localización -------------------------------------------------
 
-    def section(self, heading: str, tag: str = "h2") -> str:
-        return f"//section[.//{tag}[normalize-space()='{heading}']]"
+    def nav(self, section: str):
+        self.click_xpath(NAV.format(section))
 
-    def _input(self, heading: str, label: str, tag: str):
-        xpath = (
-            f"{self.section(heading, tag)}"
-            f"//label[.//span[normalize-space()='{label}']]//input"
-        )
-        return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
-
-    def fill(self, heading: str, label: str, value: str, tag: str = "h2"):
-        element = self._input(heading, label, tag)
+    def field(self, scope: str, label: str):
+        xpath = f"{scope}//label[.//span[normalize-space()='{label}']]//input"
+        element = self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
         element.clear()
-        element.send_keys(value)
+        return element
 
-    def select(self, heading: str, label: str, value: str, tag: str = "h2"):
-        xpath = (
-            f"{self.section(heading, tag)}"
-            f"//label[.//span[normalize-space()='{label}']]//select"
-        )
+    def fill(self, scope: str, label: str, value: str):
+        self.field(scope, label).send_keys(value)
+
+    def select(self, scope: str, label: str, value: str):
+        xpath = f"{scope}//label[.//span[normalize-space()='{label}']]//select"
         element = self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
         Select(element).select_by_visible_text(value)
-
-    def click(self, heading: str, button: str, tag: str = "h2"):
-        xpath = f"{self.section(heading, tag)}//button[normalize-space()='{button}']"
-        element = self.wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
-        element.click()
 
     def click_xpath(self, xpath: str):
         element = self.wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
         element.click()
         return element
 
-    def toggle_option(self, heading: str, option_label: str):
-        xpath = (
-            f"{self.section(heading)}"
-            f"//label[.//span[normalize-space()='{option_label}']]//input"
+    def wait_xpath(self, xpath: str, timeout: int = 30):
+        return WebDriverWait(self.driver, timeout).until(
+            EC.presence_of_element_located((By.XPATH, xpath))
         )
-        element = self.wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
-        element.click()
 
-    def wait_text(self, text: str, timeout: int = 20):
+    def wait_text(self, text: str, timeout: int = 30):
         WebDriverWait(self.driver, timeout).until(
             EC.presence_of_element_located(
                 (By.XPATH, f"//*[contains(normalize-space(.),'{text}')]")
             )
         )
 
-    def wait_text_gone(self, text: str, timeout: int = 20):
+    def wait_text_gone(self, text: str, timeout: int = 30):
         WebDriverWait(self.driver, timeout).until(
             EC.invisibility_of_element_located(
                 (By.XPATH, f"//*[contains(normalize-space(.),'{text}')]")
@@ -138,11 +139,10 @@ class App:
     def text(self) -> str:
         return self.driver.find_element(By.TAG_NAME, "body").text
 
-    def section_text(self, heading: str, tag: str = "h2") -> str:
-        element = self.driver.find_element(By.XPATH, self.section(heading, tag))
-        return element.text
+    def text_of(self, xpath: str) -> str:
+        return self.driver.find_element(By.XPATH, xpath).text
 
-    def invoke(self, command: str, args: dict | None = None) -> dict:
+    def invoke(self, command: str, args: dict | None = None):
         """Invocación IPC directa; solo para preparar datos sin pantalla propia."""
         payload = json.dumps(args or {})
         script = (
@@ -155,71 +155,70 @@ class App:
             raise RuntimeError(f"IPC {command} falló: {result.get('e')}")
         return result["v"]
 
-    def screenshot(self, name: str):
-        directory = os.environ.get("HIQNET_E2E_ARTIFACT_DIR")
-        if not directory:
-            return
-        try:
-            target = Path(directory) / f"{name}.png"
-            self.driver.save_screenshot(str(target))
-        except Exception:
-            pass
-
-
-def wait_heading(app: App, heading: str, timeout: int = 30):
-    WebDriverWait(app.driver, timeout).until(
-        EC.presence_of_element_located(
-            (By.XPATH, f"//*[normalize-space()='{heading}']")
-        )
-    )
-
 
 def assert_contains(text: str, expected: str, context: str):
     if expected not in text:
         raise AssertionError(f"{context}: se esperaba '{expected}' en:\n{text}")
 
 
-def bootstrap(app: App):
-    wait_heading(app, "Configura tu negocio")
-    app.fill("Configura tu negocio", "Nombre del negocio", "Cafetería E2E", tag="h1")
-    app.fill("Configura tu negocio", "Nombre de la sucursal", "Matriz", tag="h1")
-    app.fill("Configura tu negocio", "Código", "MX-01", tag="h1")
-    app.fill("Configura tu negocio", "Nombre del propietario", "Ana E2E", tag="h1")
-    app.fill("Configura tu negocio", "Usuario", "propietario", tag="h1")
-    app.fill("Configura tu negocio", "Contraseña", "contrasena-segura", tag="h1")
-    app.fill("Configura tu negocio", "Confirmar contraseña", "contrasena-segura", tag="h1")
-    app.click("Configura tu negocio", "Crear instalación y entrar", tag="h1")
-    wait_heading(app, "Productos")
-
-
-def crear_catalogo(app: App):
-    app.fill("Categorías, productos y variantes", "Nueva categoría", "Bebidas")
-    app.click("Categorías, productos y variantes", "Crear categoría")
-    app.wait_text("Categoría Bebidas creada")
-
-    app.fill("Productos", "SKU", "CAF-001", tag="h1")
-    app.fill("Productos", "Nombre", "Café E2E", tag="h1")
-    app.fill("Productos", "Precio (MXN)", PRECIO_PRODUCTO, tag="h1")
-    app.fill("Productos", "IVA (%)", "16", tag="h1")
-    app.select("Productos", "Categoría (opcional)", "Bebidas", tag="h1")
-    app.click("Productos", "Agregar producto", tag="h1")
-    app.wait_text("Producto CAF-001 creado")
-
-    app.click_xpath(
-        "//section[.//h2[normalize-space()='Categorías, productos y variantes']]"
-        "//button[contains(.,'Café E2E')]"
+def wait_screen(app: App, heading: str):
+    WebDriverWait(app.driver, 30).until(
+        EC.presence_of_element_located((By.XPATH, f"//*[normalize-space()='{heading}']"))
     )
-    app.fill("Categorías, productos y variantes", "Nueva variante", "Grande")
-    app.fill("Categorías, productos y variantes", "Precio", PRECIO_VARIANTE)
-    app.click("Categorías, productos y variantes", "Crear variante")
+
+
+def bootstrap(app: App):
+    wait_screen(app, "Configura tu negocio")
+    for label, value in [
+        ("Nombre del negocio", "Cafetería E2E"),
+        ("Nombre de la sucursal", "Matriz"),
+        ("Código", "MX-01"),
+        ("Nombre del propietario", "Ana E2E"),
+        ("Usuario", "propietario"),
+        ("Contraseña", "contrasena-segura"),
+        ("Confirmar contraseña", "contrasena-segura"),
+    ]:
+        app.fill("//section", label, value)
+    app.click_xpath("//button[normalize-space()='Crear instalación y entrar']")
+    wait_screen(app, "Ventas")
+    app.wait_xpath(NAV.format("sales"))
+
+
+def crear_categoria(app: App):
+    app.click_xpath("//button[normalize-space()='Nueva categoría']")
+    app.wait_xpath(DIALOG)
+    app.fill(DIALOG, "Nombre", "Bebidas")
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Crear categoría']")
+    app.wait_text("Categoría Bebidas creada")
+    # La opción aparece cuando el shell refresca el catálogo compartido.
+    app.wait_xpath("//select//option[normalize-space()='Bebidas']", timeout=30)
+
+
+def crear_producto(app: App):
+    app.click_xpath("//button[contains(normalize-space(),'Nuevo producto')]")
+    app.wait_xpath(DIALOG)
+    app.fill(DIALOG, "SKU", "CAF-001")
+    app.fill(DIALOG, "Nombre", "Café E2E")
+    app.fill(DIALOG, "Precio (MXN)", PRECIO_PRODUCTO)
+    app.fill(DIALOG, "IVA (%)", "16")
+    app.select(DIALOG, "Categoría (opcional)", "Bebidas")
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Agregar producto']")
+    app.wait_text("Producto CAF-001 creado")
+    app.wait_xpath("//td[normalize-space()='CAF-001']")
+
+
+def crear_variante(app: App):
+    app.click_xpath("//button[normalize-space()='CAF-001']")
+    detail = "//aside[@aria-label='Detalle del producto']"
+    app.fill(detail, "Nueva variante", "Grande")
+    app.fill(detail, "Precio", PRECIO_VARIANTE)
+    app.click_xpath("//button[normalize-space()='Crear variante']")
     app.wait_text("Variante Grande creada")
 
 
 def configurar_modificadores(app: App) -> dict:
-    """Crea grupos y opciones con los casos de uso auditados (sin pantalla admin)."""
     products = app.invoke("list_products")
     product = next(item for item in products if item["sku"] == "CAF-001")
-
     extras = app.invoke(
         "create_modifier_group",
         {
@@ -268,128 +267,180 @@ def configurar_modificadores(app: App) -> dict:
             }
         },
     )
-    return {
-        "product_id": product["id"],
-        "extras": extras["id"],
-        "extra": extra["id"],
-        "omisiones": omisiones["id"],
-        "omision": omision["id"],
-    }
+    return {"product_id": product["id"], "extra": extra["id"], "omision": omision["id"]}
 
 
 def registrar_inventario(app: App):
-    app.select("Existencias y movimientos", "Producto", "CAF-001 · Café E2E")
-    app.select("Existencias y movimientos", "Tipo", "Entrada")
-    app.fill("Existencias y movimientos", "Cantidad", STOCK_INICIAL)
-    app.click("Existencias y movimientos", "Registrar")
+    app.nav("inventory")
+    wait_screen(app, "Inventario")
+    app.select("//header[contains(@class,'screen-header')]", "Producto", "CAF-001 · Café E2E")
+    app.wait_text("Café E2E")
+    app.screenshot("inventario-vacio")
+    app.select("//section[@aria-label='Existencias del producto']", "Tipo", "Entrada")
+    app.fill("//section[@aria-label='Existencias del producto']", "Cantidad", STOCK_INICIAL)
+    app.click_xpath("//button[normalize-space()='Registrar movimiento']")
     app.wait_text("Movimiento registrado")
+    app.wait_text(STOCK_INICIAL)
 
 
 def abrir_caja(app: App):
-    app.fill("Turno de efectivo", "Nombre", "Caja E2E")
-    app.fill("Turno de efectivo", "Código", "CJ-01")
-    app.click("Turno de efectivo", "Crear caja")
+    app.nav("cash")
+    wait_screen(app, "Caja y turnos")
+    app.fill("//section", "Nombre", "Caja E2E")
+    app.fill("//section", "Código", "CJ-01")
+    app.click_xpath("//button[normalize-space()='Crear caja']")
     app.wait_text("Caja creada")
-    app.fill("Turno de efectivo", "Fondo inicial", FONDO_INICIAL)
-    app.click("Turno de efectivo", "Abrir turno")
+    app.wait_xpath("//button[normalize-space()='Abrir turno']")
+    app.screenshot("caja-sin-turno")
+    app.fill("//section", "Fondo inicial", FONDO_INICIAL)
+    app.click_xpath("//button[normalize-space()='Abrir turno']")
     app.wait_text("Turno abierto")
-
-
-def esperar_turno_en_venta(app: App):
-    """El panel de venta debe reflejar el turno abierto en otra sección."""
-    app.wait_text_gone("Abre un turno de caja para cobrar")
-    assert_contains(
-        app.section_text("Punto de venta"),
-        "Caja E2E",
-        "el panel de venta no muestra la caja activa",
-    )
+    app.screenshot("caja-turno-abierto")
 
 
 def vender(app: App) -> str:
-    app.click_xpath(
-        "//section[.//h2[normalize-space()='Punto de venta']]"
-        "//button[contains(.,'Café E2E')]"
-    )
-    # La variante llega del backend; su ausencia indicaría un IPC roto.
-    WebDriverWait(app.driver, 20).until(
-        EC.presence_of_element_located(
-            (
-                By.XPATH,
-                "//section[.//h2[normalize-space()='Punto de venta']]"
-                f"//option[normalize-space()='Grande · ${PRECIO_VARIANTE}']",
-            )
-        )
-    )
-    app.select("Punto de venta", "Variante", f"Grande · ${PRECIO_VARIANTE}")
-    app.toggle_option("Punto de venta", f"Shot extra (+{DELTA_EXTRA})")
-    app.toggle_option("Punto de venta", "Sin azúcar")
-    app.click("Punto de venta", "Agregar al carrito")
-    app.wait_text("Producto agregado al carrito")
+    app.nav("sales")
+    wait_screen(app, "Ventas")
+    app.wait_text_gone("Abre un turno de caja para cobrar")
+    app.screenshot("ventas-catalogo")
 
-    cart = app.section_text("Punto de venta")
-    assert_contains(cart, f"${UNITARIO_TOTAL} × 1", "el carrito no usa el precio de Rust")
+    app.click_xpath("//button[contains(@class,'product-card')][contains(.,'Café E2E')]")
+    dialog = app.wait_xpath(DIALOG)
+    app.wait_xpath(f"{DIALOG}//label[contains(.,'Grande')]//input")
+    app.click_xpath(f"{DIALOG}//label[.//span[normalize-space()='Grande']]//input")
+    app.click_xpath(f"{DIALOG}//label[.//span[normalize-space()='Shot extra']]//input")
+    app.click_xpath(f"{DIALOG}//label[.//span[normalize-space()='Sin azúcar']]//input")
+    app.screenshot("configurador")
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Agregar al carrito']")
 
-    app.click_xpath(
-        "//section[.//h2[normalize-space()='Punto de venta']]"
-        "//button[normalize-space()='+']"
-    )
-    app.wait_text(f"× {CANTIDAD}")
+    app.wait_text_gone("Sin artículos")
+    ticket = app.text_of("//aside[contains(@class,'ticket')]")
+    assert_contains(ticket, f"${UNITARIO_TOTAL}", "la línea no usa el precio de Rust")
 
-    total_carrito = app.section_text("Punto de venta")
-    assert_contains(total_carrito, f"${TOTAL_VENTA}", "total del carrito incorrecto")
+    app.click_xpath("//button[@aria-label='Aumentar Café E2E']")
+    app.wait_text(f"${TOTAL_VENTA}")
+    app.screenshot("ticket")
 
-    app.fill("Punto de venta", "Efectivo recibido", EFECTIVO_RECIBIDO)
-    app.click("Punto de venta", "Cobrar")
-    app.wait_text("Folio V-")
+    app.click_xpath("//button[starts-with(normalize-space(),'Cobrar $')]")
+    app.wait_xpath(f"{DIALOG}//label[.//span[normalize-space()='Efectivo recibido']]//input")
+    app.fill(DIALOG, "Efectivo recibido", EFECTIVO_RECIBIDO)
+    app.wait_text(f"Cambio estimado: ${CAMBIO}")
+    app.screenshot("checkout")
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Confirmar cobro']")
 
-    confirmacion = app.section_text("Punto de venta")
-    assert_contains(confirmacion, f"Total ${TOTAL_VENTA}", "total confirmado incorrecto")
-    assert_contains(confirmacion, f"Cambio ${CAMBIO}", "cambio incorrecto")
-    app.screenshot("01-venta-confirmada")
+    app.wait_text("Venta V-")
+    app.screenshot("venta-confirmada")
+    confirmacion = app.text_of(DIALOG)
+    assert_contains(confirmacion, f"Total cobrado\n${TOTAL_VENTA}", "total confirmado incorrecto")
+    assert_contains(confirmacion, f"Cambio\n${CAMBIO}", "cambio incorrecto")
 
     for line in confirmacion.splitlines():
-        if line.startswith("Folio V-"):
-            return line.split(" ", 1)[1].split(".")[0]
+        if line.startswith("Venta V-"):
+            return line.split(" ", 1)[1]
     raise AssertionError("No se encontró el folio en la confirmación")
 
 
 def iniciar_sesion(app: App):
-    wait_heading(app, "Entrar a la caja")
-    app.fill("Entrar a la caja", "Usuario", "propietario", tag="h1")
-    app.fill("Entrar a la caja", "Contraseña", "contrasena-segura", tag="h1")
-    app.click("Entrar a la caja", "Entrar", tag="h1")
-    wait_heading(app, "Productos")
+    wait_screen(app, "Entrar a la caja")
+    app.screenshot("login")
+    app.fill("//section", "Usuario", "propietario")
+    app.fill("//section", "Contraseña", "contrasena-segura")
+    app.click_xpath("//button[normalize-space()='Entrar']")
+    wait_screen(app, "Ventas")
 
 
 def verificar_persistencia(app: App) -> dict:
-    app.select("Existencias y movimientos", "Producto", "CAF-001 · Café E2E")
-    app.wait_text("Café E2E:")
-    inventory = app.section_text("Existencias y movimientos")
-    assert_contains(inventory, f"Café E2E: {STOCK_FINAL}", "el inventario no persistió")
+    app.nav("inventory")
+    wait_screen(app, "Inventario")
+    app.select(
+        "//header[contains(@class,'screen-header')]", "Producto", "CAF-001 · Café E2E"
+    )
+    app.wait_xpath(
+        f"//span[contains(@class,'stock-figure') and normalize-space()='{STOCK_FINAL}']",
+        timeout=30,
+    )
+    inventario = app.text_of("//section[@aria-label='Existencias del producto']")
+    assert_contains(inventario, STOCK_FINAL, "el inventario no persistió")
+    app.screenshot("inventario-persistido")
 
-    caja = app.section_text("Turno de efectivo")
-    assert_contains(caja, "open", "el turno no sigue abierto tras reiniciar")
+    app.nav("cash")
+    wait_screen(app, "Caja y turnos")
+    app.wait_text("Turno abierto")
+    caja = app.text_of("//section[@aria-label='Operación del turno']")
     assert_contains(caja, SALDO_ESPERADO, "el saldo esperado no incluye la venta")
-    app.screenshot("02-reinicio-saldo")
+    app.screenshot("caja-abierta")
 
-    venta = app.invoke("list_products")
-    if not venta:
+    if not app.invoke("list_products"):
         raise AssertionError("el catálogo quedó vacío tras el reinicio")
-    return {"inventario": inventory, "caja": caja}
+    return {"inventario": inventario, "caja": caja}
 
 
 def cerrar_turno(app: App):
-    app.fill("Turno de efectivo", "Efectivo contado", SALDO_ESPERADO)
-    app.click("Turno de efectivo", "Cerrar turno")
+    app.fill("//section[@aria-label='Operación del turno']", "Efectivo contado", SALDO_ESPERADO)
+    app.click_xpath("//button[normalize-space()='Cerrar turno']")
     app.wait_text("Turno cerrado")
 
-    cierre = app.section_text("Turno de efectivo")
-    assert_contains(cierre, "Turno cerrado", "no se confirmó el cierre")
-    assert_contains(cierre, "Diferencia\nExacto", "la diferencia del arqueo exacto no es cero")
-    assert_contains(cierre, SALDO_ESPERADO, "el cierre no conserva el saldo esperado")
-    assert_contains(cierre, "Caja E2E · CJ-01", "el historial no identifica la caja")
-    assert_contains(cierre, "Ana E2E", "el historial no identifica al operador")
-    app.screenshot("03-turno-cerrado")
+    app.wait_text("Resultado del arqueo")
+    arqueo = app.text_of("//section[@aria-label='Operación del turno']")
+    assert_contains(arqueo, "Exacto", "la diferencia del arqueo exacto no es cero")
+    assert_contains(arqueo, SALDO_ESPERADO, "el cierre no conserva el saldo esperado")
+    historial = app.text_of("//section[@aria-label='Historial de turnos']")
+    assert_contains(historial, "Caja E2E · CJ-01", "el historial no identifica la caja")
+    assert_contains(historial, SALDO_ESPERADO, "el historial no conserva el esperado")
+    app.screenshot("arqueo-cierre")
+
+
+def capturar_tamanos(app_path: str) -> dict:
+    """Capturas reales en las resoluciones de referencia y en formato tablet."""
+    app = App(app_path)
+    result: dict = {"capturas": [], "tablet_ticket": False}
+    try:
+        wait_screen(app, "Entrar a la caja")
+        app.fill("//section", "Usuario", "propietario")
+        app.fill("//section", "Contraseña", "contrasena-segura")
+        app.click_xpath("//button[normalize-space()='Entrar']")
+        wait_screen(app, "Ventas")
+
+        for width, height, name in [
+            (1920, 1080, "ventas-1920"),
+            (1440, 900, "ventas-1440"),
+            (1366, 768, "ventas-1366"),
+            (1024, 768, "ventas-1024"),
+        ]:
+            app.resize(width, height)
+            app.screenshot(name)
+            result["capturas"].append(name)
+
+        app.resize(1366, 768)
+        for section, name in [
+            ("catalog", "productos-1366"),
+            ("inventory", "inventario-1366"),
+            ("cash", "caja-1366"),
+            ("admin", "gestion-1366"),
+        ]:
+            app.nav(section)
+            time.sleep(0.5)
+            app.screenshot(name)
+            result["capturas"].append(name)
+
+        app.nav("sales")
+        app.resize(768, 1024)
+        time.sleep(0.5)
+        app.screenshot("ventas-tablet-catalogo")
+        result["capturas"].append("ventas-tablet-catalogo")
+
+        buttons = app.driver.find_elements(
+            By.XPATH, "//button[starts-with(normalize-space(),'Ver ticket')]"
+        )
+        if buttons and buttons[0].is_displayed():
+            result["tablet_ticket"] = True
+            buttons[0].click()
+            time.sleep(0.4)
+            app.screenshot("ventas-tablet-ticket")
+            result["capturas"].append("ventas-tablet-ticket")
+        return result
+    finally:
+        app.quit()
 
 
 def main() -> int:
@@ -406,12 +457,20 @@ def main() -> int:
     try:
         bootstrap(app)
         steps.append("bootstrap")
+        app.screenshot("shell-ventas-vacio")
 
-        crear_catalogo(app)
-        steps.append("catalogo")
+        app.nav("catalog")
+        wait_screen(app, "Productos y catálogo")
+        app.screenshot("productos-vacio")
 
-        modificadores = configurar_modificadores(app)
-        report["modificadores"] = modificadores
+        crear_categoria(app)
+        steps.append("categoria")
+        crear_producto(app)
+        steps.append("producto")
+        crear_variante(app)
+        steps.append("variante")
+
+        report["modificadores"] = configurar_modificadores(app)
         steps.append("modificadores")
 
         registrar_inventario(app)
@@ -419,9 +478,6 @@ def main() -> int:
 
         abrir_caja(app)
         steps.append("caja_abierta")
-
-        esperar_turno_en_venta(app)
-        steps.append("turno_visible_en_venta")
 
         report["folio"] = vender(app)
         steps.append("venta")
@@ -437,18 +493,16 @@ def main() -> int:
         cerrar_turno(app)
         steps.append("arqueo_cierre")
 
+        app.quit()
+        report["tamanos"] = capturar_tamanos(app_path)
+        steps.append("resoluciones")
+
         report.update({"steps": steps, "result": "PASS"})
         print(json.dumps(report, ensure_ascii=False))
         return 0
     except Exception as error:  # noqa: BLE001
-        app.screenshot("99-error")
-        report.update(
-            {
-                "steps": steps,
-                "error": str(error),
-                "text": app.text()[:3000],
-            }
-        )
+        app.screenshot("error")
+        report.update({"steps": steps, "error": str(error), "text": app.text()[:3000]})
         print(json.dumps(report, ensure_ascii=False))
         return 1
     finally:

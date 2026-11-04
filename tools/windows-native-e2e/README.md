@@ -11,7 +11,7 @@ extremo.
 | Guion | Alcance |
 | --- | --- |
 | `e2e_contracts.py` | Comandos IPC con argumentos compuestos (snake_case) y aritmética del motor de precios |
-| `e2e_flow.py` | Flujo comercial completo: bootstrap → catálogo → variante → modificadores → inventario → caja → venta → reinicio → persistencia → arqueo y cierre |
+| `e2e_flow.py` | Flujo comercial completo sobre el shell de escritorio: bootstrap → productos → variante → modificadores → inventario → caja → venta → reinicio → persistencia → arqueo, más capturas en las resoluciones de referencia |
 | `verify_db.py` | Verificación de solo lectura de la base resultante (venta, partida, pago, stock, caja, auditoría) |
 | `e2e_smoke.py` | Comprobación mínima de que el driver puede abrir la aplicación |
 
@@ -72,8 +72,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows-native-e2e/run
 ```
 
 Con `-KeepArtifacts` se conserva el directorio temporal, que contiene
-`flow-report.json`, capturas (`01-venta-confirmada.png`, `02-reinicio-saldo.png`,
-`03-turno-cerrado.png`) y los logs del driver.
+`flow-report.json`, capturas reales de cada pantalla y los logs del driver. El
+guion captura:
+
+- `ventas-1920`, `ventas-1440`, `ventas-1366`, `ventas-1024` (catálogo y ticket
+  simultáneos), `ventas-tablet-catalogo` y `ventas-tablet-ticket` (768×1024),
+- `productos`, `inventario`, `caja` y `gestion` a 1366×768,
+- estados intermedios: login, configurador de la partida, ticket, checkout,
+  venta confirmada, turno abierto y arqueo cerrado.
+
+El guion navega con el menú lateral (`data-section`), así que un cambio de
+estructura obliga a actualizar los selectores de navegación, no el flujo.
 
 La verificación de la base se ejecuta aparte, indicando la ruta impresa por el
 orquestador:
@@ -113,8 +122,9 @@ Los importes del fixture son ilustrativos; no representan tarifas comerciales.
 
 ## Limitaciones conocidas
 
-- Los grupos y opciones de modificadores se crean por IPC porque todavía no hay
-  pantalla administrativa; la venta sí se opera desde la interfaz.
+- La administración de grupos y opciones de modificadores existe en la pantalla
+  Productos, pero este guion los crea por IPC (casos de uso auditados) para
+  mantener el flujo corto; la creación por interfaz está cubierta por Vitest.
 - El usuario cajero no puede crearse desde la interfaz (no existe caso de uso de
   alta de usuarios), así que el RBAC por rol se cubre con pruebas de dominio y de
   servicio, no en este E2E.

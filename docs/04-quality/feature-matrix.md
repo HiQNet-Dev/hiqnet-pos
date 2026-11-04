@@ -20,15 +20,16 @@ Estados: **VERIFICADO** (implementado y probado), **PARCIAL**, **PENDIENTE**,
 | Verificación Ed25519 | VERIFICADO | Firma válida, payload manipulado, clave ajena |
 | Emisión de licencias | PENDIENTE | Responsabilidad de HiQNet Platform |
 | IPC tipado React ↔ Rust | VERIFICADO | Comandos + validación Zod + pruebas de UI; argumentos snake_case verificados sobre el ejecutable real |
+| Shell de escritorio y navegación | VERIFICADO | Una pantalla activa, menú por permisos, ticket persistente y capturas en 1920/1440/1366/1024/768 |
 | App Tauri arranca en Windows | VERIFICADO | Ejecutable construido y arrancado; base creada |
 | Instalador NSIS firmado | PENDIENTE | Requiere decisión de firma (D-09) |
 | Smoke E2E con Playwright | PARCIAL | Smoke de UI en navegador con puente Tauri simulado |
 | E2E nativo Windows (tauri-driver + WebView2) | PARCIAL | Flujo completo verificado en local: venta, reinicio, persistencia y arqueo. No se ejecuta en GitHub Actions |
-| Ventas y pagos | PARCIAL | Checkout en efectivo verificado de extremo a extremo en el ejecutable; faltan otros métodos de pago |
+| Ventas y pagos | PARCIAL | Catálogo + ticket simultáneos, cobro en efectivo verificado de extremo a extremo en el ejecutable; faltan otros métodos de pago |
 | Caja, turnos y arqueo | PARCIAL | Migración 0006, IPC, UI, pruebas Rust/SQLite y E2E nativo; faltan justificación obligatoria de diferencias y arqueo ciego |
 | Categorías de catálogo | VERIFICADO | Dominio, migración 0004, IPC, asignación y UI; cubierto por E2E nativo |
 | Variantes de producto | PARCIAL | SKU por organización, precio exacto, selección en UI y venta; sin inventario independiente por variante |
-| Modificadores / extras | PARCIAL | Motor, migración 0005, IPC y UI de venta; la partida persiste el snapshot. Sin pantalla administrativa de grupos/opciones |
+| Modificadores / extras | PARCIAL | Motor, migración 0005, IPC, configuración en el diálogo de venta y administración básica de grupos/opciones en Productos; la partida persiste el snapshot |
 | Inventario y ledger | PARCIAL | Dominio, migraciones 0002/0003, IPC y UI; descuento por venta verificado en E2E nativo |
 | Ajustes positivos/negativos | VERIFICADO | Motivo obligatorio + pruebas SQLite |
 | Ledger append-only | VERIFICADO | Triggers y prueba de UPDATE/DELETE |

@@ -198,6 +198,19 @@ pantalla administrativa** para grupos y opciones: se invocan por IPC (por ejempl
 desde `tools/windows-native-e2e/e2e_flow.py`) y la operación de venta ya los
 consume desde la UI.
 
+## `list_stock_levels`
+
+Requiere `sales.sell`. Devuelve la existencia de cada producto de la sucursal del
+actor como `[{ "product_id": "...", "quantity": "18.000" }]`. La pantalla de
+venta la usa para mostrar disponibilidad sin una consulta por producto. Los
+productos sin movimientos no aparecen.
+
+## `branch_summary`
+
+Requiere sesión autenticada. Devuelve `{ "id", "name", "code" }` de la sucursal
+del actor. La barra superior del escritorio la usa para identificar la sucursal
+activa; no permite consultar otras sucursales.
+
 ## `current_stock`
 
 Requiere permiso `inventory.view`. Entrada: `{ "product_id": "...", "branch_id": "... (opcional)" }`.

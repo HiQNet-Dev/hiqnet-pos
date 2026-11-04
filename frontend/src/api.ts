@@ -5,6 +5,7 @@ import {
   appStatusSchema,
   auditEventSchema,
   bootstrapResultSchema,
+  branchSummarySchema,
   commercialStateSchema,
   categorySchema,
   cashRegisterSchema,
@@ -17,6 +18,7 @@ import {
   modifierOptionSchema,
   productVariantSchema,
   saleViewSchema,
+  stockLevelSchema,
   type Actor,
   type AppStatus,
   type AuditEvent,
@@ -36,6 +38,8 @@ import {
   type CashShift,
   type Category,
   type CategoryDraft,
+  type BranchSummary,
+  type StockLevel,
   type ModifierConfiguration,
   type ModifierConfigurationDraft,
   type ModifierGroup,
@@ -118,6 +122,12 @@ export const api = {
 
   listCashRegisters: () =>
     call<CashRegister[]>("list_cash_registers", undefined, cashRegisterSchema.array()),
+
+  branchSummary: () =>
+    call<BranchSummary>("branch_summary", undefined, branchSummarySchema),
+
+  listStockLevels: () =>
+    call<StockLevel[]>("list_stock_levels", undefined, stockLevelSchema.array()),
 
   openCashShift: (draft: CashOpenShiftDraft) =>
     call<CashShift>("open_cash_shift", { draft }, cashShiftSchema),

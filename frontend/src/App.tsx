@@ -3,7 +3,7 @@ import { api, IpcError } from "./api";
 import type { Actor, AppStatus } from "./contracts";
 import { LoginScreen } from "./screens/LoginScreen";
 import { OnboardingScreen } from "./screens/OnboardingScreen";
-import { WorkspaceScreen } from "./screens/WorkspaceScreen";
+import { AppShell } from "./shell/AppShell";
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
@@ -62,106 +62,78 @@ export default function App() {
     }
   }
 
-  return (
-    <div className="app-shell">
-      <header className="app-header">
-        <div className="brand">
+  if (loading) {
+    return (
+      <div className="auth-layout">
+        <p className="screen-status">Iniciando HiQNet POS…</p>
+      </div>
+    );
+  }
+
+  if (fatal) {
+    return (
+      <div className="auth-layout">
+        <section className="auth-card panel-error" role="alert">
+          <h1>No se pudo iniciar la aplicación</h1>
+          <p>{fatal}</p>
+          <button type="button" className="button" onClick={() => void refreshStatus()}>
+            Reintentar
+          </button>
+        </section>
+      </div>
+    );
+  }
+
+  if (status && !status.initialized) {
+    return (
+      <div className="auth-layout">
+        <div className="auth-brand">
           <span className="brand-mark" aria-hidden="true">
             HQ
           </span>
           <div>
             <p className="brand-name">HiQNet POS</p>
-            <p className="brand-subtitle">Punto de venta local-first</p>
+            <p className="brand-branch">Configuración inicial</p>
           </div>
         </div>
-        <div className="header-meta">
-          {status?.commercial && (
-            <span
-              className={
-                status.commercial.read_only
-                  ? "badge badge-warning"
-                  : "badge badge-neutral"
-              }
-            >
-              {status.commercial.read_only
-                ? "Solo lectura"
-                : `Plan ${planLabel(status.commercial.plan)}`}
-            </span>
-          )}
-          {actor && (
-            <div className="session">
-              <span className="session-name">{actor.display_name}</span>
-              <button
-                type="button"
-                className="button button-quiet"
-                onClick={handleLogout}
-              >
-                Salir
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
-
-      <main className="app-main">
-        {loading && <p className="screen-status">Iniciando HiQNet POS…</p>}
-
-        {!loading && fatal && (
-          <section className="panel panel-error" role="alert">
-            <h1>No se pudo iniciar la aplicación</h1>
-            <p>{fatal}</p>
-            <button
-              type="button"
-              className="button"
-              onClick={() => void refreshStatus()}
-            >
-              Reintentar
-            </button>
-          </section>
-        )}
-
-        {!loading && !fatal && status && !status.initialized && (
-          <OnboardingScreen
-            onDone={async (credentials) => {
-              const session = await api.login(credentials);
-              await refreshStatus();
-              setActor(session);
-            }}
-          />
-        )}
-
-        {!loading && !fatal && status?.initialized && !actor && (
-          <LoginScreen onAuthenticated={setActor} />
-        )}
-
-        {!loading && !fatal && status?.initialized && actor && (
-          <WorkspaceScreen
-            actor={actor}
-            commercial={status.commercial}
-            productVersion={status.product_version}
-          />
-        )}
-      </main>
-
-      <footer className="app-footer">
-        <span>Versión {status?.product_version ?? "0.1.0"}</span>
-        <span>Datos locales en este equipo</span>
-      </footer>
-    </div>
-  );
-}
-
-function planLabel(plan: string): string {
-  switch (plan) {
-    case "trial":
-      return "Trial";
-    case "local":
-      return "Local";
-    case "pro":
-      return "Pro";
-    case "enterprise":
-      return "Enterprise";
-    default:
-      return plan;
+        <OnboardingScreen
+          onDone={async (credentials) => {
+            const session = await api.login(credentials);
+            await refreshStatus();
+            setActor(session);
+          }}
+        />
+      </div>
+    );
   }
+
+  if (status?.initialized && !actor) {
+    return (
+      <div className="auth-layout">
+        <div className="auth-brand">
+          <span className="brand-mark" aria-hidden="true">
+            HQ
+          </span>
+          <div>
+            <p className="brand-name">HiQNet POS</p>
+            <p className="brand-branch">Punto de venta local-first</p>
+          </div>
+        </div>
+        <LoginScreen onAuthenticated={setActor} />
+      </div>
+    );
+  }
+
+  if (actor && status) {
+    return (
+      <AppShell
+        actor={actor}
+        commercial={status.commercial}
+        productVersion={status.product_version}
+        onLogout={() => void handleLogout()}
+      />
+    );
+  }
+
+  return null;
 }

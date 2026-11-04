@@ -177,6 +177,8 @@ def main() -> int:
         movements = client.invoke("list_inventory_movements", {"product_id": None, "limit": 10})
         audit = client.invoke("list_audit_events", {"limit": 10})
         registers = client.invoke("list_cash_registers")
+        branch = client.invoke("branch_summary")
+        levels = client.invoke("list_stock_levels")
         shift = client.invoke("active_cash_shift", {"register_id": register["id"]})
         history = client.invoke("list_cash_shift_history")
         products = client.invoke("list_products")
@@ -190,6 +192,8 @@ def main() -> int:
         assert movements == [], "movimientos de inventario inesperados"
         assert audit, "no se registraron eventos de auditoría"
         assert [item["code"] for item in registers] == ["CT-01"], "cajas no consultadas"
+        assert branch["name"] == "Matriz" and branch["code"] == "CT-01", "sucursal no consultada"
+        assert levels == [], "existencias inesperadas"
         assert shift is None, "no debería existir turno abierto"
         assert history == [], "historial inesperado"
         assert [item["sku"] for item in products] == ["CAF-001"], "productos no consultados"

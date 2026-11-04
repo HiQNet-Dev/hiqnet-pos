@@ -200,6 +200,12 @@ async fn piloto_operativo_completo_con_persistencia() {
             .unwrap(),
         "18"
     );
+    let levels = reopened.list_stock_levels(&actor).await.unwrap();
+    let level = levels
+        .iter()
+        .find(|item| item.product_id == product_id.to_string())
+        .expect("el producto vendido debe aparecer en las existencias");
+    assert_eq!(level.quantity, "18");
     assert_eq!(
         reopened
             .active_cash_shift(&actor, register.id.parse().unwrap())
@@ -228,4 +234,28 @@ async fn piloto_operativo_completo_con_persistencia() {
     assert!(actions.contains(&"sales.completed"));
     assert!(actions.contains(&"cash.shift_opened"));
     assert!(actions.contains(&"cash.shift_closed"));
+}
+
+#[tokio::test]
+async fn branch_summary_expone_la_sucursal_del_actor() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("sucursal.db");
+    let service = build_service(open(&db_path).await.unwrap());
+    service
+        .bootstrap(BootstrapRequest {
+            organization_name: "Cafetería Sucursal".into(),
+            branch_name: "Matriz".into(),
+            branch_code: "MX-01".into(),
+            owner_username: "propietario".into(),
+            owner_display_name: "Ana".into(),
+            owner_password: "contrasena-segura".into(),
+        })
+        .await
+        .unwrap();
+    let actor = login(&service).await;
+
+    let branch = service.branch_summary(&actor).await.unwrap();
+    assert_eq!(branch.name, "Matriz");
+    assert_eq!(branch.code, "MX-01");
+    assert_eq!(branch.id, actor.branch_id.unwrap().to_string());
 }

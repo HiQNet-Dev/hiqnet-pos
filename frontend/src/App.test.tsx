@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Actor, AppStatus, Product } from "./contracts";
@@ -9,26 +9,17 @@ const api = vi.hoisted(() => ({
   login: vi.fn(),
   logout: vi.fn(),
   currentSession: vi.fn(),
-  createProduct: vi.fn(),
+  branchSummary: vi.fn(),
   listProducts: vi.fn(),
   listCategories: vi.fn(),
-  createCategory: vi.fn(),
-  listProductVariants: vi.fn(),
-  createProductVariant: vi.fn(),
-  currentStock: vi.fn(),
-  listInventoryMovements: vi.fn(),
-  recordInventoryMovement: vi.fn(),
+  listStockLevels: vi.fn(),
   listCashRegisters: vi.fn(),
   listCashShiftHistory: vi.fn(),
   activeCashShift: vi.fn(),
+  listAuditEvents: vi.fn(),
   listModifierGroups: vi.fn(),
   listModifierOptions: vi.fn(),
-  configureProduct: vi.fn(),
-  checkoutSale: vi.fn(),
-  getSale: vi.fn(),
-  listAuditEvents: vi.fn(),
-  commercialState: vi.fn(),
-  backupDatabase: vi.fn(),
+  listProductVariants: vi.fn(),
 }));
 
 vi.mock("./api", () => ({
@@ -58,7 +49,14 @@ const owner: Actor = {
   branch_id: "b-1",
   display_name: "Ana Propietaria",
   role: "owner",
-  permissions: ["catalog.manage", "sales.sell", "audit.view", "backups.manage"],
+  permissions: [
+    "catalog.manage",
+    "sales.sell",
+    "inventory.view",
+    "cash.shift.view",
+    "audit.view",
+    "backups.manage",
+  ],
 };
 
 const product: Product = {
@@ -70,20 +68,37 @@ const product: Product = {
   active: true,
 };
 
+async function login(user = owner) {
+  api.status.mockResolvedValue({
+    initialized: true,
+    product_version: "0.1.0",
+    commercial,
+    user_count: 1,
+  });
+  api.login.mockResolvedValue(user);
+
+  render(<App />);
+  const events = userEvent.setup();
+  await events.type(await screen.findByLabelText(/usuario/i), "propietario");
+  await events.type(screen.getByLabelText(/contraseña/i), "contrasena-segura");
+  await events.click(screen.getByRole("button", { name: /entrar/i }));
+  return events;
+}
+
 describe("App", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.currentSession.mockResolvedValue(null);
+    api.branchSummary.mockResolvedValue({ id: "b-1", name: "Matriz", code: "MX-01" });
     api.listProducts.mockResolvedValue([]);
     api.listCategories.mockResolvedValue([]);
+    api.listStockLevels.mockResolvedValue([]);
     api.listProductVariants.mockResolvedValue([]);
-    api.currentStock.mockResolvedValue("0");
-    api.listInventoryMovements.mockResolvedValue([]);
+    api.listModifierGroups.mockResolvedValue([]);
+    api.listModifierOptions.mockResolvedValue([]);
     api.listCashRegisters.mockResolvedValue([]);
     api.listCashShiftHistory.mockResolvedValue([]);
     api.activeCashShift.mockResolvedValue(null);
-    api.listModifierGroups.mockResolvedValue([]);
-    api.listModifierOptions.mockResolvedValue([]);
     api.listAuditEvents.mockResolvedValue([]);
   });
 
@@ -113,31 +128,24 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(
-      await screen.findByRole("heading", { name: /entrar a la caja/i }),
-    ).toBeVisible();
+    expect(await screen.findByRole("heading", { name: /entrar a la caja/i })).toBeVisible();
   });
 
-  it("lista el catálogo después de autenticarse", async () => {
-    api.status.mockResolvedValue({
-      initialized: true,
-      product_version: "0.1.0",
-      commercial,
-      user_count: 1,
-    });
-    api.login.mockResolvedValue(owner);
+  it("abre el shell en ventas y permite navegar al catálogo", async () => {
     api.listProducts.mockResolvedValue([product]);
+    const events = await login();
 
-    render(<App />);
+    const nav = await screen.findByRole("navigation", { name: /navegación principal/i });
+    expect(within(nav).getByRole("button", { name: /ventas/i })).toBeVisible();
+    expect(within(nav).getByRole("button", { name: /cajas y turnos/i })).toBeVisible();
+    expect(within(nav).getByRole("button", { name: /gestión/i })).toBeVisible();
+    expect(screen.getByRole("heading", { name: /^ventas$/i })).toBeVisible();
+    expect(await screen.findByText("Café americano")).toBeVisible();
 
-    const user = userEvent.setup();
-    await user.type(await screen.findByLabelText(/usuario/i), "propietario");
-    await user.type(screen.getByLabelText(/contraseña/i), "contrasena-segura");
-    await user.click(screen.getByRole("button", { name: /entrar/i }));
+    await events.click(within(nav).getByRole("button", { name: /productos/i }));
 
     expect(await screen.findByRole("cell", { name: "CAF-001" })).toBeVisible();
-    expect(screen.getByRole("cell", { name: /café americano/i })).toBeVisible();
-    expect(screen.getAllByText(/\$12\.50/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: /productos y catálogo/i })).toBeVisible();
   });
 
   it("muestra el aviso de solo lectura cuando la licencia venció", async () => {
@@ -148,21 +156,38 @@ describe("App", () => {
       user_count: 1,
     });
     api.login.mockResolvedValue(owner);
+    api.listProducts.mockResolvedValue([product]);
 
     render(<App />);
-
-    const user = userEvent.setup();
-    await user.type(await screen.findByLabelText(/usuario/i), "propietario");
-    await user.type(screen.getByLabelText(/contraseña/i), "contrasena-segura");
-    await user.click(screen.getByRole("button", { name: /entrar/i }));
+    const events = userEvent.setup();
+    await events.type(await screen.findByLabelText(/usuario/i), "propietario");
+    await events.type(screen.getByLabelText(/contraseña/i), "contrasena-segura");
+    await events.click(screen.getByRole("button", { name: /entrar/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent(
-        /licencia está vencida/i,
-      );
+      expect(screen.getByRole("status")).toHaveTextContent(/licencia está vencida/i);
     });
-    expect(
-      screen.getByRole("button", { name: /agregar producto/i }),
-    ).toBeDisabled();
+
+    const nav = screen.getByRole("navigation", { name: /navegación principal/i });
+    await events.click(within(nav).getByRole("button", { name: /productos/i }));
+    expect(await screen.findByRole("button", { name: /nuevo producto/i })).toBeDisabled();
+  });
+
+  it("oculta secciones que el rol no autoriza", async () => {
+    const cashier: Actor = {
+      user_id: "u-2",
+      organization_id: "o-1",
+      branch_id: "b-1",
+      display_name: "Luis Cajero",
+      role: "cashier",
+      permissions: ["sales.sell", "cash.shift.view", "cash.shift.open"],
+    };
+    await login(cashier);
+
+    const nav = await screen.findByRole("navigation", { name: /navegación principal/i });
+    expect(within(nav).getByRole("button", { name: /ventas/i })).toBeVisible();
+    expect(within(nav).queryByRole("button", { name: /productos/i })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole("button", { name: /gestión/i })).not.toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: /cajas y turnos/i })).toBeVisible();
   });
 });
