@@ -14,9 +14,9 @@ Estados: **VERIFICADO** (implementado y probado), **PARCIAL**, **PENDIENTE**,
 | Auditoría append-only | VERIFICADO | Triggers + prueba de `UPDATE` rechazado |
 | Migración inicial SQLite | VERIFICADO | `0001_init.sql` aplicada al arrancar |
 | Persistencia entre reinicios | VERIFICADO | Prueba de cierre y reapertura |
-| Respaldo consistente | VERIFICADO | `VACUUM INTO` + verificación de integridad |
-| Restauración desde respaldo | VERIFICADO | Prueba de restauración a nivel de almacenamiento |
-| Restauración desde UI | PENDIENTE | Requiere cierre controlado de la conexión |
+| Respaldo consistente | VERIFICADO | `VACUUM INTO` + verificación de integridad, FK, tablas y versión; el artefacto inválido se descarta |
+| Restauración desde respaldo | VERIFICADO | Utilidad offline `--restore-backup` con copia de recuperación, rechazo de esquema posterior y de escrituras activas |
+| Restauración desde UI | PENDIENTE | Requiere cerrar el pool y el WebView; el procedimiento seguro es la utilidad offline |
 | Trial de 30 días / solo lectura | VERIFICADO | Reloj fijo y bloqueo de mutaciones |
 | Verificación Ed25519 | VERIFICADO | Firma válida, payload manipulado, clave ajena |
 | Emisión de licencias | PENDIENTE | Responsabilidad de HiQNet Platform |
@@ -24,8 +24,9 @@ Estados: **VERIFICADO** (implementado y probado), **PARCIAL**, **PENDIENTE**,
 | Shell de escritorio y navegación | VERIFICADO | Una pantalla activa, menú por permisos, ticket persistente y capturas en 1920/1440/1366/1024/768 |
 | App Tauri arranca en Windows | VERIFICADO | Ejecutable construido y arrancado; base creada |
 | Instalador NSIS firmado | PENDIENTE | Requiere decisión de firma (D-09) |
+| Instalador NSIS interno (sin firma) | PARCIAL | Construido y verificado como `NotSigned`; instalación/desinstalación en VM limpia pendiente |
 | Smoke E2E con Playwright | PARCIAL | Smoke de UI en navegador con puente Tauri simulado |
-| E2E nativo Windows (tauri-driver + WebView2) | PARCIAL | Flujo completo verificado en local: venta, reinicio, persistencia y arqueo. No se ejecuta en GitHub Actions |
+| E2E nativo Windows (tauri-driver + WebView2) | PARCIAL | Flujo comercial completo, devoluciones/reportes y rendimiento verificados en local. No se ejecuta en GitHub Actions |
 | Ventas y pagos | PARCIAL | Catálogo + ticket simultáneos, cobro en efectivo verificado de extremo a extremo en el ejecutable; faltan otros métodos de pago |
 | Caja, turnos y arqueo | PARCIAL | Migración 0006, IPC, UI, pruebas Rust/SQLite y E2E nativo; faltan justificación obligatoria de diferencias y arqueo ciego |
 | Categorías de catálogo | VERIFICADO | Dominio, migración 0004, IPC, asignación y UI; cubierto por E2E nativo |

@@ -16,17 +16,25 @@ guarda los datos operativos en el equipo del comercio.
 | Dominio `Money` y `Quantity` exactos | Implementado y verificado |
 | Bootstrap de organización, sucursal y propietario | Implementado y verificado |
 | Identidad local con Argon2id y RBAC deny-by-default | Implementado y verificado |
-| Catálogo de productos (alta y listado) | Implementado y verificado |
+| Catálogo, variantes y modificadores | Implementado y verificado (inventario por variante pendiente) |
+| Inventario con ledger append-only | Implementado y verificado |
+| Caja, turnos, arqueo y cierre | Implementado y verificado |
+| Ventas en efectivo, ticket y checkout | Implementado y verificado en el ejecutable |
+| Compras, proveedores y recepciones | Implementado y verificado |
+| Gastos operativos y merma | Implementado y verificado |
+| Devoluciones de venta y reportes operativos | Implementado y verificado |
 | Auditoría append-only en la misma transacción | Implementado y verificado |
 | SQLite en `%LOCALAPPDATA%` con WAL y migraciones SQLx | Implementado y verificado |
-| Respaldo consistente (`VACUUM INTO`) y restauración | Implementado y verificado |
+| Respaldo verificado y restauración offline segura | Implementado y verificado |
 | Trial de 30 días y modo solo lectura al vencer | Implementado y verificado |
 | Verificación de licencias Ed25519 | Contrato y verificador implementados; emisión productiva **pendiente** |
-| Aplicación Tauri 2 en Windows | Implementado; ver `docs/04-quality/feature-matrix.md` |
-| Ventas, caja, inventario, compras, gastos y reportes | **Pendiente** (fases posteriores) |
+| Instalador NSIS | Construible; **sin firma**, solo prueba interna |
+| Actualizador Tauri | **Deshabilitado** (sin endpoints ni firma aprobados) |
 
-La matriz completa, con lo que está propuesto y lo que está bloqueado, vive en
-[`docs/04-quality/feature-matrix.md`](docs/04-quality/feature-matrix.md).
+La matriz completa, con lo que está propuesto y lo bloqueado, vive en
+[`docs/04-quality/feature-matrix.md`](docs/04-quality/feature-matrix.md). El estado
+prepiloto y sus límites se detallan en
+[`docs/04-quality/prepilot-readiness.md`](docs/04-quality/prepilot-readiness.md).
 
 ## Modelo comercial
 
@@ -98,6 +106,37 @@ cargo tauri dev
 La base local se crea en `%LOCALAPPDATA%\HiQNet\POS\data\hiqnet-pos.db`.
 Puedes usar otra ruta con `HIQNET_POS_DB_PATH` (útil en desarrollo y pruebas).
 **Nunca** se versiona el archivo de base de datos.
+
+## Instalación piloto (interna)
+
+```powershell
+cd apps/pos-desktop/src-tauri
+pnpm dlx @tauri-apps/cli@2 build --debug
+# Artefacto: target/debug/bundle/nsis/HiQNet POS_0.1.0_x64-setup.exe
+```
+
+El instalador generado **no está firmado** y no debe distribuirse públicamente.
+El actualizador permanece deshabilitado. Consulta la lista de comprobación en
+[`docs/05-operations/pilot-checklist.md`](docs/05-operations/pilot-checklist.md).
+
+## Respaldo y restauración offline
+
+Desde la aplicación (Owner): crear respaldo genera un archivo autocontenido con
+`VACUUM INTO` y lo verifica antes de ofrecerlo. La restauración se ejecuta con la
+aplicación **cerrada**, mediante la utilidad incluida en el mismo ejecutable:
+
+```powershell
+pos-desktop.exe --verify-backup <respaldo.db>
+pos-desktop.exe --restore-backup <respaldo.db> --database "%LOCALAPPDATA%\HiQNet\POS\data\hiqnet-pos.db"
+```
+
+La restauración verifica integridad, esquema y claves foráneas, rechaza bases de
+una versión posterior, exige que no haya escrituras activas y crea una copia de
+recuperación `*.pre-restore-<epoch>.db` antes de reemplazar. Ver
+[`docs/05-operations/backup-and-restore.md`](docs/05-operations/backup-and-restore.md).
+
+La operación es **local y offline**: no se realiza ninguna petición de red para
+vender, cobrar, consultar reportes ni respaldar.
 
 ## Comandos IPC
 
