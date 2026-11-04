@@ -1857,6 +1857,47 @@ select {
   align-items: start;
 }
 
+.reports-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.reports-note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.report-filters {
+  padding: 0;
+  align-items: flex-end;
+}
+
+.return-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+}
+
+.return-summary p {
+  margin: 0 0 var(--space-1);
+}
+
+.quantity-input {
+  width: 96px;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font: inherit;
+  color: inherit;
+}
+
 .purchasing-layout .surface {
   min-width: 0;
 }
@@ -2109,7 +2150,8 @@ select {
   .catalog-layout,
   .inventory-layout,
   .cash-layout,
-  .purchasing-layout {
+  .purchasing-layout,
+  .reports-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 

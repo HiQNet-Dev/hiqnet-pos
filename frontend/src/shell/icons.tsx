@@ -61,6 +61,24 @@ export function CashIcon(props: IconProps) {
   );
 }
 
+export function ReportsIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 20V4M4 20h16" />
+      <path d="M8 16v-4M12 16V8M16 16v-6" />
+    </Svg>
+  );
+}
+
+export function ReturnIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M9 6H5.5A1.5 1.5 0 0 0 4 7.5v9A1.5 1.5 0 0 0 5.5 18H9" />
+      <path d="M12 8l-4 4 4 4M8 12h8.5a2.5 2.5 0 0 1 0 5H14" />
+    </Svg>
+  );
+}
+
 export function ShieldIcon(props: IconProps) {
   return (
     <Svg {...props}>
