@@ -37,6 +37,7 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [cashVersion, setCashVersion] = useState(0);
 
   const canManageCatalog = actor.permissions.includes("catalog.manage");
   const canBackup = actor.permissions.includes("backups.manage");
@@ -44,11 +45,13 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
 
   const refresh = useCallback(async () => {
     try {
-      const [list, events] = await Promise.all([
+      const [list, categoryList, events] = await Promise.all([
         api.listProducts(),
+        api.listCategories(),
         canManageCatalog ? api.listAuditEvents(25) : Promise.resolve([]),
       ]);
       setProducts(list);
+      setCategories(categoryList);
       setAudit(events);
     } catch (cause) {
       setError(
@@ -346,7 +349,14 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
         />
         {actor.permissions.includes("sales.sell") && (
           <>
-            <SalesPanel actor={actor} readOnly={readOnly} />
+            <SalesPanel
+              actor={actor}
+              readOnly={readOnly}
+              products={products}
+              categories={categories}
+              cashVersion={cashVersion}
+              onSaleCompleted={() => setCashVersion((value) => value + 1)}
+            />
             <ModifierConfigurator actor={actor} readOnly={readOnly} />
           </>
         )}
@@ -354,7 +364,12 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
           <InventoryPanel actor={actor} products={products} readOnly={readOnly} />
         )}
         {actor.permissions.includes("cash.shift.view") && (
-          <CashPanel actor={actor} readOnly={readOnly} />
+          <CashPanel
+            actor={actor}
+            readOnly={readOnly}
+            refreshKey={cashVersion}
+            onShiftChanged={() => setCashVersion((value) => value + 1)}
+          />
         )}
         <aside className="workspace-side">
           <section className="panel" aria-labelledby="license-title">

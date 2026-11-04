@@ -119,7 +119,41 @@ describe("CashPanel", () => {
     render(<CashPanel actor={actor} readOnly={false} />);
     expect(await screen.findByText(/historial de turnos cerrados/i)).toBeVisible();
     expect(screen.getByText(/118\.00/)).toBeVisible();
-    expect(screen.getByText(/-200 centavos/i)).toBeVisible();
+    expect(screen.getByText(/faltante \$2\.00/i)).toBeVisible();
+  });
+
+  it("muestra el arqueo del turno recién cerrado", async () => {
+    api.activeCashShift.mockResolvedValue(shift);
+    api.closeCashShift.mockResolvedValue({
+      ...shift,
+      status: "closed",
+      closed_by: "u-1",
+      closed_at: "2026-11-04T01:00:00Z",
+      counted_amount: "118.00",
+      difference_minor: -200,
+    });
+
+    render(<CashPanel actor={actor} readOnly={false} />);
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText(/efectivo contado/i), "118.00");
+    await user.click(screen.getByRole("button", { name: /cerrar turno/i }));
+
+    expect((await screen.findAllByText(/turno cerrado/i)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/faltante \$2\.00/i).length).toBeGreaterThan(0);
+    expect(screen.getByText("120.00")).toBeVisible();
+  });
+
+  it("recarga el turno cuando cambia la versión de caja", async () => {
+    api.activeCashShift.mockResolvedValue(shift);
+    const { rerender } = render(
+      <CashPanel actor={actor} readOnly={false} refreshKey={0} />,
+    );
+    expect(await screen.findByText(/saldo esperado/i)).toBeVisible();
+    expect(api.activeCashShift).toHaveBeenCalledTimes(1);
+
+    // Una venta en efectivo cambia el saldo esperado: el panel debe releerlo.
+    rerender(<CashPanel actor={actor} readOnly={false} refreshKey={1} />);
+    await waitFor(() => expect(api.activeCashShift).toHaveBeenCalledTimes(2));
   });
 
   it("oculta acciones sin permiso de caja", () => {
