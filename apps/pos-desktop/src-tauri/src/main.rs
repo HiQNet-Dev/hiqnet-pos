@@ -41,7 +41,9 @@ fn run_backup_cli(args: &[String]) {
         if let Some(path) = value_after(args, "--verify-backup") {
             pos_storage_sqlite::verify_backup(&PathBuf::from(path)).await
         } else if let Some(path) = value_after(args, "--restore-backup") {
-            pos_storage_sqlite::restore_from_backup(&database, &PathBuf::from(path)).await
+            pos_storage_sqlite::restore_from_backup(&database, &PathBuf::from(path))
+                .await
+                .map(|_| ())
         } else {
             Err(pos_storage_sqlite::StorageError::InvalidBackup)
         }
@@ -55,6 +57,12 @@ fn run_backup_cli(args: &[String]) {
         }
         Err(error) => {
             eprintln!("resultado=ERROR");
+            if matches!(
+                error,
+                pos_storage_sqlite::StorageError::RestoreCritical { .. }
+            ) {
+                eprintln!("critico=true");
+            }
             eprintln!("detalle={error}");
             std::process::exit(2);
         }

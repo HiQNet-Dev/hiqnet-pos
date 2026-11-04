@@ -15,8 +15,8 @@ extremo.
 | `verify_db.py` | Verificación de solo lectura de la base del flujo comercial (venta, pago, stock, caja, compras, gastos, merma, auditoría e integridad) |
 | `e2e_returns.py` | Devolución parcial operada por la interfaz, reportes por la interfaz, reinicio, persistencia y denegación al cajero |
 | `verify_returns_db.py` | Verificación de la devolución: partida `restock`, `inbound`, salida de caja única, stock y auditoría |
-| `e2e_restore_guard.py` | Respaldo desde la aplicación, rechazo de restauración con la aplicación abierta, restauración correcta tras cerrarla y reapertura con los datos intactos |
-| `restore_multiphase_check.py` | Sobre una base ya generada: snapshot `VACUUM INTO`, restauración con la utilidad real y comparación de registros de todos los módulos, demostrando que un cambio posterior se deshace |
+| `e2e_restore_guard.py` | Respaldo desde la aplicación, rechazo de restauración con la aplicación abierta y con un lector SQLite externo, restauración correcta tras cerrarla y reapertura con los datos intactos |
+| `restore_multiphase_check.py` | Sobre una base ya generada: snapshot `VACUUM INTO`, restauración con la utilidad real, comparación por hash SHA-256 de 27 tablas, `integrity_check`, `foreign_key_check` y deshacer de un cambio posterior |
 | `perf_smoke.py` | Medición local: arranque, 200 checkouts por IPC, consultas y reportes |
 | `e2e_smoke.py` | Comprobación mínima de que el driver puede abrir la aplicación |
 

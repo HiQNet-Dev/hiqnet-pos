@@ -13,7 +13,7 @@ pub mod backup;
 pub mod lock;
 pub mod uow;
 
-pub use backup::{backup_to, open_read_only, restore_from_backup, verify_backup};
+pub use backup::{RestoreReport, backup_to, open_read_only, restore_from_backup, verify_backup};
 pub use lock::{DatabaseLock, lock_path, try_lock};
 pub use uow::SqliteStore;
 
@@ -62,6 +62,15 @@ pub enum StorageError {
 
     #[error("cierra HiQNet POS antes de restaurar un respaldo")]
     DatabaseInUse,
+
+    #[error(
+        "restauración incompleta: la base no pudo verificarse y tampoco se pudo volver al estado previo. Conserva estos archivos y contacta a soporte — base: {database}; copia de recuperación: {recovery}; temporal: {staged}"
+    )]
+    RestoreCritical {
+        database: String,
+        recovery: String,
+        staged: String,
+    },
 }
 
 /// Última versión de migración conocida por este ejecutable.

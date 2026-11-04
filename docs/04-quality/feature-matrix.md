@@ -15,8 +15,8 @@ Estados: **VERIFICADO** (implementado y probado), **PARCIAL**, **PENDIENTE**,
 | Migración inicial SQLite | VERIFICADO | `0001_init.sql` aplicada al arrancar |
 | Persistencia entre reinicios | VERIFICADO | Prueba de cierre y reapertura |
 | Respaldo consistente | VERIFICADO | `VACUUM INTO` + verificación de integridad, FK, tablas y versión; el artefacto inválido se descarta |
-| Restauración desde respaldo | VERIFICADO | Utilidad offline `--restore-backup`: bloqueo exclusivo de proceso, copia de recuperación, reemplazo por etapas y rechazo de esquema posterior; probado con la app abierta |
-| Conservación de datos al restaurar | VERIFICADO | `restore_multiphase_check.py` compara ventas, devoluciones, caja, compras, gastos, merma, inventario y auditoría |
+| Restauración desde respaldo | VERIFICADO | Utilidad offline `--restore-backup`: bloqueo de proceso, `wal_checkpoint(TRUNCATE)` contra lectores, promoción por etapas, reversión verificada y `RestoreCritical` con artefactos conservados |
+| Conservación de datos al restaurar | VERIFICADO | `restore_multiphase_check.py` compara por hash SHA-256 las 27 tablas, además de `integrity_check` y `foreign_key_check` |
 | Fallo controlado de migración | VERIFICADO | `migration_failure.rs`: error `Migrate`, datos intactos, sin tablas parciales y recuperación desde respaldo |
 | Restauración desde UI | PENDIENTE | Requiere cerrar el pool y el WebView; el procedimiento seguro es la utilidad offline |
 | Trial de 30 días / solo lectura | VERIFICADO | Reloj fijo y bloqueo de mutaciones |

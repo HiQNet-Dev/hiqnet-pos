@@ -102,6 +102,27 @@ def main() -> int:
         app.quit()
         app = None
 
+        # Un lector externo que no respeta el bloqueo de HiQNet POS también debe
+        # impedir la restauración: en WAL, solo el checkpoint TRUNCATE lo detecta.
+        lector = sqlite3.connect(database, isolation_level=None)
+        try:
+            lector.execute("BEGIN")
+            lector.execute("SELECT COUNT(*) FROM product").fetchone()
+            con_lector = ejecutar_utilidad(
+                app_path, ["--restore-backup", respaldo, "--database", database]
+            )
+            report["intento_con_lector_externo"] = {
+                "codigo": con_lector.returncode,
+                "salida": (con_lector.stdout + con_lector.stderr).strip()[:400],
+            }
+            if con_lector.returncode != 2:
+                raise AssertionError(
+                    "la restauración con un lector externo activo no fue rechazada"
+                )
+            lector.execute("COMMIT")
+        finally:
+            lector.close()
+
         # Con la aplicación cerrada, verificación y restauración funcionan.
         verificacion = ejecutar_utilidad(app_path, ["--verify-backup", respaldo])
         if verificacion.returncode != 0:

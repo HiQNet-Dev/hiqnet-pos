@@ -22,6 +22,8 @@ mediciones locales; lo no ejecutado se declara explícitamente.
 | Respaldo verificado | Implementado y probado | `backup_safety.rs`; el respaldo se verifica y se descarta si falla |
 | Restauración offline | Implementado y probado | Utilidad `--restore-backup` con copia de recuperación y bloqueo exclusivo de proceso |
 | Restauración con la app abierta | Implementado y probado | `e2e_restore_guard.py` sobre el ejecutable: código 2 y base intacta |
+| Restauración con conexión SQLite externa | Implementado y probado | `wal_checkpoint(TRUNCATE)` detecta lectores en WAL; probado por unidad y con lector python real |
+| Fallos de reemplazo inyectados | Implementado y probado | 9 escenarios en `backup.rs`: copia, validación, promoción, verificación final y reversión |
 | Rechazo de doble instancia | Implementado y probado | La app toma `hiqnet-pos.db.lock` al arrancar y avisa si ya está abierta |
 | Migraciones y actualización de esquema | Implementado y probado | Actualización 0003→0010, 0007→0010 y 0009→0010 con datos |
 | Rechazo de esquema posterior | Implementado y probado | `open` y `verify_backup` devuelven `IncompatibleSchema` |
@@ -51,7 +53,11 @@ mediciones locales; lo no ejecutado se declara explícitamente.
 - E2E nativo de devoluciones/reportes + `verify_returns_db.py`.
 - E2E nativo de guardia de restauración (`e2e_restore_guard.py`).
 - Conservación de datos de todas las fases al restaurar
-  (`restore_multiphase_check.py`), incluido el deshacer de un cambio posterior.
+  (`restore_multiphase_check.py`), con hash SHA-256 por tabla, `integrity_check`,
+  `foreign_key_check` y deshacer de un cambio posterior.
+- Fallos de reemplazo y reversión simulados en `backup.rs` (puntos de fallo solo
+  en pruebas) y fallos reales: temporal bloqueado, lector externo activo y
+  residuos `-wal`/`-shm`.
 - `perf_smoke.py` con 200 ventas.
 - Utilidad offline: verificación, restauración y rechazo de archivo corrupto.
 

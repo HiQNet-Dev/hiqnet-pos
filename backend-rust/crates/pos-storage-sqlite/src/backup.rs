@@ -1,4 +1,4 @@
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteLockingMode, SqlitePoolOptions};
 use sqlx::{ConnectOptions, Connection, Row, SqlitePool};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -16,6 +16,13 @@ const CORE_TABLES: [&str; 6] = [
     "audit_event",
     "local_installation_state",
 ];
+
+/// Resultado de una restauración completada.
+#[derive(Debug, Clone)]
+pub struct RestoreReport {
+    /// Copia del estado previo, creada antes de reemplazar la base.
+    pub recovery_copy: Option<PathBuf>,
+}
 
 /// Crea un respaldo consistente usando `VACUUM INTO`, que no requiere detener
 /// la aplicación y produce un archivo SQLite íntegro. El archivo recién creado
@@ -45,18 +52,22 @@ pub async fn backup_to(pool: &SqlitePool, target: &Path) -> Result<(), StorageEr
 /// con historial de migraciones coherente y no más nueva que este ejecutable.
 /// No modifica el archivo.
 pub async fn verify_backup(path: &Path) -> Result<(), StorageError> {
+    verify_structure(path).await?;
+    let mut connection = open_read_only_connection(path).await?;
+    verify_migration_history(&mut connection).await?;
+    connection
+        .close()
+        .await
+        .map_err(|_| StorageError::InvalidBackup)
+}
+
+/// Verificación estructural: integridad, tablas base y claves foráneas.
+async fn verify_structure(path: &Path) -> Result<(), StorageError> {
     if !path.is_file() {
         return Err(StorageError::InvalidBackup);
     }
 
-    let options = SqliteConnectOptions::new()
-        .filename(path)
-        .read_only(true)
-        .foreign_keys(true);
-    let mut connection = options
-        .connect()
-        .await
-        .map_err(|_| StorageError::InvalidBackup)?;
+    let mut connection = open_read_only_connection(path).await?;
 
     let integrity = sqlx::query("PRAGMA integrity_check")
         .fetch_one(&mut connection)
@@ -88,13 +99,21 @@ pub async fn verify_backup(path: &Path) -> Result<(), StorageError> {
         return Err(StorageError::InvalidBackup);
     }
 
-    verify_migration_history(&mut connection).await?;
-
     connection
         .close()
         .await
         .map_err(|_| StorageError::InvalidBackup)?;
     Ok(())
+}
+
+async fn open_read_only_connection(path: &Path) -> Result<sqlx::SqliteConnection, StorageError> {
+    SqliteConnectOptions::new()
+        .filename(path)
+        .read_only(true)
+        .foreign_keys(true)
+        .connect()
+        .await
+        .map_err(|_| StorageError::InvalidBackup)
 }
 
 /// Un historial con huecos, migraciones fallidas o checksums distintos indica
@@ -145,102 +164,19 @@ async fn verify_migration_history(
     Ok(())
 }
 
-/// Restaura un respaldo sobre `database_path`.
-///
-/// Procedimiento seguro para uso **offline**, con la aplicación cerrada:
-///
-/// 1. verifica el respaldo (integridad, tablas, claves foráneas, historial y
-///    versión de esquema);
-/// 2. toma el bloqueo exclusivo del proceso; si otra instancia de HiQNet POS
-///    mantiene la base, la restauración se rechaza sin tocar archivos;
-/// 3. sondea SQLite con `BEGIN EXCLUSIVE` para descartar transacciones ajenas
-///    abiertas por otras herramientas;
-/// 4. crea y verifica una copia de recuperación `<base>.pre-restore-<epoch>.db`
-///    con `VACUUM INTO`, que incluye el estado del WAL;
-/// 5. copia el respaldo a `<base>.restore-tmp`, lo verifica y solo entonces lo
-///    mueve sobre la base, de modo que nunca queda una base a medio escribir;
-/// 6. verifica el resultado y, si falla, revierte a la copia de recuperación.
-pub async fn restore_from_backup(
-    database_path: &Path,
-    backup_path: &Path,
-) -> Result<(), StorageError> {
-    verify_backup(backup_path).await?;
-
-    if let Some(parent) = database_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|_| StorageError::Restore)?;
-    }
-
-    // El bloqueo se mantiene durante todo el reemplazo: impide que la
-    // aplicación vuelva a abrir la base a mitad del procedimiento.
-    let _process_lock = try_lock(database_path)?;
-
-    let mut recovery: Option<PathBuf> = None;
-    if database_path.is_file() {
-        let options = SqliteConnectOptions::new()
-            .filename(database_path)
-            .create_if_missing(false)
-            .foreign_keys(true)
-            .busy_timeout(Duration::from_secs(2));
-        let mut connection = options.connect().await.map_err(|_| StorageError::Restore)?;
-
-        // `BEGIN EXCLUSIVE` falla si otro proceso mantiene una lectura o
-        // escritura; se rechaza en lugar de reemplazar una base en uso.
-        sqlx::query("BEGIN EXCLUSIVE")
-            .execute(&mut connection)
-            .await
-            .map_err(|_| StorageError::DatabaseInUse)?;
-        sqlx::query("ROLLBACK")
-            .execute(&mut connection)
-            .await
-            .map_err(|_| StorageError::DatabaseInUse)?;
-
-        let path = recovery_path(database_path);
-        let target = path.to_string_lossy().to_string();
-        sqlx::query("VACUUM INTO ?")
-            .bind(target)
-            .execute(&mut connection)
-            .await
-            .map_err(|_| StorageError::Restore)?;
-        connection
-            .close()
-            .await
-            .map_err(|_| StorageError::Restore)?;
-
-        // La copia de recuperación es una salida de emergencia, no un respaldo
-        // distribuible: si la base está dañada o con el historial incompleto,
-        // exigir el esquema completo impediría recuperarla. Basta con que sea
-        // un SQLite íntegro.
-        verify_snapshot(&path).await?;
-        recovery = Some(path);
-    }
-
-    remove_sidecars(database_path)?;
-
-    if let Err(error) = replace_with(database_path, backup_path, true).await {
-        if let Some(path) = &recovery {
-            let _ = replace_with(database_path, path, false).await;
-        }
-        return Err(error);
-    }
-
-    if let Err(error) = verify_backup(database_path).await {
-        if let Some(path) = &recovery {
-            // Best effort: nunca dejar una base restaurada inválida.
-            let _ = replace_with(database_path, path, false).await;
-        }
-        return Err(error);
-    }
-    Ok(())
-}
-
 /// Verifica que un archivo sea un SQLite legible e íntegro, sin exigir el
-/// esquema de HiQNet POS. Se usa para la copia de recuperación.
+/// esquema de HiQNet POS. Se usa para la copia de recuperación, que debe servir
+/// incluso si la base previa tenía una migración fallida.
 async fn verify_snapshot(path: &Path) -> Result<(), StorageError> {
     if !path.is_file() {
         return Err(StorageError::Restore);
     }
-    let options = SqliteConnectOptions::new().filename(path).read_only(true);
-    let mut connection = options.connect().await.map_err(|_| StorageError::Restore)?;
+    let mut connection = SqliteConnectOptions::new()
+        .filename(path)
+        .read_only(true)
+        .connect()
+        .await
+        .map_err(|_| StorageError::Restore)?;
     let verdict: String = sqlx::query_scalar("PRAGMA integrity_check")
         .fetch_one(&mut connection)
         .await
@@ -255,38 +191,358 @@ async fn verify_snapshot(path: &Path) -> Result<(), StorageError> {
     Ok(())
 }
 
-/// Copia `source` a un archivo temporal de la misma carpeta, lo verifica y lo
-/// mueve sobre `database_path`. El archivo temporal nunca se deja atrás.
+/// Restaura un respaldo sobre `database_path`.
 ///
-/// `strict` exige que el archivo sea un respaldo válido; sin él solo se pide
-/// integridad, que es lo que necesita la copia de recuperación.
-async fn replace_with(
+/// Procedimiento para uso **offline**, con la aplicación cerrada:
+///
+/// 1. verifica el respaldo (integridad, tablas, claves foráneas, historial de
+///    migraciones y versión de esquema);
+/// 2. toma el bloqueo cooperativo del proceso, que impide que otra instancia de
+///    HiQNet POS abra la base durante el procedimiento;
+/// 3. abre la base destino en modo de bloqueo exclusivo y ejecuta
+///    `PRAGMA wal_checkpoint(TRUNCATE)`. En WAL, un lector no bloquea a un
+///    escritor, así que `BEGIN EXCLUSIVE` no sirve para detectarlo: el
+///    checkpoint TRUNCATE sí falla con `busy` mientras exista cualquier otra
+///    conexión y además vuelca el WAL en el archivo principal, de modo que
+///    ningún dato pendiente se pierde;
+/// 4. crea la copia de recuperación con `VACUUM INTO`, ya con el WAL volcado, y
+///    la valida por integridad;
+/// 5. comprueba que el WAL quedó vacío y **aparta** `-wal`/`-shm` en lugar de
+///    borrarlos: un lector de solo lectura puede dejar residuos sin mantener la
+///    base abierta, y un WAL con páginas pendientes obliga a abortar;
+/// 6. prepara `<base>.restore-tmp` con el respaldo, lo sincroniza a disco y lo
+///    verifica antes de promoverlo;
+/// 7. promueve el temporal sobre la base con un reemplazo de entrada de
+///    directorio y verifica el resultado;
+/// 8. si la verificación final o la promoción fallan, vuelve a la copia de
+///    recuperación y verifica esa reversión. Si también falla, devuelve
+///    [`StorageError::RestoreCritical`] conservando base, copia y temporal para
+///    recuperación manual.
+///
+/// Garantías reales: la restauración es segura frente a otra instancia de
+/// HiQNet POS, frente a conexiones SQLite externas y frente a fallos de E/S
+/// detectables. No es una transacción del sistema de archivos: un corte de
+/// energía entre la promoción y la verificación puede dejar la base en el
+/// estado del respaldo sin confirmación, y por eso siempre queda una copia de
+/// recuperación junto a la base.
+pub async fn restore_from_backup(
     database_path: &Path,
-    source: &Path,
-    strict: bool,
-) -> Result<(), StorageError> {
-    let staged = staged_path(database_path);
-    let _ = std::fs::remove_file(&staged);
-    std::fs::copy(source, &staged).map_err(|_| StorageError::Restore)?;
+    backup_path: &Path,
+) -> Result<RestoreReport, StorageError> {
+    verify_backup(backup_path).await?;
 
-    let validation = if strict {
-        verify_backup(&staged).await
-    } else {
-        verify_snapshot(&staged).await
-    };
-    if let Err(error) = validation {
-        let _ = std::fs::remove_file(&staged);
-        return Err(error);
+    if let Some(parent) = database_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|_| StorageError::Restore)?;
     }
 
-    remove_sidecars(database_path)?;
-    if std::fs::rename(&staged, database_path).is_err() {
-        let _ = std::fs::remove_file(&staged);
+    let _process_lock = try_lock(database_path)?;
+
+    // 1. Estado previo: checkpoint seguro y copia de recuperación.
+    let recovery = prepare_destination(database_path).await?;
+
+    // 2. Promoción desde el respaldo verificado.
+    let mut staged = StagedFile::new(staged_path(database_path));
+    match promote_and_verify(database_path, backup_path, &staged, true).await {
+        Ok(()) => Ok(RestoreReport {
+            recovery_copy: recovery,
+        }),
+        Err(failure) => {
+            // Si la base original nunca se tocó, no hay nada que revertir.
+            let Some(recovery_path) = recovery else {
+                return Err(failure.error);
+            };
+            if !failure.destination_touched {
+                // El destino sigue intacto: la copia de recuperación es
+                // redundante y se descarta para no acumular artefactos.
+                let _ = std::fs::remove_file(&recovery_path);
+                return Err(failure.error);
+            }
+
+            match rollback_to(database_path, &recovery_path).await {
+                Ok(()) => Err(failure.error),
+                Err(_) => {
+                    // Recuperación manual: la copia de recuperación es el
+                    // artefacto esencial. Si es válida se duplica en el
+                    // temporal para que soporte pueda promoverla con la misma
+                    // utilidad; si no, se informa sin borrar nada.
+                    let staged_path = staged.path().to_path_buf();
+                    staged.keep();
+                    let staged_artifact = if std::fs::copy(&recovery_path, &staged_path).is_ok()
+                        && verify_snapshot(&staged_path).await.is_ok()
+                    {
+                        staged_path.display().to_string()
+                    } else {
+                        let _ = std::fs::remove_file(&staged_path);
+                        "no disponible".to_string()
+                    };
+                    Err(StorageError::RestoreCritical {
+                        database: database_path.display().to_string(),
+                        recovery: recovery_path.display().to_string(),
+                        staged: staged_artifact,
+                    })
+                }
+            }
+        }
+    }
+}
+
+struct PromotionFailure {
+    error: StorageError,
+    /// Indica si la base destino pudo quedar modificada y requiere reversión.
+    destination_touched: bool,
+}
+
+/// Prepara el destino: bloqueo exclusivo real, volcado del WAL y copia de
+/// recuperación verificada. Si algo falla, el destino no se modifica.
+async fn prepare_destination(database_path: &Path) -> Result<Option<PathBuf>, StorageError> {
+    if !database_path.is_file() {
+        return Ok(None);
+    }
+
+    let mut guard = SqliteConnectOptions::new()
+        .filename(database_path)
+        .create_if_missing(false)
+        .foreign_keys(true)
+        .busy_timeout(Duration::from_secs(3))
+        // Mantiene el bloqueo mientras dure la conexión: impide que otra
+        // conexión se una a mitad del procedimiento.
+        .locking_mode(SqliteLockingMode::Exclusive)
+        .connect()
+        .await
+        .map_err(|_| StorageError::DatabaseInUse)?;
+
+    // En WAL los lectores no bloquean a los escritores, así que `BEGIN
+    // EXCLUSIVE` no detecta un lector externo. `wal_checkpoint(TRUNCATE)` sí:
+    // devuelve `busy = 1` mientras exista cualquier otra conexión con el WAL
+    // abierto, y además deja el archivo principal al día.
+    let checkpoint = match sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        .fetch_one(&mut guard)
+        .await
+    {
+        Ok(row) => row,
+        Err(_) => {
+            let _ = guard.close().await;
+            return Err(destination_state(database_path).await);
+        }
+    };
+    let busy: i64 = checkpoint.try_get(0).unwrap_or(1);
+    if busy != 0 {
+        let _ = guard.close().await;
+        return Err(StorageError::DatabaseInUse);
+    }
+
+    let path = recovery_path(database_path);
+    let target = path.to_string_lossy().to_string();
+    let snapshot = sqlx::query("VACUUM INTO ?")
+        .bind(target)
+        .execute(&mut guard)
+        .await;
+    if snapshot.is_err() {
+        let _ = guard.close().await;
         return Err(StorageError::Restore);
     }
-    // El reemplazo deja sidecars obsoletos si la copia los tuviera.
-    let _ = remove_sidecars(database_path);
+    if fault(RestoreStep::RecoveryCopy) {
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // Cierre limpio: `wal_checkpoint(TRUNCATE)` ya dejó el WAL sin datos. Si
+    // tras cerrar la última conexión el WAL conserva tamaño, otra conexión lo
+    // mantiene abierto y no se continúa.
+    guard.close().await.map_err(|_| StorageError::Restore)?;
+    if wal_has_data(database_path) {
+        let _ = std::fs::remove_file(&path);
+        return Err(StorageError::DatabaseInUse);
+    }
+
+    if let Err(error) = verify_snapshot(&path).await {
+        let _ = std::fs::remove_file(&path);
+        return Err(error);
+    }
+    Ok(Some(path))
+}
+
+/// Distingue una base dañada de una base en uso cuando el checkpoint falla.
+async fn destination_state(path: &Path) -> StorageError {
+    match SqliteConnectOptions::new()
+        .filename(path)
+        .read_only(true)
+        .connect()
+        .await
+    {
+        Ok(mut connection) => {
+            let verdict: Result<String, _> = sqlx::query_scalar("PRAGMA quick_check")
+                .fetch_one(&mut connection)
+                .await;
+            let _ = connection.close().await;
+            match verdict {
+                Ok(value) if value != "ok" => StorageError::Corrupt,
+                _ => StorageError::DatabaseInUse,
+            }
+        }
+        Err(_) => StorageError::DatabaseInUse,
+    }
+}
+
+/// Un WAL con tamaño distinto de cero puede contener páginas no volcadas: no
+/// se reemplaza la base hasta haberlo vaciado con el checkpoint.
+fn wal_has_data(database_path: &Path) -> bool {
+    let mut candidate = database_path.as_os_str().to_owned();
+    candidate.push("-wal");
+    let path = PathBuf::from(candidate);
+    std::fs::metadata(&path)
+        .map(|meta| meta.len() > 0)
+        .unwrap_or(false)
+}
+
+/// Aparta `-wal` y `-shm` en lugar de borrarlos: conserva cualquier residuo
+/// para análisis y evita que el archivo recién promovido herede páginas del
+/// anterior. Un WAL vacío o un `-shm` obsoleto no bloquean el reemplazo.
+fn quarantine_sidecars(database_path: &Path) -> Result<(), StorageError> {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_millis())
+        .unwrap_or(0);
+    let name = database_path
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "hiqnet-pos.db".into());
+
+    for (suffix, label) in [("-wal", "wal"), ("-shm", "shm")] {
+        let mut candidate = database_path.as_os_str().to_owned();
+        candidate.push(suffix);
+        let path = PathBuf::from(candidate);
+        if !path.exists() {
+            continue;
+        }
+        if suffix == "-wal" {
+            let size = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+            if size > 0 {
+                return Err(StorageError::DatabaseInUse);
+            }
+        }
+        let target = database_path.with_file_name(format!("{name}.{label}.pre-restore-{stamp}"));
+        std::fs::rename(&path, &target).map_err(|_| StorageError::Restore)?;
+    }
     Ok(())
+}
+
+/// Copia el origen al temporal, lo sincroniza, lo valida y lo promueve.
+async fn promote_and_verify(
+    database_path: &Path,
+    source: &Path,
+    staged: &StagedFile,
+    strict: bool,
+) -> Result<(), PromotionFailure> {
+    let fail = |error: StorageError, destination_touched: bool| PromotionFailure {
+        error,
+        destination_touched,
+    };
+
+    std::fs::copy(source, staged.path()).map_err(|_| fail(StorageError::Restore, false))?;
+    if fault(RestoreStep::StagedCopy) {
+        let _ = std::fs::remove_file(staged.path());
+    }
+    sync_file(staged.path()).map_err(|_| fail(StorageError::Restore, false))?;
+    if fault(RestoreStep::StagedValidation) {
+        let _ = std::fs::write(staged.path(), b"temporal corrupto");
+    }
+
+    let validation = if strict {
+        verify_backup(staged.path()).await
+    } else {
+        verify_snapshot(staged.path()).await
+    };
+    validation.map_err(|error| fail(error, false))?;
+
+    if fault(RestoreStep::Promotion) {
+        let _ = std::fs::remove_file(staged.path());
+    }
+
+    // Aparta los sidecars obsoletos antes de reemplazar el archivo principal.
+    quarantine_sidecars(database_path).map_err(|error| fail(error, false))?;
+
+    // Reemplazo de la entrada de directorio. En Unix es atómico frente a otros
+    // procesos; en Windows es `MoveFileEx` con `REPLACE_EXISTING`, que tampoco
+    // es una transacción del sistema de archivos.
+    std::fs::rename(staged.path(), database_path).map_err(|_| {
+        // El fallo de renombrado no altera el destino en condiciones normales,
+        // pero puede haberlo hecho; la reversión comprueba el resultado.
+        fail(StorageError::Restore, database_path.is_file())
+    })?;
+    sync_parent(database_path);
+
+    if fault(RestoreStep::FinalVerification) {
+        let _ = std::fs::write(database_path, b"promocion corrupta");
+    }
+
+    let validation = if strict {
+        verify_backup(database_path).await
+    } else {
+        verify_snapshot(database_path).await
+    };
+    validation.map_err(|error| fail(error, true))
+}
+
+/// Devuelve la base al estado previo y comprueba que quedó íntegra.
+async fn rollback_to(database_path: &Path, recovery: &Path) -> Result<(), StorageError> {
+    if fault(RestoreStep::Rollback) {
+        return Err(StorageError::Restore);
+    }
+    let staged = StagedFile::new(staged_path(database_path));
+    promote_and_verify(database_path, recovery, &staged, false)
+        .await
+        .map_err(|failure| failure.error)?;
+    verify_snapshot(database_path).await
+}
+
+fn sync_file(path: &Path) -> std::io::Result<()> {
+    let file = std::fs::OpenOptions::new().write(true).open(path)?;
+    file.sync_all()
+}
+
+#[cfg(unix)]
+fn sync_parent(path: &Path) {
+    if let Some(parent) = path.parent()
+        && let Ok(directory) = std::fs::File::open(parent)
+    {
+        let _ = directory.sync_all();
+    }
+}
+
+/// En Windows no existe un `fsync` de directorio equivalente accesible desde
+/// `std`; la durabilidad del renombrado depende del sistema de archivos.
+#[cfg(not(unix))]
+fn sync_parent(_path: &Path) {}
+
+/// Archivo temporal que se elimina al salir salvo que se conserve a propósito.
+struct StagedFile {
+    path: PathBuf,
+    keep: bool,
+}
+
+impl StagedFile {
+    fn new(path: PathBuf) -> Self {
+        if path.is_file() {
+            let _ = std::fs::remove_file(&path);
+        }
+        Self { path, keep: false }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn keep(&mut self) {
+        self.keep = true;
+    }
+}
+
+impl Drop for StagedFile {
+    fn drop(&mut self) {
+        if !self.keep {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
 }
 
 fn staged_path(database_path: &Path) -> PathBuf {
@@ -323,18 +579,6 @@ fn recovery_path(database_path: &Path) -> PathBuf {
     database_path.with_file_name(format!("{name}.pre-restore-{stamp}-final.db"))
 }
 
-fn remove_sidecars(database_path: &Path) -> Result<(), StorageError> {
-    for suffix in ["-wal", "-shm"] {
-        let mut sidecar = database_path.as_os_str().to_owned();
-        sidecar.push(suffix);
-        let sidecar = PathBuf::from(sidecar);
-        if sidecar.exists() {
-            std::fs::remove_file(&sidecar).map_err(|_| StorageError::Restore)?;
-        }
-    }
-    Ok(())
-}
-
 /// Abre un pool auxiliar de solo lectura para pruebas de restauración.
 pub async fn open_read_only(path: &Path) -> Result<SqlitePool, StorageError> {
     let options = SqliteConnectOptions::new()
@@ -346,4 +590,353 @@ pub async fn open_read_only(path: &Path) -> Result<SqlitePool, StorageError> {
         .connect_with(options)
         .await
         .map_err(|_| StorageError::Open)
+}
+
+// --- Puntos de fallo para pruebas -------------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RestoreStep {
+    RecoveryCopy,
+    StagedCopy,
+    StagedValidation,
+    Promotion,
+    FinalVerification,
+    Rollback,
+}
+
+/// En compilaciones normales los puntos de fallo no existen.
+#[inline]
+fn fault(_step: RestoreStep) -> bool {
+    #[cfg(test)]
+    {
+        faults::take(_step)
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
+#[cfg(test)]
+mod faults {
+    use super::RestoreStep;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static INJECTED: AtomicU32 = AtomicU32::new(0);
+
+    fn mask(step: RestoreStep) -> u32 {
+        match step {
+            RestoreStep::RecoveryCopy => 1 << 0,
+            RestoreStep::StagedCopy => 1 << 1,
+            RestoreStep::StagedValidation => 1 << 2,
+            RestoreStep::Promotion => 1 << 3,
+            RestoreStep::FinalVerification => 1 << 4,
+            RestoreStep::Rollback => 1 << 5,
+        }
+    }
+
+    /// Permite encadenar fallos (por ejemplo, verificación final y reversión).
+    pub(super) fn inject(steps: &[RestoreStep]) {
+        let mut bits = 0;
+        for step in steps {
+            bits |= mask(*step);
+        }
+        INJECTED.store(bits, Ordering::SeqCst);
+    }
+
+    pub(super) fn take(step: RestoreStep) -> bool {
+        let bit = mask(step);
+        let mut current = INJECTED.load(Ordering::SeqCst);
+        loop {
+            if current & bit == 0 {
+                return false;
+            }
+            match INJECTED.compare_exchange(
+                current,
+                current & !bit,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => return true,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod failure_tests {
+    // La serialización es intencional: el inyector de fallos es global y las
+    // pruebas de este módulo comparten el mismo proceso.
+    #![allow(clippy::await_holding_lock)]
+
+    use super::*;
+    use crate::open;
+    use std::sync::Mutex;
+
+    /// Las pruebas comparten el inyector global: se serializan entre sí.
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        SERIAL.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    async fn pending_count(path: &Path) -> i64 {
+        let pool = open(path).await.unwrap();
+        let value: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM product")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        value
+    }
+
+    async fn scenario() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let database = dir.path().join("hiqnet-pos.db");
+        let backup = dir.path().join("respaldo.db");
+
+        let pool = open(&database).await.unwrap();
+        sqlx::query("INSERT INTO organization (id, name, created_at) VALUES ('org-1', 'Org', '2026-01-01T00:00:00Z')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for id in ["p-1", "p-2"] {
+            sqlx::query(
+                "INSERT INTO product (id, organization_id, sku, name, unit_price_minor, tax_rate_bp, active, created_at) \
+                 VALUES (?, 'org-1', ?, ?, 100, 0, 1, '2026-01-01T00:00:00Z')",
+            )
+            .bind(id)
+            .bind(id)
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        backup_to(&pool, &backup).await.unwrap();
+
+        // Cambio posterior al respaldo: la restauración debe deshacerlo.
+        sqlx::query(
+            "INSERT INTO product (id, organization_id, sku, name, unit_price_minor, tax_rate_bp, active, created_at) \
+             VALUES ('p-3', 'org-1', 'P-3', 'P-3', 100, 0, 1, '2026-01-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool.close().await;
+
+        (dir, database, backup)
+    }
+
+    fn staged(database: &Path) -> PathBuf {
+        staged_path(database)
+    }
+
+    #[tokio::test]
+    async fn fallo_al_crear_la_copia_de_recuperacion_no_toca_la_base() {
+        let _serial = serial();
+        let (_dir, database, backup) = scenario().await;
+
+        // Fallo simulado: el snapshot no queda disponible para verificarse.
+        faults::inject(&[RestoreStep::RecoveryCopy]);
+        let error = restore_from_backup(&database, &backup).await.unwrap_err();
+        assert!(matches!(error, StorageError::Restore), "obtenido {error:?}");
+        assert_eq!(pending_count(&database).await, 3);
+    }
+
+    #[tokio::test]
+    async fn fallo_al_copiar_el_temporal_deja_la_base_intacta() {
+        let _serial = serial();
+        let (_dir, database, backup) = scenario().await;
+
+        // El temporal existe como directorio: la copia no puede completarse.
+        std::fs::create_dir_all(staged(&database)).unwrap();
+        let error = restore_from_backup(&database, &backup).await.unwrap_err();
+        assert!(matches!(error, StorageError::Restore), "obtenido {error:?}");
+        assert_eq!(pending_count(&database).await, 3);
+    }
+
+    #[tokio::test]
+    async fn fallo_durante_la_copia_del_temporal_limpia_el_archivo() {
+        let _serial = serial();
+        let (_dir, database, backup) = scenario().await;
+
+        faults::inject(&[RestoreStep::StagedCopy]);
+        let error = restore_from_backup(&database, &backup).await.unwrap_err();
+        assert!(matches!(error, StorageError::Restore), "obtenido {error:?}");
+        assert_eq!(pending_count(&database).await, 3);
+        assert!(!staged(&database).exists(), "sin archivos temporales");
+    }
+
+    #[tokio::test]
+    async fn fallo_al_validar_el_temporal_deja_la_base_intacta() {
+        let _serial = serial();
+        let (_dir, database, backup) = scenario().await;
+
+        faults::inject(&[RestoreStep::StagedValidation]);
+        let error = restore_from_backup(&database, &backup).await.unwrap_err();
+        assert!(
+            matches!(error, StorageError::InvalidBackup | StorageError::Restore),
+            "obtenido {error:?}"
+        );
+        assert_eq!(pending_count(&database).await, 3);
+        assert!(!staged(&database).exists(), "el temporal se elimina");
+    }
+
+    #[tokio::test]
+    async fn fallo_al_promover_deja_la_base_intacta() {
+        let _serial = serial();
+        let (_dir, database, backup) = scenario().await;
+
+        faults::inject(&[RestoreStep::Promotion]);
+        let error = restore_from_backup(&database, &backup).await.unwrap_err();
+        assert!(matches!(error, StorageError::Restore), "obtenido {error:?}");
+        assert_eq!(pending_count(&database).await, 3);
+        assert!(!staged(&database).exists(), "el temporal se elimina");
+    }
+
+    #[tokio::test]
+    async fn fallo_en_la_verificacion_final_revierte_a_la_copia_previa() {
+        let _serial = serial();
+        let (_dir, database, backup) = scenario().await;
+
+        faults::inject(&[RestoreStep::FinalVerification]);
+        let error = restore_from_backup(&database, &backup).await.unwrap_err();
+        assert!(
+            matches!(error, StorageError::InvalidBackup | StorageError::Restore),
+            "obtenido {error:?}"
+        );
+        assert_eq!(
+            pending_count(&database).await,
+            3,
+            "la reversión devuelve el estado previo completo"
+        );
+    }
+
+    #[tokio::test]
+    async fn fallo_de_reversion_conserva_artefactos_y_avisa() {
+        let _serial = serial();
+        let (dir, database, backup) = scenario().await;
+
+        faults::inject(&[RestoreStep::FinalVerification, RestoreStep::Rollback]);
+        let error = restore_from_backup(&database, &backup).await.unwrap_err();
+        let StorageError::RestoreCritical {
+            database: base,
+            recovery,
+            staged,
+        } = error
+        else {
+            panic!("se esperaba RestoreCritical, obtenido {error:?}");
+        };
+
+        // Todo lo necesario para recuperar a mano sigue presente.
+        assert!(Path::new(&base).is_file(), "la base se conserva");
+        assert!(
+            Path::new(&recovery).is_file(),
+            "la copia de recuperación se conserva"
+        );
+        assert!(
+            Path::new(&staged).is_file(),
+            "el temporal validado se conserva"
+        );
+        assert_eq!(
+            std::fs::read_dir(dir.path())
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().contains("pre-restore"))
+                .count(),
+            1,
+            "una sola copia de recuperación"
+        );
+        // La copia de recuperación sí es utilizable.
+        verify_snapshot(Path::new(&recovery)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn restauracion_correcta_deja_el_estado_respaldado() {
+        let _serial = serial();
+        let (_dir, database, backup) = scenario().await;
+
+        let report = restore_from_backup(&database, &backup).await.unwrap();
+        assert!(
+            report
+                .recovery_copy
+                .as_ref()
+                .is_some_and(|path| path.exists())
+        );
+        assert_eq!(pending_count(&database).await, 2);
+    }
+
+    #[tokio::test]
+    async fn restaura_aunque_un_lector_previo_deje_sidecars() {
+        let _serial = serial();
+        let (dir, database, backup) = scenario().await;
+
+        // Un lector de solo lectura puede dejar `-wal`/`-shm` sin mantener la
+        // base en uso: su presencia no debe interpretarse como conexión activa.
+        let mut reader = SqliteConnectOptions::new()
+            .filename(&database)
+            .read_only(true)
+            .connect()
+            .await
+            .unwrap();
+        sqlx::query("SELECT COUNT(*) FROM product")
+            .fetch_one(&mut reader)
+            .await
+            .unwrap();
+        reader.close().await.unwrap();
+
+        restore_from_backup(&database, &backup).await.unwrap();
+        assert_eq!(pending_count(&database).await, 2);
+
+        // Los residuos se conservan apartados, no se destruyen.
+        let quarantined: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name.contains(".wal.pre-restore-") || name.contains(".shm.pre-restore-"))
+            .collect();
+        for name in quarantined {
+            let path = dir.path().join(&name);
+            if name.contains(".wal.pre-restore-") {
+                assert_eq!(
+                    std::fs::metadata(&path).unwrap().len(),
+                    0,
+                    "solo se aparta un WAL ya vaciado"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn rechaza_restaurar_con_lector_externo_activo() {
+        let _serial = serial();
+        let (_dir, database, backup) = scenario().await;
+
+        // Conexión externa con lectura abierta: en WAL no bloquea escritores,
+        // por lo que solo el checkpoint TRUNCATE la detecta.
+        let reader = SqliteConnectOptions::new()
+            .filename(&database)
+            .connect()
+            .await
+            .unwrap();
+        let mut reader = reader;
+        sqlx::query("BEGIN").execute(&mut reader).await.unwrap();
+        sqlx::query("SELECT COUNT(*) FROM product")
+            .fetch_one(&mut reader)
+            .await
+            .unwrap();
+
+        let error = restore_from_backup(&database, &backup).await.unwrap_err();
+        assert!(
+            matches!(error, StorageError::DatabaseInUse),
+            "obtenido {error:?}"
+        );
+        assert_eq!(pending_count(&database).await, 3, "la base no se modifica");
+
+        sqlx::query("COMMIT").execute(&mut reader).await.unwrap();
+        reader.close().await.unwrap();
+        restore_from_backup(&database, &backup).await.unwrap();
+        assert_eq!(pending_count(&database).await, 2);
+    }
 }
