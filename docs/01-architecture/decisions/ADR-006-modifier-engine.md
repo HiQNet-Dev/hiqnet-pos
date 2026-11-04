@@ -40,18 +40,24 @@ Licuado de fresa:
 - La política fiscal mexicana final y el redondeo por venta corresponden a
   G2.4/G4 y siguen en análisis legal.
 
-## Estado actual de implementación (2026-11-03)
+## Estado actual de implementación (2026-11-04)
 
-Implementado en `main` mediante PR #5:
+Implementado mediante PR #5 (integrado en `main`):
 - Tablas `modifier_group` y `modifier_option` en migración `0005`.
 - Casos de uso e IPC tipados para grupos, opciones y configuración.
 - Motor Rust con validación y cálculo autoritativo.
 - UI de configuración y desglose.
 
+Verificado además sobre el ejecutable real (G2.5, rama
+`test/windows-native-e2e`): la venta de un producto con variante y modificadores
+persiste el snapshot de la partida (`modifiers_summary`, precio neto, impuesto y
+total de línea) y cobra el total calculado por Rust.
+
 Todavía se mantienen como propuestos, aunque el código exista:
 - Fusión arquitectónica definitiva de modificadores y ventas.
 - Relación con recetas e insumos.
 - Política fiscal final.
+- Pantalla administrativa para crear grupos y opciones (hoy sólo por IPC).
 
 ## Distinción de precios
 
@@ -65,5 +71,7 @@ Todavía se mantienen como propuestos, aunque el código exista:
 
 ## Fuera de alcance
 
-Checkout, ventas persistidas, recetas, descuentos automáticos de insumos y
-sincronización. No se crean tablas hasta ratificar invariantes y contratos.
+Recetas, descuentos automáticos de insumos, inventario independiente por variante
+y sincronización. La persistencia de selecciones como partida de venta ya existe
+(migración `0007`); lo que sigue pendiente es su uso por carrito y checkout fuera
+del alcance inicial de este ADR.

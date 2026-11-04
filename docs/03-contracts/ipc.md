@@ -3,6 +3,22 @@
 Los comandos se invocan desde React y son validados en Rust. Las respuestas se
 validan en el frontend con Zod (`frontend/src/contracts.ts`).
 
+## Nombres de argumentos
+
+Los argumentos de todos los comandos se nombran en **snake_case**
+(`product_id`, `register_id`, `shift_id`, `group_id`, `sale_id`, `branch_id`),
+igual que los campos de sus payloads. Tauri 2 los renombraría a camelCase por
+omisión, así que cada comando declara:
+
+```rust
+#[tauri::command(rename_all = "snake_case")]
+```
+
+Si se omite esa anotación, la invocación falla con
+`command <nombre> missing required key <arg>camelCase`. La prueba de contrato
+`tools/windows-native-e2e/e2e_contracts.py` recorre los comandos con argumentos
+compuestos sobre el ejecutable real y detecta esta regresión.
+
 ## Errores
 
 Todo rechazo tiene la forma:
@@ -113,6 +129,38 @@ Entrada: `{ "draft": { "product_id": "...", "name": "Grande", "sku": "CAF-001-G"
 El SKU es opcional y único por organización. `list_product_variants` requiere
 `sales.sell` y recibe `{ "product_id": "..." }`.
 
+## Caja y turnos
+
+Comandos: `create_cash_register`, `list_cash_registers`, `open_cash_shift`,
+`active_cash_shift`, `register_cash_movement`, `list_cash_shift_history` y
+`close_cash_shift`.
+
+| Comando | Permiso | Entrada |
+| --- | --- | --- |
+| `create_cash_register` | `cash.register.manage` | `{ "draft": { "name": "Caja principal", "code": "CJ-01" } }` |
+| `list_cash_registers` | `cash.shift.view` | ninguna |
+| `open_cash_shift` | `cash.shift.open` | `{ "draft": { "register_id": "...", "opening_amount": "100.00" } }` |
+| `active_cash_shift` | `cash.shift.view` | `{ "register_id": "..." }` (devuelve `null` sin turno abierto) |
+| `register_cash_movement` | `cash.movement.record` | `{ "draft": { "shift_id": "...", "kind": "in \| out", "amount": "50.00", "reason": "..." } }` |
+| `list_cash_shift_history` | `cash.shift.view` | ninguna |
+| `close_cash_shift` | `cash.shift.close` | `{ "draft": { "shift_id": "...", "counted_amount": "132.48" } }` |
+
+Reglas vigentes:
+
+- Una caja admite un solo turno `open`; el índice único parcial y la transacción
+  de apertura rechazan la doble apertura, incluso con conexiones concurrentes.
+- Los movimientos sólo se registran en turnos `open` y nunca dejan el saldo
+  esperado en negativo.
+- El saldo esperado se calcula en Rust como fondo de apertura + entradas − salidas.
+  Las ventas cobradas en efectivo entran como movimiento `in` por el total de la
+  venta en la misma transacción del checkout, por lo que el arqueo las incluye.
+- `close_cash_shift` persiste esperado, contado y diferencia; no sobrescribe el
+  historial. Turnos y movimientos no admiten edición ni borrado por comandos
+  operativos.
+- La diferencia se expone tal cual se calculó: sobrante, faltante o cero. La
+  justificación obligatoria de diferencias sigue pendiente de política (ver
+  ADR-005).
+
 ## Ventas
 
 `checkout_sale` requiere `sales.sell` y un turno de caja abierto. Entrada:
@@ -143,6 +191,12 @@ Comandos: `create_modifier_group`, `list_modifier_groups`,
 `configure_product` requiere `sales.sell`; calcula y devuelve una configuración
 validada con desglose autoritativo. Rechaza selecciones fuera de límites,
 opciones inactivas y grupos inexistentes.
+
+`create_modifier_group` y `create_modifier_option` requieren `catalog.manage` y
+entitlement `catalog`, y se auditan en la misma transacción. Todavía **no existe
+pantalla administrativa** para grupos y opciones: se invocan por IPC (por ejemplo
+desde `tools/windows-native-e2e/e2e_flow.py`) y la operación de venta ya los
+consume desde la UI.
 
 ## `current_stock`
 

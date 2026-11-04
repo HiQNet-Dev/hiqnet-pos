@@ -14,6 +14,10 @@ import type {
 interface Props {
   actor: Actor;
   readOnly: boolean;
+  products: Product[];
+  categories: Category[];
+  cashVersion?: number;
+  onSaleCompleted?: () => void;
 }
 
 interface CartLine {
@@ -39,10 +43,15 @@ function formatMinor(minor: number): string {
   return `${sign}${Math.floor(absolute / 100)}.${String(absolute % 100).padStart(2, "0")}`;
 }
 
-export function SalesPanel({ actor, readOnly }: Props) {
+export function SalesPanel({
+  actor,
+  readOnly,
+  products,
+  categories,
+  cashVersion = 0,
+  onSaleCompleted,
+}: Props) {
   const canSell = actor.permissions.includes("sales.sell");
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [query, setQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -61,26 +70,10 @@ export function SalesPanel({ actor, readOnly }: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const idempotencyKey = useRef<string>("");
+  // Contadores independientes: una respuesta de turno no debe invalidar una
+  // respuesta de configuración ni viceversa.
+  const shiftRequest = useRef(0);
   const configRequest = useRef(0);
-
-  useEffect(() => {
-    if (!canSell) return;
-    let cancelled = false;
-    Promise.all([api.listProducts(), api.listCategories()])
-      .then(([productList, categoryList]) => {
-        if (cancelled) return;
-        setProducts(productList.filter((product) => product.active));
-        setCategories(categoryList);
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof IpcError ? cause.message : "No fue posible cargar el catálogo.");
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [canSell]);
 
   useEffect(() => {
     if (!canSell) return;
@@ -97,26 +90,26 @@ export function SalesPanel({ actor, readOnly }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [canSell]);
+  }, [canSell, cashVersion]);
 
   useEffect(() => {
     if (!registerId) return;
     let cancelled = false;
-    const currentRequest = ++configRequest.current;
+    const currentRequest = ++shiftRequest.current;
     api
       .activeCashShift(registerId)
       .then((active) => {
-        if (!cancelled && currentRequest === configRequest.current) {
+        if (!cancelled && currentRequest === shiftRequest.current) {
           setShiftId(active?.id ?? "");
         }
       })
       .catch(() => {
-        if (!cancelled) setShiftId("");
+        if (!cancelled && currentRequest === shiftRequest.current) setShiftId("");
       });
     return () => {
       cancelled = true;
     };
-  }, [registerId]);
+  }, [registerId, cashVersion]);
 
   useEffect(() => {
     if (!selectedProduct) return;
@@ -151,6 +144,7 @@ export function SalesPanel({ actor, readOnly }: Props) {
   const visibleProducts = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return products.filter((product) => {
+      if (!product.active) return false;
       const matchesCategory = !selectedCategory || product.category_id === selectedCategory;
       const matchesQuery =
         !normalized ||
@@ -159,6 +153,13 @@ export function SalesPanel({ actor, readOnly }: Props) {
       return matchesCategory && matchesQuery;
     });
   }, [products, selectedCategory, query]);
+
+  // Al cambiar producto, variante u opciones la venta ya no corresponde al
+  // contenido previo: se descarta la clave de idempotencia para no reutilizarla
+  // con un contenido distinto.
+  useEffect(() => {
+    idempotencyKey.current = "";
+  }, [cart, cashReceived, shiftId]);
 
   function toggleOption(optionId: string) {
     setSelectedOptionIds((current) =>
@@ -235,6 +236,7 @@ export function SalesPanel({ actor, readOnly }: Props) {
       setCashReceived("");
       idempotencyKey.current = "";
       setNotice(`Venta ${result.folio} confirmada.`);
+      onSaleCompleted?.();
     } catch (cause) {
       setError(cause instanceof IpcError ? cause.message : "No fue posible confirmar la venta.");
     } finally {
@@ -312,6 +314,7 @@ export function SalesPanel({ actor, readOnly }: Props) {
                   setSelectedProduct(product);
                   setSelectedOptionIds([]);
                   setVariants([]);
+                  setVariantId("");
                   setGroups([]);
                   setOptionsByGroup({});
                 }}
@@ -336,22 +339,53 @@ export function SalesPanel({ actor, readOnly }: Props) {
                   </select>
                 </label>
               )}
-              {groups.map((group) => (
-                <fieldset key={group.id} style={{ border: 0, padding: 0 }}>
-                  <legend>{group.name} (mín {group.min}, máx {group.max})</legend>
-                  {(optionsByGroup[group.id] ?? []).map((option) => (
-                    <label key={option.id} className="field field-short">
-                      <input
-                        type="checkbox"
-                        checked={selectedOptionIds.includes(option.id)}
-                        onChange={() => toggleOption(option.id)}
-                      />
-                      <span>{option.name}{option.kind === "extra" ? ` (+${option.price_delta})` : ""}</span>
-                    </label>
-                  ))}
-                </fieldset>
-              ))}
-              <button type="button" className="button button-primary" disabled={busy} onClick={() => void addToCart()}>
+              {groups.map((group) => {
+                const options = optionsByGroup[group.id] ?? [];
+                const single = group.max === 1;
+                return (
+                  <fieldset key={group.id} className="field-row" style={{ border: 0, padding: 0 }}>
+                    <legend>
+                      {group.name}{" "}
+                      {group.min > 0
+                        ? `(obligatorio: ${group.min} a ${group.max})`
+                        : `(hasta ${group.max})`}
+                    </legend>
+                    <div>
+                      {options.map((option) => (
+                        <label key={option.id} className="field field-short">
+                          <input
+                            type={single ? "radio" : "checkbox"}
+                            name={single ? `group-${group.id}` : undefined}
+                            checked={selectedOptionIds.includes(option.id)}
+                            disabled={!option.active || readOnly}
+                            onChange={() =>
+                              single
+                                ? setSelectedOptionIds((current) => [
+                                    ...current.filter(
+                                      (id) => !options.some((item) => item.id === id),
+                                    ),
+                                    option.id,
+                                  ])
+                                : toggleOption(option.id)
+                            }
+                          />
+                          <span>
+                            {option.name}
+                            {option.kind === "extra" ? ` (+${option.price_delta})` : ""}
+                            {!option.active ? " · no disponible" : ""}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                );
+              })}
+              <button
+                type="button"
+                className="button button-primary"
+                disabled={busy || readOnly}
+                onClick={() => void addToCart()}
+              >
                 Agregar al carrito
               </button>
             </div>

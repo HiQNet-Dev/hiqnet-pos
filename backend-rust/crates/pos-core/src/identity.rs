@@ -7,21 +7,34 @@ use std::fmt;
 /// Permisos RBAC locales con claves estables (no traducibles). El texto en
 /// español se resuelve en la capa de presentación.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum Permission {
+    #[serde(rename = "organization.manage")]
     ManageOrganization,
+    #[serde(rename = "users.manage")]
     ManageUsers,
+    #[serde(rename = "catalog.manage")]
     ManageCatalog,
+    #[serde(rename = "inventory.manage")]
     ManageInventory,
+    #[serde(rename = "inventory.view")]
     ViewInventory,
+    #[serde(rename = "cash.register.manage")]
     ManageCashRegisters,
+    #[serde(rename = "cash.shift.view")]
     ViewCashShift,
+    #[serde(rename = "cash.shift.open")]
     OpenCashShift,
+    #[serde(rename = "cash.shift.close")]
     CloseCashShift,
+    #[serde(rename = "cash.movement.record")]
     RecordCashMovement,
+    #[serde(rename = "sales.sell")]
     Sell,
+    #[serde(rename = "reports.view")]
     ViewReports,
+    #[serde(rename = "backups.manage")]
     ManageBackups,
+    #[serde(rename = "audit.view")]
     ViewAudit,
 }
 
@@ -210,6 +223,12 @@ impl Actor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn permisos_se_serializan_con_su_clave_estable() {
+        let value = serde_json::to_value(Permission::ManageCatalog).unwrap();
+        assert_eq!(value, serde_json::json!("catalog.manage"));
+    }
 
     fn user(role: Role) -> User {
         User::new(

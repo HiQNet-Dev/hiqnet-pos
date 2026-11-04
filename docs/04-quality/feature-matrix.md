@@ -19,16 +19,17 @@ Estados: **VERIFICADO** (implementado y probado), **PARCIAL**, **PENDIENTE**,
 | Trial de 30 días / solo lectura | VERIFICADO | Reloj fijo y bloqueo de mutaciones |
 | Verificación Ed25519 | VERIFICADO | Firma válida, payload manipulado, clave ajena |
 | Emisión de licencias | PENDIENTE | Responsabilidad de HiQNet Platform |
-| IPC tipado React ↔ Rust | VERIFICADO | Comandos + validación Zod + pruebas de UI |
+| IPC tipado React ↔ Rust | VERIFICADO | Comandos + validación Zod + pruebas de UI; argumentos snake_case verificados sobre el ejecutable real |
 | App Tauri arranca en Windows | VERIFICADO | Ejecutable construido y arrancado; base creada |
 | Instalador NSIS firmado | PENDIENTE | Requiere decisión de firma (D-09) |
-| Smoke E2E con Playwright | PARCIAL | Smoke de UI en navegador; E2E Tauri pendiente |
-| Ventas y pagos | PARCIAL | Checkout en efectivo, carrito, pago, inventario y caja; faltan otros métodos y E2E |
-| Caja, turnos y arqueo | PENDIENTE | Fase G2 |
-| Categorías de catálogo | PARCIAL | Dominio, migración 0004, IPC, asignación a productos y UI; sin E2E Tauri |
-| Variantes de producto | PARCIAL | SKU por organización, precio exacto, selección en UI; sin inventario por variante |
-| Modificadores / extras | PARCIAL | Motor implementado: grupos, opciones y cálculo; UI de configuración; sin persistencia de selección para venta |
-| Inventario y ledger | PARCIAL | Dominio, migraciones 0002/0003, IPC y UI base; faltan E2E Tauri |
+| Smoke E2E con Playwright | PARCIAL | Smoke de UI en navegador con puente Tauri simulado |
+| E2E nativo Windows (tauri-driver + WebView2) | PARCIAL | Flujo completo verificado en local: venta, reinicio, persistencia y arqueo. No se ejecuta en GitHub Actions |
+| Ventas y pagos | PARCIAL | Checkout en efectivo verificado de extremo a extremo en el ejecutable; faltan otros métodos de pago |
+| Caja, turnos y arqueo | PARCIAL | Migración 0006, IPC, UI, pruebas Rust/SQLite y E2E nativo; faltan justificación obligatoria de diferencias y arqueo ciego |
+| Categorías de catálogo | VERIFICADO | Dominio, migración 0004, IPC, asignación y UI; cubierto por E2E nativo |
+| Variantes de producto | PARCIAL | SKU por organización, precio exacto, selección en UI y venta; sin inventario independiente por variante |
+| Modificadores / extras | PARCIAL | Motor, migración 0005, IPC y UI de venta; la partida persiste el snapshot. Sin pantalla administrativa de grupos/opciones |
+| Inventario y ledger | PARCIAL | Dominio, migraciones 0002/0003, IPC y UI; descuento por venta verificado en E2E nativo |
 | Ajustes positivos/negativos | VERIFICADO | Motivo obligatorio + pruebas SQLite |
 | Ledger append-only | VERIFICADO | Triggers y prueba de UPDATE/DELETE |
 | Concurrencia de salidas | VERIFICADO | Prueba con dos solicitudes y stock limitado |
@@ -43,4 +44,6 @@ Estados: **VERIFICADO** (implementado y probado), **PARCIAL**, **PENDIENTE**,
 ## No afirmado
 
 No se declara soporte de multicaja offline, multi-master, CFDI, pagos con
-terminal física, SLA, alta disponibilidad ni instaladores firmados.
+terminal física, SLA, alta disponibilidad ni instaladores firmados. El E2E nativo
+de Windows se ejecutó manualmente en un equipo con WebView2; no está automatizado
+en CI ni sustituye pruebas de distribución.

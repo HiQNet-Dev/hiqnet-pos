@@ -83,7 +83,7 @@ describe("SalesPanel", () => {
   });
 
   it("agrega un producto y muestra el carrito", async () => {
-    render(<SalesPanel actor={actor} readOnly={false} />);
+    render(<SalesPanel actor={actor} readOnly={false} products={[product]} categories={[]} />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /café/i }));
     await user.click(screen.getByRole("button", { name: /agregar al carrito/i }));
@@ -92,7 +92,7 @@ describe("SalesPanel", () => {
   });
 
   it("incrementa y elimina cantidades", async () => {
-    render(<SalesPanel actor={actor} readOnly={false} />);
+    render(<SalesPanel actor={actor} readOnly={false} products={[product]} categories={[]} />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /café/i }));
     await user.click(screen.getByRole("button", { name: /agregar al carrito/i }));
@@ -103,7 +103,7 @@ describe("SalesPanel", () => {
   });
 
   it("confirma una venta y muestra folio", async () => {
-    render(<SalesPanel actor={actor} readOnly={false} />);
+    render(<SalesPanel actor={actor} readOnly={false} products={[product]} categories={[]} />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /café/i }));
     await user.click(screen.getByRole("button", { name: /agregar al carrito/i }));
@@ -116,7 +116,7 @@ describe("SalesPanel", () => {
   it("muestra error de IPC", async () => {
     const { IpcError } = await import("../api");
     api.checkoutSale.mockRejectedValueOnce(new IpcError("validation_error", "pago insuficiente"));
-    render(<SalesPanel actor={actor} readOnly={false} />);
+    render(<SalesPanel actor={actor} readOnly={false} products={[product]} categories={[]} />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /café/i }));
     await user.click(screen.getByRole("button", { name: /agregar al carrito/i }));
@@ -130,8 +130,62 @@ describe("SalesPanel", () => {
       <SalesPanel
         actor={{ ...actor, permissions: [] }}
         readOnly={false}
+        products={[product]}
+        categories={[]}
       />,
     );
     expect(screen.queryByRole("heading", { name: /punto de venta/i })).not.toBeInTheDocument();
+  });
+
+  it("acepta el turno activo aunque su respuesta llegue después de elegir producto", async () => {
+    let resolveShift: (value: { id: string }) => void = () => {};
+    api.activeCashShift.mockImplementation(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveShift = resolve;
+        }),
+    );
+
+    render(<SalesPanel actor={actor} readOnly={false} products={[product]} categories={[]} />);
+    const user = userEvent.setup();
+    await waitFor(() => expect(api.activeCashShift).toHaveBeenCalled());
+
+    // El operador elige producto mientras la consulta del turno sigue en vuelo.
+    await user.click(await screen.findByRole("button", { name: /café/i }));
+    resolveShift({ id: "sh-1" });
+
+    await waitFor(() =>
+      expect(screen.queryByText(/abre un turno de caja/i)).not.toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole("button", { name: /agregar al carrito/i }));
+    expect(await screen.findByRole("button", { name: /cobrar/i })).toBeEnabled();
+  });
+
+  it("regenera la clave de idempotencia cuando cambia el contenido de la venta", async () => {
+    const { IpcError } = await import("../api");
+    api.checkoutSale.mockRejectedValueOnce(new IpcError("validation_error", "pago insuficiente"));
+    api.checkoutSale.mockResolvedValueOnce(sale);
+
+    render(<SalesPanel actor={actor} readOnly={false} products={[product]} categories={[]} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /café/i }));
+    await user.click(screen.getByRole("button", { name: /agregar al carrito/i }));
+
+    const cashField = screen.getByLabelText(/efectivo recibido/i);
+    await user.type(cashField, "1.00");
+    await user.click(screen.getByRole("button", { name: /cobrar/i }));
+    expect(await screen.findByText(/pago insuficiente/i)).toBeVisible();
+
+    await user.clear(cashField);
+    await user.type(cashField, "20.00");
+    await user.click(screen.getByRole("button", { name: /cobrar/i }));
+    await waitFor(() => expect(api.checkoutSale).toHaveBeenCalledTimes(2));
+
+    const [first, second] = api.checkoutSale.mock.calls.map(
+      (call) => (call[0] as { idempotency_key: string }).idempotency_key,
+    );
+    expect(first).toBeTruthy();
+    expect(second).toBeTruthy();
+    expect(second).not.toBe(first);
   });
 });

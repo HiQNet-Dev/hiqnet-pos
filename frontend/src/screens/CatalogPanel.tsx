@@ -129,6 +129,7 @@ export function CatalogPanel({
       setCategories((current) => [...current, category]);
       setCategoryName("");
       setNotice(`Categoría ${category.name} creada.`);
+      await onProductsChanged?.();
     } catch (cause) {
       setError(
         cause instanceof IpcError

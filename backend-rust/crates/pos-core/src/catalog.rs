@@ -49,7 +49,8 @@ impl Product {
         })
     }
 
-    /// Impuesto contenido en el precio de una unidad.
+    /// Impuesto que corresponde a una unidad, calculado sobre su precio neto a
+    /// la tasa del producto (política provisional de ADR-003/ADR-006).
     pub fn unit_tax(&self) -> DomainResult<Money> {
         let base = i128::from(self.unit_price.minor_units()) * i128::from(self.tax_rate_bp);
         let tax = div_round_half_up(base, 10_000)?;

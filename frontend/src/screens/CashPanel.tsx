@@ -5,9 +5,11 @@ import type { Actor, CashRegister, CashMovementDraft, CashShift } from "../contr
 interface Props {
   actor: Actor;
   readOnly: boolean;
+  onShiftChanged?: () => void;
+  refreshKey?: number;
 }
 
-export function CashPanel({ actor, readOnly }: Props) {
+export function CashPanel({ actor, readOnly, onShiftChanged, refreshKey = 0 }: Props) {
   const canManage = actor.permissions.includes("cash.register.manage");
   const canOpen = actor.permissions.includes("cash.shift.open");
   const canClose = actor.permissions.includes("cash.shift.close");
@@ -18,6 +20,7 @@ export function CashPanel({ actor, readOnly }: Props) {
   const [history, setHistory] = useState<CashShift[]>([]);
   const [registerId, setRegisterId] = useState("");
   const [shift, setShift] = useState<CashShift | null>(null);
+  const [lastClosed, setLastClosed] = useState<CashShift | null>(null);
   const [openingAmount, setOpeningAmount] = useState("");
   const [countedAmount, setCountedAmount] = useState("");
   const [kind, setKind] = useState<"in" | "out">("in");
@@ -83,7 +86,7 @@ export function CashPanel({ actor, readOnly }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [registerId]);
+  }, [registerId, refreshKey]);
 
   async function createRegister(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -112,8 +115,10 @@ export function CashPanel({ actor, readOnly }: Props) {
     try {
       const created = await api.openCashShift({ register_id: registerId, opening_amount: openingAmount });
       setShift(created);
+      setLastClosed(null);
       setOpeningAmount("");
       setNotice("Turno abierto.");
+      onShiftChanged?.();
     } catch (cause) {
       setError(cause instanceof IpcError ? cause.message : "No fue posible abrir el turno.");
     } finally {
@@ -153,13 +158,13 @@ export function CashPanel({ actor, readOnly }: Props) {
     setError(null);
     try {
       const closed = await api.closeCashShift({ shift_id: shift.id, counted_amount: countedAmount });
-      setShift(closed);
+      setShift(null);
+      setLastClosed(closed);
       setCountedAmount("");
       const updatedHistory = await api.listCashShiftHistory();
       setHistory(updatedHistory);
-      setNotice(
-        `Turno cerrado. Diferencia: ${closed.difference_minor ?? 0} centavos.`,
-      );
+      onShiftChanged?.();
+      setNotice(`Turno cerrado. Diferencia: ${formatDifference(closed.difference_minor)}.`);
     } catch (cause) {
       setError(cause instanceof IpcError ? cause.message : "No fue posible cerrar el turno.");
     } finally {
@@ -316,7 +321,9 @@ export function CashPanel({ actor, readOnly }: Props) {
             <ol className="timeline">
               {shift.movements.map((movement) => (
                 <li key={movement.id}>
-                  <span className="timeline-action">{movement.kind}</span>
+                  <span className="timeline-action">
+                    {movement.kind === "in" ? "Entrada" : "Salida"}
+                  </span>
                   <span className="timeline-meta">
                     {movement.amount} · {movement.reason}
                   </span>
@@ -351,52 +358,72 @@ export function CashPanel({ actor, readOnly }: Props) {
       {history.length > 0 && (
         <div className="catalog-detail">
           <p className="eyebrow">Historial de turnos cerrados</p>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th scope="col">Cierre</th>
-                <th scope="col">Caja</th>
-                <th scope="col">Operador</th>
-                <th scope="col">Esperado</th>
-                <th scope="col">Contado</th>
-                <th scope="col">Diferencia</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.closed_at ?? item.opened_at}</td>
-                  <td>{item.register_id}</td>
-                  <td>{item.closed_by ?? item.opened_by}</td>
-                  <td>{item.expected_amount}</td>
-                  <td>{item.counted_amount ?? "—"}</td>
-                  <td>{item.difference_minor ?? 0} centavos</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ol className="timeline" aria-label="Turnos cerrados">
+            {history.map((item) => (
+              <li key={item.id}>
+                <span className="timeline-action">
+                  {registerLabel(registers, item.register_id)} ·{" "}
+                  {operatorLabel(actor, item.closed_by ?? item.opened_by)}
+                </span>
+                <span className="timeline-meta">
+                  {formatTimestamp(item.closed_at ?? item.opened_at)} · Esperado{" "}
+                  {item.expected_amount} · Contado {item.counted_amount ?? "—"} ·{" "}
+                  {formatDifference(item.difference_minor)}
+                </span>
+              </li>
+            ))}
+          </ol>
         </div>
       )}
 
-      {shift?.status === "closed" && (
+      {lastClosed && !shift && (
         <div className="catalog-detail">
-          <p>Turno cerrado.</p>
+          <p className="eyebrow">Turno cerrado</p>
           <dl className="definition-list">
             <div>
               <dt>Esperado</dt>
-              <dd>{shift.expected_amount}</dd>
+              <dd>{lastClosed.expected_amount}</dd>
             </div>
             <div>
               <dt>Contado</dt>
-              <dd>{shift.counted_amount}</dd>
+              <dd>{lastClosed.counted_amount ?? "—"}</dd>
             </div>
             <div>
-              <dt>Diferencia (centavos)</dt>
-              <dd>{shift.difference_minor}</dd>
+              <dt>Diferencia</dt>
+              <dd>{formatDifference(lastClosed.difference_minor)}</dd>
             </div>
           </dl>
         </div>
       )}
     </section>
   );
+}
+
+/** Presenta la diferencia de arqueo sin ocultar sobrantes ni faltantes. */
+function formatDifference(minor: number | null): string {
+  if (minor === null) return "—";
+  if (minor === 0) return "Exacto";
+  const absolute = Math.abs(minor);
+  const amount = `$${Math.floor(absolute / 100)}.${String(absolute % 100).padStart(2, "0")}`;
+  return minor > 0 ? `Sobrante ${amount}` : `Faltante ${amount}`;
+}
+
+function formatTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("es-MX", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function registerLabel(registers: CashRegister[], registerId: string): string {
+  const register = registers.find((item) => item.id === registerId);
+  if (register) return `${register.name} · ${register.code}`;
+  return registerId.slice(0, 8);
+}
+
+function operatorLabel(actor: Actor, userId: string): string {
+  if (userId === actor.user_id) return actor.display_name;
+  return `Operador ${userId.slice(0, 8)}`;
 }
