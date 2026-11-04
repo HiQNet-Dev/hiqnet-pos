@@ -1,0 +1,12 @@
+# Las migraciones SQL las embebe SQLx y valida su checksum contra la base.
+# Deben conservarse en LF en Windows para que el hash no cambie al hacer checkout.
+backend-rust/migrations/**/*.sql text eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.exe binary
+*.dll binary
