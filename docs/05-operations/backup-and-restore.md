@@ -136,3 +136,16 @@ arrancar. Revertir el ejecutable **no** revierte la base.
 - copia `pre-restore` presente y reapertura con los datos restaurados.
 
 `returns_migration.rs` cubre la actualización `0009 → 0010` conservando gastos.
+
+### Conservación de datos de todas las fases
+
+`tools/windows-native-e2e/restore_multiphase_check.py` toma una base generada por
+el E2E (ventas, devoluciones, caja, compras, recepciones, gastos, merma,
+inventario y auditoría), crea un snapshot, restaura con la utilidad real sobre una
+copia con WAL y compara los registros de cada módulo. Además escribe un producto
+posterior al snapshot para comprobar que la restauración lo deshace.
+
+```powershell
+python tools/windows-native-e2e/restore_multiphase_check.py `
+    <run_directory>\hiqnet-pos.db apps/pos-desktop/src-tauri/target/debug/pos-desktop.exe
+```

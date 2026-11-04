@@ -50,6 +50,8 @@ mediciones locales; lo no ejecutado se declara explícitamente.
 - E2E nativo comercial completo + `verify_db.py`.
 - E2E nativo de devoluciones/reportes + `verify_returns_db.py`.
 - E2E nativo de guardia de restauración (`e2e_restore_guard.py`).
+- Conservación de datos de todas las fases al restaurar
+  (`restore_multiphase_check.py`), incluido el deshacer de un cambio posterior.
 - `perf_smoke.py` con 200 ventas.
 - Utilidad offline: verificación, restauración y rechazo de archivo corrupto.
 

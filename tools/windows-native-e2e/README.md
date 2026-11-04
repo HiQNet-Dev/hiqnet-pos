@@ -16,6 +16,7 @@ extremo.
 | `e2e_returns.py` | Devolución parcial operada por la interfaz, reportes por la interfaz, reinicio, persistencia y denegación al cajero |
 | `verify_returns_db.py` | Verificación de la devolución: partida `restock`, `inbound`, salida de caja única, stock y auditoría |
 | `e2e_restore_guard.py` | Respaldo desde la aplicación, rechazo de restauración con la aplicación abierta, restauración correcta tras cerrarla y reapertura con los datos intactos |
+| `restore_multiphase_check.py` | Sobre una base ya generada: snapshot `VACUUM INTO`, restauración con la utilidad real y comparación de registros de todos los módulos, demostrando que un cambio posterior se deshace |
 | `perf_smoke.py` | Medición local: arranque, 200 checkouts por IPC, consultas y reportes |
 | `e2e_smoke.py` | Comprobación mínima de que el driver puede abrir la aplicación |
 
@@ -83,6 +84,10 @@ Verificación de la base, indicando la ruta impresa por el orquestador:
 ```powershell
 python tools/windows-native-e2e/verify_db.py <run_directory>\hiqnet-pos.db
 python tools/windows-native-e2e/verify_returns_db.py <run_directory>\hiqnet-pos.db
+
+# Conservación de datos de todas las fases al respaldar y restaurar
+python tools/windows-native-e2e/restore_multiphase_check.py `
+    <run_directory>\hiqnet-pos.db apps/pos-desktop/src-tauri/target/debug/pos-desktop.exe
 ```
 
 ## Aislamiento y limpieza
