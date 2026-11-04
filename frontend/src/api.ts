@@ -16,6 +16,7 @@ import {
   modifierGroupSchema,
   modifierOptionSchema,
   productVariantSchema,
+  saleViewSchema,
   type Actor,
   type AppStatus,
   type AuditEvent,
@@ -41,8 +42,10 @@ import {
   type ModifierGroupDraft,
   type ModifierOption,
   type ModifierOptionDraft,
+  type CheckoutDraft,
   type ProductVariant,
   type ProductVariantDraft,
+  type SaleView,
 } from "./contracts";
 
 /** Error estable proveniente de Rust (`code`) con mensaje en español. */
@@ -131,6 +134,12 @@ export const api = {
 
   closeCashShift: (draft: CashCloseShiftDraft) =>
     call<CashShift>("close_cash_shift", { draft }, cashShiftSchema),
+
+  checkoutSale: (draft: CheckoutDraft) =>
+    call<SaleView>("checkout_sale", { draft }, saleViewSchema),
+
+  getSale: (saleId: string) =>
+    call<SaleView>("get_sale", { sale_id: saleId }, saleViewSchema),
 
   listCashShiftHistory: () =>
     call<CashShift[]>("list_cash_shift_history", undefined, cashShiftSchema.array()),

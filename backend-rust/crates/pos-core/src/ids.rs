@@ -63,6 +63,9 @@ id_type!(ModifierOptionId, "Identificador de opción de modificador.");
 id_type!(CashRegisterId, "Identificador de caja registradora.");
 id_type!(CashShiftId, "Identificador de turno de caja.");
 id_type!(CashMovementId, "Identificador de movimiento de efectivo.");
+id_type!(SaleId, "Identificador de venta.");
+id_type!(SaleItemId, "Identificador de partida de venta.");
+id_type!(SalePaymentId, "Identificador de pago de venta.");
 id_type!(AuditEventId, "Identificador de evento de auditoría.");
 id_type!(
     InstallationId,

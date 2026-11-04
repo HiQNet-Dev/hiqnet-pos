@@ -9,11 +9,11 @@ use std::sync::{Arc, RwLock};
 use pos_application::{
     AppError, AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, CashCloseShiftDraft,
     CashMovementDraft, CashMovementView, CashOpenShiftDraft, CashRegisterDraft, CashRegisterView,
-    CashShiftView, CategoryDraft, CategoryView, CommercialStateView, InventoryMovementDraft,
-    InventoryMovementView, LoginRequest, ModifierConfigurationDraft, ModifierConfigurationView,
-    ModifierGroupDraft, ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PosService,
-    ProductDraft, ProductVariantDraft, ProductVariantView, ProductView, SharedClock, SharedHasher,
-    SharedStore, SystemClock,
+    CashShiftView, CategoryDraft, CategoryView, CheckoutDraft, CommercialStateView,
+    InventoryMovementDraft, InventoryMovementView, LoginRequest, ModifierConfigurationDraft,
+    ModifierConfigurationView, ModifierGroupDraft, ModifierGroupView, ModifierOptionDraft,
+    ModifierOptionView, PosService, ProductDraft, ProductVariantDraft, ProductVariantView,
+    ProductView, SaleView, SharedClock, SharedHasher, SharedStore, SystemClock,
 };
 use pos_core::identity::{Actor, Permission};
 use pos_core::ids::{BranchId, ProductId};
@@ -184,6 +184,21 @@ async fn configure_product(
 }
 
 #[tauri::command]
+async fn checkout_sale(state: State<'_, AppState>, draft: CheckoutDraft) -> IpcResult<SaleView> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.checkout_sale(&actor, draft).await?)
+}
+
+#[tauri::command]
+async fn get_sale(state: State<'_, AppState>, sale_id: String) -> IpcResult<SaleView> {
+    let actor = session_actor(&state)?;
+    let sale_id: pos_core::ids::SaleId = sale_id
+        .parse()
+        .map_err(|_| IpcError::from(AppError::NotFound))?;
+    Ok(state.service.get_sale(&actor, sale_id).await?)
+}
+
+#[tauri::command]
 async fn create_cash_register(
     state: State<'_, AppState>,
     draft: CashRegisterDraft,
@@ -229,9 +244,7 @@ async fn register_cash_movement(
 }
 
 #[tauri::command]
-async fn list_cash_shift_history(
-    state: State<'_, AppState>,
-) -> IpcResult<Vec<CashShiftView>> {
+async fn list_cash_shift_history(state: State<'_, AppState>) -> IpcResult<Vec<CashShiftView>> {
     let actor = session_actor(&state)?;
     Ok(state.service.list_cash_shift_history(&actor).await?)
 }
@@ -417,6 +430,8 @@ pub fn run() {
             login,
             logout,
             current_session,
+            checkout_sale,
+            get_sale,
             create_cash_register,
             list_cash_registers,
             open_cash_shift,
