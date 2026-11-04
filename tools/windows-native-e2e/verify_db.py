@@ -23,6 +23,7 @@ MIGRACIONES_ESPERADAS = {
     "sales checkout",
     "purchasing",
     "expenses waste",
+    "sale returns",
 }
 
 

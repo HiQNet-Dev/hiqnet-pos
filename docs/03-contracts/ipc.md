@@ -210,6 +210,63 @@ solo al rol `owner`. La organización y sucursal se derivan del `Actor`.
 - `idempotency_key` repetida con el mismo contenido recupera el hecho persistido;
   contenido distinto devuelve `conflict`.
 
+## Devoluciones de venta
+
+Requieren `sales.return` (inicialmente solo `owner`). La venta original nunca se
+modifica; el estado efectivo se deriva de las devoluciones asociadas.
+
+| Comando | Entrada | Efecto |
+| --- | --- | --- |
+| `find_sale_for_return` | `{ "folio": "V-..." }` | Venta de la sucursal con cantidades devueltas y devolvibles |
+| `preview_sale_return` | `{ "draft": { "sale_id", "lines": [{ "sale_item_id", "quantity", "disposition" }] } }` | Importe exacto del reembolso, sin escribir |
+| `create_sale_return` | `{ "draft": { "sale_id", "shift_id", "reason", "idempotency_key", "lines" } }` | Devolución, salida de caja y restitución en una transacción |
+| `list_sale_returns` | ninguna | Últimas 50 devoluciones de la sucursal |
+
+Reglas vigentes:
+
+- El reembolso se calcula desde los snapshots de la venta con una distribución
+  **acumulativa** (`unit_price`/`unit_tax` por la cantidad total devuelta, redondeo
+  half-up igual que la venta, menos lo ya reembolsado), de modo que la suma de
+  devoluciones parciales nunca excede la línea y una devolución completa cuadra al
+  centavo. El preview usa exactamente el mismo cálculo que la transacción.
+- Si el incremento es de **cero centavos** se permite la devolución y la restitución
+  física, sin crear un movimiento de caja y sin exigir turno abierto.
+- El efectivo sale de un turno **abierto** de la sucursal; puede ser distinto del
+  turno histórico de la venta. El turno original no se altera.
+- Se exige saldo esperado suficiente; si no hay turno abierto o saldo, se rechaza
+  toda la operación sin tocar inventario ni venta.
+- `disposition: "restock"` crea un `inbound` vinculado; `"discard"` no mueve
+  existencias y conserva el motivo.
+- La cantidad devuelta acumulada por partida está protegida por un trigger de
+  SQLite además de la validación en Rust.
+- `idempotency_key` repetida con el mismo contenido devuelve la devolución ya
+  confirmada; con contenido distinto devuelve `conflict`.
+- Se audita como `sales.returned`.
+
+## Reportes
+
+`reports_summary` requiere `reports.view`. Entrada:
+
+```json
+{ "query": { "from": "2026-11-01T00:00:00Z", "to": "2026-11-08T00:00:00Z" } }
+```
+
+- El intervalo es semiabierto `[from, to)` y se interpreta en UTC.
+- `net_total` y `difference` son métricas **firmadas** del período: pueden ser
+  negativas (por ejemplo, un día sin ventas con una devolución de otro día o un
+  faltante de arqueo). `Money` sigue siendo no negativo para cobros y reembolsos.
+- El neto es una métrica del período (ventas del rango − devoluciones del rango),
+  no un cálculo por cohorte de ventas originales.
+- Devuelve agregados exactos en unidades menores para ventas (brutas, devueltas y
+  netas), caja (turnos, entradas, salidas, gastos desde caja, reembolsos y
+  diferencias), compras (órdenes, pendientes, cantidad y costo recibidos), gastos
+  (total, desde caja, externo y por categoría) e inventario (existencias actuales,
+  entradas, salidas, merma y ajustes).
+- Las ventas y las entradas de caja se informan por separado; una orden de compra
+  no cuenta como dinero pagado.
+- No se informa utilidad, margen ni costo de ventas: no existe política de costeo
+  aprobada.
+
 ## Caja y turnos
 
 Comandos: `create_cash_register`, `list_cash_registers`, `open_cash_shift`,

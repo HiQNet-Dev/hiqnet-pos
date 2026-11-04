@@ -5,11 +5,22 @@ import {
   CatalogIcon,
   CashIcon,
   InventoryIcon,
+  ReportsIcon,
+  ReturnIcon,
   ShieldIcon,
   type IconProps,
 } from "./icons";
 
-export type SectionId = "sales" | "catalog" | "inventory" | "purchasing" | "expenses" | "cash" | "admin";
+export type SectionId =
+  | "sales"
+  | "returns"
+  | "catalog"
+  | "inventory"
+  | "purchasing"
+  | "expenses"
+  | "cash"
+  | "reports"
+  | "admin";
 
 export interface SectionDefinition {
   id: SectionId;
@@ -74,6 +85,15 @@ export const SECTIONS: SectionDefinition[] = [
     Icon: CashIcon,
   },
   {
+    id: "returns",
+    label: "Devoluciones",
+    shortLabel: "Devol.",
+    title: "Devoluciones de venta",
+    description: "Reembolsos desde caja y restitución de inventario.",
+    permissions: ["sales.return"],
+    Icon: ReturnIcon,
+  },
+  {
     id: "cash",
     label: "Cajas y turnos",
     shortLabel: "Caja",
@@ -90,6 +110,15 @@ export const SECTIONS: SectionDefinition[] = [
     description: "Licencia, respaldos y eventos del sistema.",
     permissions: ["audit.view", "backups.manage"],
     Icon: ShieldIcon,
+  },
+  {
+    id: "reports",
+    label: "Reportes",
+    shortLabel: "Reportes",
+    title: "Reportes operativos",
+    description: "Ventas, caja, compras, gastos e inventario por período.",
+    permissions: ["reports.view"],
+    Icon: ReportsIcon,
   },
 ];
 

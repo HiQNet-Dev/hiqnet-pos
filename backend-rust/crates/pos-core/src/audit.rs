@@ -35,6 +35,7 @@ pub enum AuditAction {
     ExpenseCategoryCreated,
     ExpenseRecorded,
     WasteRecorded,
+    SaleReturned,
 }
 
 impl AuditAction {
@@ -68,6 +69,7 @@ impl AuditAction {
             "expenses.category_created" => Some(AuditAction::ExpenseCategoryCreated),
             "expenses.recorded" => Some(AuditAction::ExpenseRecorded),
             "waste.recorded" => Some(AuditAction::WasteRecorded),
+            "sales.returned" => Some(AuditAction::SaleReturned),
             _ => None,
         }
     }
@@ -102,6 +104,7 @@ impl AuditAction {
             AuditAction::ExpenseCategoryCreated => "expenses.category_created",
             AuditAction::ExpenseRecorded => "expenses.recorded",
             AuditAction::WasteRecorded => "waste.recorded",
+            AuditAction::SaleReturned => "sales.returned",
         }
     }
 }

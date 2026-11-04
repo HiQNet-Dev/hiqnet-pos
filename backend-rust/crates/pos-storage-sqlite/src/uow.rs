@@ -1,5 +1,9 @@
 use async_trait::async_trait;
-use pos_application::{AppError, AppResult, InstallationState, Store, StoreTx};
+use pos_application::{
+    AppError, AppResult, CashReportTotals, ExpenseCategoryReportRow, ExpensesReportTotals,
+    InstallationState, InventoryReportTotals, ProductSalesReportRow, PurchasesReportTotals,
+    ReturnedTotals, ReturnsReportTotals, SalesReportTotals, Store, StoreTx,
+};
 use pos_core::audit::{AuditAction, AuditEvent};
 use pos_core::cash::{CashMovement, CashRegister, CashShift, CashShiftStatus};
 use pos_core::catalog::{Category, Product, ProductVariant};
@@ -7,7 +11,8 @@ use pos_core::expenses::{Expense, ExpenseCategory, WasteRecord};
 use pos_core::identity::{Role, User};
 use pos_core::ids::{
     AuditEventId, BranchId, CategoryId, ExpenseCategoryId, ExpenseId, OrganizationId, ProductId,
-    PurchaseOrderId, PurchaseOrderLineId, PurchaseReceiptId, SupplierId, UserId, WasteId,
+    PurchaseOrderId, PurchaseOrderLineId, PurchaseReceiptId, SaleReturnId, SaleReturnLineId,
+    SupplierId, UserId, WasteId,
 };
 use pos_core::inventory::InventoryMovement;
 use pos_core::inventory::MovementKind;
@@ -18,6 +23,7 @@ use pos_core::purchasing::{
     PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus, PurchaseReceipt, Supplier,
 };
 use pos_core::quantity::Quantity;
+use pos_core::returns::{ReturnDisposition, SaleReturn, SaleReturnLine};
 use pos_core::sales::{Sale, SaleItem, SalePayment, SaleStatus};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
 use std::str::FromStr;
@@ -763,6 +769,437 @@ impl StoreTx for SqliteTx {
         let rows = sqlx::query("SELECT id, organization_id, branch_id, product_id, quantity_milli, reason, inventory_movement_id, idempotency_key, request_fingerprint, created_by, occurred_at FROM waste_record WHERE organization_id = ? AND branch_id = ? ORDER BY occurred_at DESC")
             .bind(organization_id.to_string()).bind(branch_id.to_string()).fetch_all(&mut **self.tx()?).await.map_err(map_sqlx)?;
         rows.into_iter().map(waste_from_row).collect()
+    }
+
+    async fn find_sale_by_folio(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        folio: &str,
+    ) -> AppResult<Option<Sale>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, branch_id, register_id, shift_id, operator_id, folio, occurred_at, status, subtotal_minor, tax_minor, total_minor, idempotency_key, request_fingerprint FROM sale WHERE organization_id = ? AND branch_id = ? AND folio = ?",
+        )
+        .bind(organization_id.to_string())
+        .bind(branch_id.to_string())
+        .bind(folio.trim())
+        .fetch_optional(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        row.map(|row| sale_from_row(&row)).transpose()
+    }
+
+    async fn returned_totals(
+        &mut self,
+        organization_id: OrganizationId,
+        sale_item_id: pos_core::ids::SaleItemId,
+    ) -> AppResult<ReturnedTotals> {
+        let row = sqlx::query(
+            "SELECT COALESCE(SUM(line.quantity_milli), 0) AS quantity, COALESCE(SUM(line.refund_net_minor), 0) AS net, COALESCE(SUM(line.refund_tax_minor), 0) AS tax FROM sale_return_line line JOIN sale_return ret ON ret.id = line.return_id WHERE ret.organization_id = ? AND line.sale_item_id = ?",
+        )
+        .bind(organization_id.to_string())
+        .bind(sale_item_id.to_string())
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(ReturnedTotals {
+            quantity_milli: row.get("quantity"),
+            net_minor: row.get("net"),
+            tax_minor: row.get("tax"),
+        })
+    }
+
+    async fn insert_sale_return(&mut self, value: &SaleReturn) -> AppResult<bool> {
+        let result = sqlx::query(
+            "INSERT INTO sale_return (id, organization_id, branch_id, sale_id, shift_id, cash_movement_id, operator_id, reason, refund_total_minor, idempotency_key, request_fingerprint, occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (organization_id, idempotency_key) DO NOTHING",
+        )
+        .bind(value.id.to_string())
+        .bind(value.organization_id.to_string())
+        .bind(value.branch_id.to_string())
+        .bind(value.sale_id.to_string())
+        .bind(value.shift_id.map(|id| id.to_string()))
+        .bind(value.cash_movement_id.map(|id| id.to_string()))
+        .bind(value.operator_id.to_string())
+        .bind(&value.reason)
+        .bind(value.refund_total.minor_units())
+        .bind(&value.idempotency_key)
+        .bind(&value.request_fingerprint)
+        .bind(format_ts(value.occurred_at))
+        .execute(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    async fn insert_sale_return_line(&mut self, line: &SaleReturnLine) -> AppResult<()> {
+        sqlx::query(
+            "INSERT INTO sale_return_line (id, return_id, sale_item_id, quantity_milli, disposition, refund_net_minor, refund_tax_minor, refund_total_minor, inbound_movement_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(line.id.to_string())
+        .bind(line.return_id.to_string())
+        .bind(line.sale_item_id.to_string())
+        .bind(line.quantity.milli_units())
+        .bind(line.disposition.as_str())
+        .bind(line.refund_net.minor_units())
+        .bind(line.refund_tax.minor_units())
+        .bind(line.refund_total.minor_units())
+        .bind(line.inbound_movement_id.map(|id| id.to_string()))
+        .execute(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn find_sale_return_by_idempotency(
+        &mut self,
+        organization_id: OrganizationId,
+        idempotency_key: &str,
+    ) -> AppResult<Option<SaleReturn>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, branch_id, sale_id, shift_id, cash_movement_id, operator_id, reason, refund_total_minor, idempotency_key, request_fingerprint, occurred_at FROM sale_return WHERE organization_id = ? AND idempotency_key = ?",
+        )
+        .bind(organization_id.to_string())
+        .bind(idempotency_key)
+        .fetch_optional(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        row.map(sale_return_from_row).transpose()
+    }
+
+    async fn list_sale_return_lines(
+        &mut self,
+        organization_id: OrganizationId,
+        return_id: SaleReturnId,
+    ) -> AppResult<Vec<SaleReturnLine>> {
+        let rows = sqlx::query(
+            "SELECT line.id, line.return_id, line.sale_item_id, line.quantity_milli, line.disposition, line.refund_net_minor, line.refund_tax_minor, line.refund_total_minor, line.inbound_movement_id FROM sale_return_line line JOIN sale_return ret ON ret.id = line.return_id WHERE ret.organization_id = ? AND line.return_id = ? ORDER BY line.sale_item_id",
+        )
+        .bind(organization_id.to_string())
+        .bind(return_id.to_string())
+        .fetch_all(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        rows.into_iter().map(sale_return_line_from_row).collect()
+    }
+
+    async fn list_sale_returns(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        limit: i64,
+    ) -> AppResult<Vec<SaleReturn>> {
+        let rows = sqlx::query(
+            "SELECT id, organization_id, branch_id, sale_id, shift_id, cash_movement_id, operator_id, reason, refund_total_minor, idempotency_key, request_fingerprint, occurred_at FROM sale_return WHERE organization_id = ? AND branch_id = ? ORDER BY occurred_at DESC LIMIT ?",
+        )
+        .bind(organization_id.to_string())
+        .bind(branch_id.to_string())
+        .bind(limit)
+        .fetch_all(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        rows.into_iter().map(sale_return_from_row).collect()
+    }
+
+    async fn sales_report_totals(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> AppResult<SalesReportTotals> {
+        let row = sqlx::query(
+            "SELECT COUNT(*) AS count, COALESCE(SUM(subtotal_minor), 0) AS subtotal, COALESCE(SUM(tax_minor), 0) AS tax, COALESCE(SUM(total_minor), 0) AS total FROM sale WHERE organization_id = ? AND branch_id = ? AND julianday(occurred_at) >= julianday(?) AND julianday(occurred_at) < julianday(?)",
+        )
+        .bind(organization_id.to_string())
+        .bind(branch_id.to_string())
+        .bind(format_ts(from))
+        .bind(format_ts(to))
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(SalesReportTotals {
+            count: row.get("count"),
+            subtotal_minor: row.get("subtotal"),
+            tax_minor: row.get("tax"),
+            total_minor: row.get("total"),
+        })
+    }
+
+    async fn sales_report_by_product(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> AppResult<Vec<ProductSalesReportRow>> {
+        let rows = sqlx::query(
+            "SELECT item.product_id AS product_id, item.product_name AS product_name, SUM(item.quantity_milli) AS quantity, SUM((item.unit_price_minor * item.quantity_milli + 500) / 1000) AS net, SUM((item.unit_tax_minor * item.quantity_milli + 500) / 1000) AS tax, SUM(item.line_total_minor) AS total FROM sale_item item JOIN sale ON sale.id = item.sale_id WHERE sale.organization_id = ? AND sale.branch_id = ? AND julianday(sale.occurred_at) >= julianday(?) AND julianday(sale.occurred_at) < julianday(?) GROUP BY item.product_id, item.product_name ORDER BY net DESC",
+        )
+        .bind(organization_id.to_string())
+        .bind(branch_id.to_string())
+        .bind(format_ts(from))
+        .bind(format_ts(to))
+        .fetch_all(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(ProductSalesReportRow {
+                    product_id: parse_id(row.get("product_id"))?,
+                    product_name: row.get("product_name"),
+                    quantity_milli: row.get("quantity"),
+                    net_minor: row.get("net"),
+                    tax_minor: row.get("tax"),
+                    total_minor: row.get("total"),
+                })
+            })
+            .collect()
+    }
+
+    async fn returns_report_totals(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> AppResult<ReturnsReportTotals> {
+        let row = sqlx::query(
+            "SELECT COUNT(*) AS count, COALESCE(SUM(refund_total_minor), 0) AS total FROM sale_return WHERE organization_id = ? AND branch_id = ? AND julianday(occurred_at) >= julianday(?) AND julianday(occurred_at) < julianday(?)",
+        )
+        .bind(organization_id.to_string())
+        .bind(branch_id.to_string())
+        .bind(format_ts(from))
+        .bind(format_ts(to))
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(ReturnsReportTotals {
+            count: row.get("count"),
+            total_minor: row.get("total"),
+        })
+    }
+
+    async fn cash_report_totals(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> AppResult<CashReportTotals> {
+        let from = format_ts(from);
+        let to = format_ts(to);
+        let organization = organization_id.to_string();
+        let branch = branch_id.to_string();
+        let opened: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM cash_shift WHERE organization_id = ? AND branch_id = ? AND julianday(opened_at) >= julianday(?) AND julianday(opened_at) < julianday(?)",
+        )
+        .bind(&organization)
+        .bind(&branch)
+        .bind(&from)
+        .bind(&to)
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        let closed_row = sqlx::query(
+            "SELECT COUNT(*) AS count, COALESCE(SUM(difference_minor), 0) AS difference FROM cash_shift WHERE organization_id = ? AND branch_id = ? AND closed_at IS NOT NULL AND julianday(closed_at) >= julianday(?) AND julianday(closed_at) < julianday(?)",
+        )
+        .bind(&organization)
+        .bind(&branch)
+        .bind(&from)
+        .bind(&to)
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        let entries: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(amount_minor), 0) FROM cash_movement WHERE organization_id = ? AND branch_id = ? AND kind = 'in' AND julianday(occurred_at) >= julianday(?) AND julianday(occurred_at) < julianday(?)",
+        )
+        .bind(&organization)
+        .bind(&branch)
+        .bind(&from)
+        .bind(&to)
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        let exits: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(amount_minor), 0) FROM cash_movement WHERE organization_id = ? AND branch_id = ? AND kind = 'out' AND julianday(occurred_at) >= julianday(?) AND julianday(occurred_at) < julianday(?)",
+        )
+        .bind(&organization)
+        .bind(&branch)
+        .bind(&from)
+        .bind(&to)
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        let expenses_from_cash: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(amount_minor), 0) FROM expense WHERE organization_id = ? AND branch_id = ? AND cash_movement_id IS NOT NULL AND julianday(occurred_at) >= julianday(?) AND julianday(occurred_at) < julianday(?)",
+        )
+        .bind(&organization)
+        .bind(&branch)
+        .bind(&from)
+        .bind(&to)
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        let refunds: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(refund_total_minor), 0) FROM sale_return WHERE organization_id = ? AND branch_id = ? AND julianday(occurred_at) >= julianday(?) AND julianday(occurred_at) < julianday(?)",
+        )
+        .bind(&organization)
+        .bind(&branch)
+        .bind(&from)
+        .bind(&to)
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(CashReportTotals {
+            shifts_opened: opened,
+            shifts_closed: closed_row.get("count"),
+            entries_minor: entries,
+            exits_minor: exits,
+            expenses_from_cash_minor: expenses_from_cash,
+            refunds_minor: refunds,
+            difference_minor: closed_row.get("difference"),
+        })
+    }
+
+    async fn purchases_report_totals(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> AppResult<PurchasesReportTotals> {
+        let from = format_ts(from);
+        let to = format_ts(to);
+        let organization = organization_id.to_string();
+        let branch = branch_id.to_string();
+        let created: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM purchase_order WHERE organization_id = ? AND branch_id = ? AND julianday(created_at) >= julianday(?) AND julianday(created_at) < julianday(?)",
+        )
+        .bind(&organization)
+        .bind(&branch)
+        .bind(&from)
+        .bind(&to)
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        let pending: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM purchase_order WHERE organization_id = ? AND branch_id = ? AND status IN ('ordered', 'partially_received')",
+        )
+        .bind(&organization)
+        .bind(&branch)
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        let row = sqlx::query(
+            "SELECT COALESCE(SUM(line.quantity_milli), 0) AS quantity, COALESCE(SUM((order_line.unit_cost_minor * line.quantity_milli + 500) / 1000), 0) AS cost FROM purchase_receipt_line line JOIN purchase_receipt receipt ON receipt.id = line.receipt_id JOIN purchase_order_line order_line ON order_line.id = line.order_line_id WHERE receipt.organization_id = ? AND receipt.branch_id = ? AND julianday(receipt.received_at) >= julianday(?) AND julianday(receipt.received_at) < julianday(?)",
+        )
+        .bind(&organization)
+        .bind(&branch)
+        .bind(&from)
+        .bind(&to)
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(PurchasesReportTotals {
+            orders_created: created,
+            pending_orders: pending,
+            received_quantity_milli: row.get("quantity"),
+            received_cost_minor: row.get("cost"),
+        })
+    }
+
+    async fn expenses_report_totals(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> AppResult<ExpensesReportTotals> {
+        let from = format_ts(from);
+        let to = format_ts(to);
+        let organization = organization_id.to_string();
+        let branch = branch_id.to_string();
+        let row = sqlx::query(
+            "SELECT COALESCE(SUM(amount_minor), 0) AS total, COALESCE(SUM(CASE WHEN cash_movement_id IS NOT NULL THEN amount_minor ELSE 0 END), 0) AS from_cash, COALESCE(SUM(CASE WHEN cash_movement_id IS NULL THEN amount_minor ELSE 0 END), 0) AS external FROM expense WHERE organization_id = ? AND branch_id = ? AND julianday(occurred_at) >= julianday(?) AND julianday(occurred_at) < julianday(?)",
+        )
+        .bind(&organization)
+        .bind(&branch)
+        .bind(&from)
+        .bind(&to)
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        let rows = sqlx::query(
+            "SELECT category.name AS name, COALESCE(SUM(expense.amount_minor), 0) AS total FROM expense JOIN expense_category category ON category.id = expense.category_id WHERE expense.organization_id = ? AND expense.branch_id = ? AND julianday(expense.occurred_at) >= julianday(?) AND julianday(expense.occurred_at) < julianday(?) GROUP BY category.id, category.name ORDER BY total DESC",
+        )
+        .bind(&organization)
+        .bind(&branch)
+        .bind(&from)
+        .bind(&to)
+        .fetch_all(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(ExpensesReportTotals {
+            total_minor: row.get("total"),
+            from_cash_minor: row.get("from_cash"),
+            external_minor: row.get("external"),
+            by_category: rows
+                .into_iter()
+                .map(|row| ExpenseCategoryReportRow {
+                    name: row.get("name"),
+                    total_minor: row.get("total"),
+                })
+                .collect(),
+        })
+    }
+
+    async fn inventory_report_totals(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> AppResult<InventoryReportTotals> {
+        let from = format_ts(from);
+        let to = format_ts(to);
+        let organization = organization_id.to_string();
+        let branch = branch_id.to_string();
+        let stock: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(CASE WHEN kind IN ('inbound', 'adjustment_in') THEN quantity_milli ELSE -quantity_milli END), 0) FROM inventory_movement WHERE organization_id = ? AND branch_id = ?",
+        )
+        .bind(&organization)
+        .bind(&branch)
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        let row = sqlx::query(
+            "SELECT COALESCE(SUM(CASE WHEN kind = 'inbound' THEN quantity_milli ELSE 0 END), 0) AS inbound, COALESCE(SUM(CASE WHEN kind = 'outbound' THEN quantity_milli ELSE 0 END), 0) AS outbound, COALESCE(SUM(CASE WHEN kind = 'adjustment_in' THEN quantity_milli ELSE 0 END), 0) AS adjustment_in, COALESCE(SUM(CASE WHEN kind = 'adjustment_out' AND COALESCE(reason, '') NOT LIKE 'merma:%' THEN quantity_milli ELSE 0 END), 0) AS adjustment_out FROM inventory_movement WHERE organization_id = ? AND branch_id = ? AND julianday(occurred_at) >= julianday(?) AND julianday(occurred_at) < julianday(?)",
+        )
+        .bind(&organization)
+        .bind(&branch)
+        .bind(&from)
+        .bind(&to)
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        let waste: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(quantity_milli), 0) FROM waste_record WHERE organization_id = ? AND branch_id = ? AND julianday(occurred_at) >= julianday(?) AND julianday(occurred_at) < julianday(?)",
+        )
+        .bind(&organization)
+        .bind(&branch)
+        .bind(&from)
+        .bind(&to)
+        .fetch_one(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(InventoryReportTotals {
+            stock_quantity_milli: stock,
+            inbound_milli: row.get("inbound"),
+            outbound_milli: row.get("outbound"),
+            waste_milli: waste,
+            adjustment_in_milli: row.get("adjustment_in"),
+            adjustment_out_milli: row.get("adjustment_out"),
+        })
     }
 
     async fn insert_inventory_movement(&mut self, movement: &InventoryMovement) -> AppResult<()> {
@@ -1693,6 +2130,42 @@ fn waste_from_row(row: sqlx::sqlite::SqliteRow) -> AppResult<WasteRecord> {
         request_fingerprint: row.get("request_fingerprint"),
         created_by: parse_id(row.get("created_by"))?,
         occurred_at: parse_ts(row.get("occurred_at"))?,
+    })
+}
+
+fn sale_return_from_row(row: sqlx::sqlite::SqliteRow) -> AppResult<SaleReturn> {
+    Ok(SaleReturn {
+        id: parse_id::<SaleReturnId>(row.get("id"))?,
+        organization_id: parse_id(row.get("organization_id"))?,
+        branch_id: parse_id(row.get("branch_id"))?,
+        sale_id: parse_id(row.get("sale_id"))?,
+        shift_id: parse_optional_id(row.get("shift_id"))?,
+        cash_movement_id: parse_optional_id(row.get("cash_movement_id"))?,
+        operator_id: parse_id(row.get("operator_id"))?,
+        reason: row.get("reason"),
+        refund_total: Money::from_minor_units(row.get("refund_total_minor"))
+            .map_err(AppError::Domain)?,
+        idempotency_key: row.get("idempotency_key"),
+        request_fingerprint: row.get("request_fingerprint"),
+        occurred_at: parse_ts(row.get("occurred_at"))?,
+    })
+}
+
+fn sale_return_line_from_row(row: sqlx::sqlite::SqliteRow) -> AppResult<SaleReturnLine> {
+    Ok(SaleReturnLine {
+        id: parse_id::<SaleReturnLineId>(row.get("id"))?,
+        return_id: parse_id(row.get("return_id"))?,
+        sale_item_id: parse_id(row.get("sale_item_id"))?,
+        quantity: Quantity::from_milli_units(row.get("quantity_milli"))?,
+        disposition: ReturnDisposition::from_key(&row.get::<String, _>("disposition"))
+            .ok_or(AppError::Storage)?,
+        refund_net: Money::from_minor_units(row.get("refund_net_minor"))
+            .map_err(AppError::Domain)?,
+        refund_tax: Money::from_minor_units(row.get("refund_tax_minor"))
+            .map_err(AppError::Domain)?,
+        refund_total: Money::from_minor_units(row.get("refund_total_minor"))
+            .map_err(AppError::Domain)?,
+        inbound_movement_id: parse_optional_id(row.get("inbound_movement_id"))?,
     })
 }
 

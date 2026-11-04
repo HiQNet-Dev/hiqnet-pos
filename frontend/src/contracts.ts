@@ -164,6 +164,148 @@ export type ExpenseDraft = z.infer<typeof expenseDraftSchema>;
 export type Waste = z.infer<typeof wasteSchema>;
 export type WasteDraft = z.infer<typeof wasteDraftSchema>;
 
+export const saleReturnDispositionSchema = z.enum(["restock", "discard"]);
+
+export const saleReturnLineViewSchema = z.object({
+  sale_item_id: z.string(),
+  product_name: z.string(),
+  quantity: z.string(),
+  disposition: saleReturnDispositionSchema,
+  refund_net: z.string(),
+  refund_tax: z.string(),
+  refund_total: z.string(),
+});
+
+export const saleReturnSchema = z.object({
+  id: z.string(),
+  sale_id: z.string(),
+  sale_folio: z.string(),
+  reason: z.string(),
+  refund_total: z.string(),
+  occurred_at: z.string(),
+  lines: z.array(saleReturnLineViewSchema),
+});
+
+export const returnableSaleItemSchema = z.object({
+  id: z.string(),
+  product_name: z.string(),
+  variant_name: z.string().nullable(),
+  modifiers_summary: z.string(),
+  quantity: z.string(),
+  returned_quantity: z.string(),
+  returnable_quantity: z.string(),
+  unit_refund: z.string(),
+});
+
+export const returnableSaleSchema = z.object({
+  id: z.string(),
+  folio: z.string(),
+  occurred_at: z.string(),
+  total: z.string(),
+  items: z.array(returnableSaleItemSchema),
+});
+
+export const saleReturnLineDraftSchema = z.object({
+  sale_item_id: z.string().min(1, "Selecciona una partida"),
+  quantity: z.string().regex(/^\d+(\.\d{1,3})?$/, "Usa una cantidad con hasta 3 decimales"),
+  disposition: saleReturnDispositionSchema,
+});
+
+export const saleReturnDraftSchema = z.object({
+  sale_id: z.string().min(1),
+  shift_id: z.string().optional(),
+  reason: z.string().min(1, "Indica el motivo de la devolución"),
+  idempotency_key: z.string().min(1),
+  lines: z.array(saleReturnLineDraftSchema).min(1, "Selecciona al menos una partida"),
+});
+
+export const saleReturnPreviewDraftSchema = z.object({
+  sale_id: z.string().min(1),
+  lines: z.array(saleReturnLineDraftSchema).min(1, "Selecciona al menos una partida"),
+});
+
+export const saleReturnPreviewSchema = z.object({
+  refund_total: z.string(),
+  lines: z.array(
+    z.object({
+      sale_item_id: z.string(),
+      quantity: z.string(),
+      refund_total: z.string(),
+    }),
+  ),
+});
+
+export type SaleReturnDisposition = z.infer<typeof saleReturnDispositionSchema>;
+export type SaleReturnLineView = z.infer<typeof saleReturnLineViewSchema>;
+export type SaleReturn = z.infer<typeof saleReturnSchema>;
+export type ReturnableSaleItem = z.infer<typeof returnableSaleItemSchema>;
+export type ReturnableSale = z.infer<typeof returnableSaleSchema>;
+export type SaleReturnLineDraft = z.infer<typeof saleReturnLineDraftSchema>;
+export type SaleReturnDraft = z.infer<typeof saleReturnDraftSchema>;
+export type SaleReturnPreviewDraft = z.infer<typeof saleReturnPreviewDraftSchema>;
+export type SaleReturnPreview = z.infer<typeof saleReturnPreviewSchema>;
+
+export const reportsQuerySchema = z.object({
+  from: z.string().min(1, "Indica la fecha inicial"),
+  to: z.string().min(1, "Indica la fecha final"),
+});
+
+export const reportsViewSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  sales: z.object({
+    count: z.number().int(),
+    subtotal: z.string(),
+    tax: z.string(),
+    total: z.string(),
+    returned_count: z.number().int(),
+    returned_total: z.string(),
+    net_total: z.string(),
+    products: z.array(
+      z.object({
+        product_id: z.string(),
+        product_name: z.string(),
+        quantity: z.string(),
+        net: z.string(),
+        tax: z.string(),
+        total: z.string(),
+      }),
+    ),
+  }),
+  cash: z.object({
+    shifts_opened: z.number().int(),
+    shifts_closed: z.number().int(),
+    entries: z.string(),
+    exits: z.string(),
+    expenses_from_cash: z.string(),
+    refunds: z.string(),
+    difference: z.string(),
+  }),
+  purchases: z.object({
+    orders_created: z.number().int(),
+    pending_orders: z.number().int(),
+    received_quantity: z.string(),
+    received_cost: z.string(),
+  }),
+  expenses: z.object({
+    total: z.string(),
+    from_cash: z.string(),
+    external: z.string(),
+    categories: z.array(z.object({ name: z.string(), total: z.string() })),
+  }),
+  inventory: z.object({
+    stock_quantity: z.string(),
+    inbound: z.string(),
+    outbound: z.string(),
+    waste: z.string(),
+    adjustment_in: z.string(),
+    adjustment_out: z.string(),
+  }),
+});
+
+export type ReportsQuery = z.infer<typeof reportsQuerySchema>;
+export type ReportsView = z.infer<typeof reportsViewSchema>;
+
 export const cashRegisterDraftSchema = z.object({
   name: z.string().min(1, "Escribe el nombre de la caja"),
   code: z.string().min(2).max(16),

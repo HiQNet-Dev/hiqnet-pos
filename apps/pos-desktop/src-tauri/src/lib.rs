@@ -15,9 +15,10 @@ use pos_application::{
     LoginRequest, ModifierConfigurationDraft, ModifierConfigurationView, ModifierGroupDraft,
     ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PosService, ProductDraft,
     ProductVariantDraft, ProductVariantView, ProductView, PurchaseOrderDraft, PurchaseOrderView,
-    PurchaseReceiptDraft, ResetUserPasswordDraft, SaleView, SetUserActiveDraft, SharedClock,
-    SharedHasher, SharedStore, StockLevelView, SupplierDraft, SupplierView, SystemClock, UserDraft,
-    UserView, WasteDraft, WasteView,
+    PurchaseReceiptDraft, ReportsQuery, ReportsView, ResetUserPasswordDraft, ReturnableSaleView,
+    SaleReturnDraft, SaleReturnPreviewDraft, SaleReturnPreviewView, SaleReturnView, SaleView,
+    SetUserActiveDraft, SharedClock, SharedHasher, SharedStore, StockLevelView, SupplierDraft,
+    SupplierView, SystemClock, UserDraft, UserView, WasteDraft, WasteView,
 };
 use pos_core::identity::{Actor, Permission};
 use pos_core::ids::{BranchId, ProductId, PurchaseOrderId};
@@ -274,6 +275,48 @@ async fn configure_product(
 async fn checkout_sale(state: State<'_, AppState>, draft: CheckoutDraft) -> IpcResult<SaleView> {
     let actor = authenticated(&state).await?;
     Ok(state.service.checkout_sale(&actor, draft).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn find_sale_for_return(
+    state: State<'_, AppState>,
+    folio: String,
+) -> IpcResult<ReturnableSaleView> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.find_sale_for_return(&actor, folio).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn preview_sale_return(
+    state: State<'_, AppState>,
+    draft: SaleReturnPreviewDraft,
+) -> IpcResult<SaleReturnPreviewView> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.preview_sale_return(&actor, draft).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn create_sale_return(
+    state: State<'_, AppState>,
+    draft: SaleReturnDraft,
+) -> IpcResult<SaleReturnView> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.create_sale_return(&actor, draft).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn list_sale_returns(state: State<'_, AppState>) -> IpcResult<Vec<SaleReturnView>> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.list_sale_returns(&actor).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn reports_summary(
+    state: State<'_, AppState>,
+    query: ReportsQuery,
+) -> IpcResult<ReportsView> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.reports_summary(&actor, query).await?)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -638,6 +681,11 @@ pub fn run() {
             current_session,
             checkout_sale,
             get_sale,
+            find_sale_for_return,
+            preview_sale_return,
+            create_sale_return,
+            list_sale_returns,
+            reports_summary,
             branch_summary,
             create_user,
             list_users,

@@ -13,9 +13,88 @@ use pos_core::modifiers::{ModifierGroup, ModifierOption};
 use pos_core::money::Money;
 use pos_core::organization::{Branch, Organization};
 use pos_core::purchasing::{PurchaseOrder, PurchaseOrderLine, PurchaseReceipt, Supplier};
+use pos_core::returns::{SaleReturn, SaleReturnLine};
 use pos_core::sales::{Sale, SaleItem, SalePayment};
 use serde::Serialize;
 use time::OffsetDateTime;
+
+/// Agregados de reportes calculados en SQLite con unidades menores exactas.
+/// La aplicación solo los presenta; no reimplementa las sumas.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SalesReportTotals {
+    pub count: i64,
+    pub subtotal_minor: i64,
+    pub tax_minor: i64,
+    pub total_minor: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProductSalesReportRow {
+    pub product_id: ProductId,
+    pub product_name: String,
+    pub quantity_milli: i64,
+    pub net_minor: i64,
+    pub tax_minor: i64,
+    pub total_minor: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReturnsReportTotals {
+    pub count: i64,
+    pub total_minor: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CashReportTotals {
+    pub shifts_opened: i64,
+    pub shifts_closed: i64,
+    pub entries_minor: i64,
+    pub exits_minor: i64,
+    pub expenses_from_cash_minor: i64,
+    pub refunds_minor: i64,
+    pub difference_minor: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PurchasesReportTotals {
+    pub orders_created: i64,
+    pub pending_orders: i64,
+    pub received_quantity_milli: i64,
+    pub received_cost_minor: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpenseCategoryReportRow {
+    pub name: String,
+    pub total_minor: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExpensesReportTotals {
+    pub total_minor: i64,
+    pub from_cash_minor: i64,
+    pub external_minor: i64,
+    pub by_category: Vec<ExpenseCategoryReportRow>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InventoryReportTotals {
+    pub stock_quantity_milli: i64,
+    pub inbound_milli: i64,
+    pub outbound_milli: i64,
+    pub waste_milli: i64,
+    pub adjustment_in_milli: i64,
+    pub adjustment_out_milli: i64,
+}
+
+/// Acumulados ya devueltos de una partida, usados para distribuir el importe
+/// original sin sumar redondeos independientes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReturnedTotals {
+    pub quantity_milli: i64,
+    pub net_minor: i64,
+    pub tax_minor: i64,
+}
 
 /// Estado persistido de la instalación local y su licencia comercial.
 #[derive(Debug, Clone, Serialize)]
@@ -288,6 +367,88 @@ pub trait StoreTx: Send {
         organization_id: OrganizationId,
         branch_id: BranchId,
     ) -> AppResult<Vec<WasteRecord>>;
+
+    async fn find_sale_by_folio(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        folio: &str,
+    ) -> AppResult<Option<Sale>>;
+    /// Cantidad y montos ya devueltos de una partida, sumando sus devoluciones.
+    async fn returned_totals(
+        &mut self,
+        organization_id: OrganizationId,
+        sale_item_id: pos_core::ids::SaleItemId,
+    ) -> AppResult<ReturnedTotals>;
+    /// Inserta la cabecera; `false` indica que la clave ya existía y se debe recuperar.
+    async fn insert_sale_return(&mut self, value: &SaleReturn) -> AppResult<bool>;
+    async fn insert_sale_return_line(&mut self, line: &SaleReturnLine) -> AppResult<()>;
+    async fn find_sale_return_by_idempotency(
+        &mut self,
+        organization_id: OrganizationId,
+        idempotency_key: &str,
+    ) -> AppResult<Option<SaleReturn>>;
+    async fn list_sale_return_lines(
+        &mut self,
+        organization_id: OrganizationId,
+        return_id: pos_core::ids::SaleReturnId,
+    ) -> AppResult<Vec<SaleReturnLine>>;
+    async fn list_sale_returns(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        limit: i64,
+    ) -> AppResult<Vec<SaleReturn>>;
+
+    async fn sales_report_totals(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> AppResult<SalesReportTotals>;
+    async fn sales_report_by_product(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> AppResult<Vec<ProductSalesReportRow>>;
+    async fn returns_report_totals(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> AppResult<ReturnsReportTotals>;
+    async fn cash_report_totals(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> AppResult<CashReportTotals>;
+    async fn purchases_report_totals(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> AppResult<PurchasesReportTotals>;
+    async fn expenses_report_totals(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> AppResult<ExpensesReportTotals>;
+    async fn inventory_report_totals(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+        from: OffsetDateTime,
+        to: OffsetDateTime,
+    ) -> AppResult<InventoryReportTotals>;
 
     async fn insert_inventory_movement(&mut self, movement: &InventoryMovement) -> AppResult<()>;
     async fn current_stock(

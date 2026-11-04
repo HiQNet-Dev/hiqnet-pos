@@ -121,10 +121,10 @@ async fn actualiza_una_base_0003_sin_perder_datos() {
             .expect("contar migraciones nuevas")
             .get("total");
     assert_eq!(
-        aplicadas, 9,
-        "deben quedar las nueve migraciones registradas"
+        aplicadas, 10,
+        "deben quedar las diez migraciones registradas"
     );
-    assert_eq!(esperadas, 6, "0004–0009 deben aplicarse al actualizar");
+    assert_eq!(esperadas, 7, "0004–0010 deben aplicarse al actualizar");
 
     let producto: (String, i64) = {
         let row =
@@ -176,6 +176,8 @@ async fn actualiza_una_base_0003_sin_perder_datos() {
         "expense_category",
         "expense",
         "waste_record",
+        "sale_return",
+        "sale_return_line",
     ] {
         let existe: i64 = sqlx::query(
             "SELECT COUNT(*) AS total FROM sqlite_master WHERE type = 'table' AND name = ?",

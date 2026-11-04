@@ -16,6 +16,7 @@ import {
   pendingAttemptStorageKey,
   savePendingAttempt,
   type PendingExpenseAttempt,
+  type PendingReturnAttempt,
   type PendingWasteAttempt,
 } from "../lib/pendingAttempt";
 import { AdminScreen } from "../screens/AdminScreen";
@@ -25,6 +26,8 @@ import { InventoryScreen } from "../screens/InventoryScreen";
 import { ExpensesScreen } from "../screens/ExpensesScreen";
 import { PurchasingScreen, type PendingReceiptAttempt } from "../screens/PurchasingScreen";
 import { SalesScreen } from "../screens/SalesScreen";
+import { ReportsScreen } from "../screens/ReportsScreen";
+import { ReturnsScreen } from "../screens/ReturnsScreen";
 import { SideNav } from "./SideNav";
 import { TopBar } from "./TopBar";
 import { ChangePasswordDialog } from "./ChangePasswordDialog";
@@ -104,11 +107,15 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
   );
   const expenseAttemptKey = pendingAttemptStorageKey("expense", actor);
   const wasteAttemptKey = pendingAttemptStorageKey("waste", actor);
+  const returnAttemptKey = pendingAttemptStorageKey("return", actor);
   const [pendingExpense, setPendingExpense] = useState<PendingExpenseAttempt | null>(() =>
     loadPendingAttempt<PendingExpenseAttempt["payload"]>(expenseAttemptKey),
   );
   const [pendingWaste, setPendingWaste] = useState<PendingWasteAttempt | null>(() =>
     loadPendingAttempt<PendingWasteAttempt["payload"]>(wasteAttemptKey),
+  );
+  const [pendingReturn, setPendingReturn] = useState<PendingReturnAttempt | null>(() =>
+    loadPendingAttempt<PendingReturnAttempt["payload"]>(returnAttemptKey),
   );
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string } | null>(
@@ -136,6 +143,11 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
     setPendingWaste(attempt);
     savePendingAttempt(wasteAttemptKey, attempt);
   }, [wasteAttemptKey]);
+
+  const updatePendingReturn = useCallback((attempt: PendingReturnAttempt | null) => {
+    setPendingReturn(attempt);
+    savePendingAttempt(returnAttemptKey, attempt);
+  }, [returnAttemptKey]);
 
 
   const availableIds = useMemo(() => sections.map((item) => item.id), [sections]);
@@ -385,6 +397,21 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
                 pendingAttempt={pendingExpense}
                 onPendingAttemptChange={updatePendingExpense}
               />
+            )}
+
+            {activeSection === "returns" && (
+              <ReturnsScreen
+                actor={actor}
+                readOnly={readOnly}
+                shift={shift}
+                onCashChanged={refreshCash}
+                pendingAttempt={pendingReturn}
+                onPendingAttemptChange={updatePendingReturn}
+              />
+            )}
+
+            {activeSection === "reports" && (
+              <ReportsScreen actor={actor} readOnly={readOnly} />
             )}
 
             {activeSection === "cash" && (

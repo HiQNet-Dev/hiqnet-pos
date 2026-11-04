@@ -17,6 +17,7 @@ pub mod money;
 pub mod organization;
 pub mod purchasing;
 pub mod quantity;
+pub mod returns;
 pub mod sales;
 
 pub use error::{DomainError, DomainResult};

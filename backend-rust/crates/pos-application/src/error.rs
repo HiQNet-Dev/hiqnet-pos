@@ -17,6 +17,9 @@ pub enum AppError {
     #[error("el recurso ya existe y no puede duplicarse")]
     Conflict,
 
+    #[error("los datos enviados no son válidos para esta operación")]
+    InvalidRequest,
+
     #[error("no fue posible completar la operación de almacenamiento")]
     Storage,
 
@@ -39,6 +42,7 @@ impl AppError {
             AppError::Unauthenticated => "unauthenticated",
             AppError::NotFound => "not_found",
             AppError::Conflict => "conflict",
+            AppError::InvalidRequest => "validation_error",
             AppError::Storage => "storage_error",
             AppError::Crypto => "crypto_error",
         }

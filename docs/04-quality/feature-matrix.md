@@ -38,7 +38,8 @@ Estados: **VERIFICADO** (implementado y probado), **PARCIAL**, **PENDIENTE**,
 | Migración 0002 → 0003 | VERIFICADO | Prueba con datos sintéticos y triggers recreados |
 | Proveedores y compras | PARCIAL | G2.7: proveedor, orden en borrador/confirmada y recepción parcial/final idempotente que actualiza el ledger; sin pagos a proveedores ni costeo avanzado |
 | Gastos operativos y merma | PARCIAL | G2.8: gasto externo o pagado desde caja y merma idempotente con ledger; sin anulación compensatoria, cuentas por pagar ni valuación de merma |
-| Reportes | PENDIENTE | Fase G2 |
+| Reportes operativos | PARCIAL | G2.9: ventas brutas/devueltas/netas, caja, compras, gastos e inventario con intervalo semiabierto UTC y agregados SQLite; sin utilidad, margen ni costo de ventas |
+| Devoluciones de venta | PARCIAL | G2.9: devolución parcial/total en efectivo desde turno abierto, reembolso exacto por snapshots, reintegro opcional al ledger, idempotencia y auditoría; sin devoluciones bancarias ni reembolso sin turno |
 | Sincronización Pro | PENDIENTE | Fase G6; requiere ADR de autoridad |
 | Billing real | PENDIENTE | D-07 sin decidir |
 | Portal administrativo | PENDIENTE | HiQNet Platform |
