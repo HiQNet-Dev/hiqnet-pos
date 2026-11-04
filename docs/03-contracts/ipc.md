@@ -113,6 +113,15 @@ Entrada: `{ "draft": { "product_id": "...", "name": "Grande", "sku": "CAF-001-G"
 El SKU es opcional y único por organización. `list_product_variants` requiere
 `sales.sell` y recibe `{ "product_id": "..." }`.
 
+## Modificadores de catálogo
+
+Comandos: `create_modifier_group`, `list_modifier_groups`,
+`create_modifier_option`, `list_modifier_options` y `configure_product`.
+
+`configure_product` requiere `sales.sell`; calcula y devuelve una configuración
+validada con desglose autoritativo. Rechaza selecciones fuera de límites,
+opciones inactivas y grupos inexistentes.
+
 ## `current_stock`
 
 Requiere permiso `inventory.view`. Entrada: `{ "product_id": "...", "branch_id": "... (opcional)" }`.

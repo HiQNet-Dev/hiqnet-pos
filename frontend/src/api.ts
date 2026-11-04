@@ -10,6 +10,9 @@ import {
   ipcErrorSchema,
   inventoryMovementSchema,
   productSchema,
+  modifierConfigurationSchema,
+  modifierGroupSchema,
+  modifierOptionSchema,
   productVariantSchema,
   type Actor,
   type AppStatus,
@@ -24,6 +27,12 @@ import {
   type InventoryMovementDraft,
   type Category,
   type CategoryDraft,
+  type ModifierConfiguration,
+  type ModifierConfigurationDraft,
+  type ModifierGroup,
+  type ModifierGroupDraft,
+  type ModifierOption,
+  type ModifierOptionDraft,
   type ProductVariant,
   type ProductVariantDraft,
 } from "./contracts";
@@ -115,6 +124,29 @@ export const api = {
       { product_id: productId },
       productVariantSchema.array(),
     ),
+
+  createModifierGroup: (draft: ModifierGroupDraft) =>
+    call<ModifierGroup>("create_modifier_group", { draft }, modifierGroupSchema),
+
+  listModifierGroups: (productId: string) =>
+    call<ModifierGroup[]>(
+      "list_modifier_groups",
+      { product_id: productId },
+      modifierGroupSchema.array(),
+    ),
+
+  createModifierOption: (draft: ModifierOptionDraft) =>
+    call<ModifierOption>("create_modifier_option", { draft }, modifierOptionSchema),
+
+  listModifierOptions: (groupId: string) =>
+    call<ModifierOption[]>(
+      "list_modifier_options",
+      { group_id: groupId },
+      modifierOptionSchema.array(),
+    ),
+
+  configureProduct: (draft: ModifierConfigurationDraft) =>
+    call<ModifierConfiguration>("configure_product", { draft }, modifierConfigurationSchema),
 
   currentStock: (productId: string, branchId?: string) =>
     call<string>("current_stock", { product_id: productId, branch_id: branchId }, z.string()),

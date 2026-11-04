@@ -27,7 +27,7 @@ Estados: **VERIFICADO** (implementado y probado), **PARCIAL**, **PENDIENTE**,
 | Caja, turnos y arqueo | PENDIENTE | Fase G2 |
 | Categorías de catálogo | PARCIAL | Dominio, migración 0004, IPC, asignación a productos y UI; sin E2E Tauri |
 | Variantes de producto | PARCIAL | SKU por organización, precio exacto, selección en UI; sin inventario por variante |
-| Modificadores / extras | PROPUESTO | G2.2B, ADR-005 |
+| Modificadores / extras | PARCIAL | Motor implementado: grupos, opciones y cálculo; UI de configuración; sin persistencia de selección para venta |
 | Inventario y ledger | PARCIAL | Dominio, migraciones 0002/0003, IPC y UI base; faltan E2E Tauri |
 | Ajustes positivos/negativos | VERIFICADO | Motivo obligatorio + pruebas SQLite |
 | Ledger append-only | VERIFICADO | Triggers y prueba de UPDATE/DELETE |

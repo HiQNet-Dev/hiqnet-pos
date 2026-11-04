@@ -8,6 +8,7 @@ use pos_core::entitlements::{
 use pos_core::identity::{Actor, Role, User, normalize_username};
 use pos_core::ids::{BranchId, InstallationId, OrganizationId, ProductId, UserId};
 use pos_core::inventory::{InventoryMovement, MovementKind};
+use pos_core::modifiers::{ModifierConfiguration, ModifierGroup, ModifierOption, OptionKind};
 use pos_core::money::Money;
 use pos_core::organization::{Branch, Organization};
 use pos_core::quantity::Quantity;
@@ -134,6 +135,135 @@ impl From<&Product> for ProductView {
             category_id: product.category_id.map(|id| id.to_string()),
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModifierGroupDraft {
+    pub product_id: String,
+    pub name: String,
+    pub min: u32,
+    pub max: u32,
+    pub sort_order: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModifierGroupView {
+    pub id: String,
+    pub name: String,
+    pub min: u32,
+    pub max: u32,
+    pub sort_order: i32,
+    pub active: bool,
+}
+
+impl From<&ModifierGroup> for ModifierGroupView {
+    fn from(group: &ModifierGroup) -> Self {
+        Self {
+            id: group.id.to_string(),
+            name: group.name.clone(),
+            min: group.min,
+            max: group.max,
+            sort_order: group.sort_order,
+            active: group.active,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModifierOptionDraft {
+    pub group_id: String,
+    pub name: String,
+    pub kind: String,
+    pub price_delta: String,
+    pub sort_order: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModifierOptionView {
+    pub id: String,
+    pub group_id: String,
+    pub name: String,
+    pub kind: String,
+    pub price_delta: String,
+    pub sort_order: i32,
+    pub active: bool,
+}
+
+impl From<&ModifierOption> for ModifierOptionView {
+    fn from(option: &ModifierOption) -> Self {
+        Self {
+            id: option.id.to_string(),
+            group_id: option.group_id.to_string(),
+            name: option.name.clone(),
+            kind: option.kind.as_str().to_owned(),
+            price_delta: option.price_delta.to_string(),
+            sort_order: option.sort_order,
+            active: option.active,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModifierSelectionView {
+    pub selected_option_id: String,
+    pub name: String,
+    pub kind: String,
+    pub price_delta: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModifierConfigurationView {
+    pub product_id: String,
+    pub product_name: String,
+    pub variant_id: Option<String>,
+    pub variant_name: Option<String>,
+    pub base_price: String,
+    pub modifiers_total: String,
+    pub tax: String,
+    pub unit_price: String,
+    pub tax_rate_bp: u16,
+    pub selected_options: Vec<ModifierSelectionView>,
+}
+
+impl From<ModifierConfiguration> for ModifierConfigurationView {
+    fn from(configuration: ModifierConfiguration) -> Self {
+        Self {
+            product_id: configuration.product_id.to_string(),
+            product_name: configuration.product_name,
+            variant_id: configuration.variant_id.map(|id| id.to_string()),
+            variant_name: configuration.variant_name,
+            base_price: Money::from_minor_units(configuration.base_price_minor)
+                .unwrap()
+                .to_string(),
+            modifiers_total: Money::from_minor_units(configuration.modifiers_total_minor)
+                .unwrap()
+                .to_string(),
+            tax: Money::from_minor_units(configuration.tax_minor)
+                .unwrap()
+                .to_string(),
+            unit_price: Money::from_minor_units(configuration.total_minor)
+                .unwrap()
+                .to_string(),
+            tax_rate_bp: configuration.tax_rate_bp,
+            selected_options: configuration
+                .selected_options
+                .into_iter()
+                .map(|option| ModifierSelectionView {
+                    selected_option_id: option.id.to_string(),
+                    name: option.name,
+                    kind: option.kind.as_str().to_owned(),
+                    price_delta: option.price_delta.to_string(),
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModifierConfigurationDraft {
+    pub product_id: String,
+    pub variant_id: Option<String>,
+    pub selected_option_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -532,6 +662,174 @@ impl PosService {
             .await?;
         tx.rollback().await?;
         Ok(variants.iter().map(ProductVariantView::from).collect())
+    }
+
+    pub async fn create_modifier_group(
+        &self,
+        actor: &Actor,
+        draft: ModifierGroupDraft,
+    ) -> AppResult<ModifierGroupView> {
+        actor.require(pos_core::identity::Permission::ManageCatalog)?;
+        let product_id: pos_core::ids::ProductId =
+            draft.product_id.parse().map_err(|_| AppError::NotFound)?;
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        commercial.require_feature(FeatureKey::Catalog, self.clock.now())?;
+        tx.find_product(actor.organization_id, product_id)
+            .await?
+            .ok_or(pos_core::DomainError::ProductNotFound)?;
+        let group = ModifierGroup::new(
+            actor.organization_id,
+            product_id,
+            draft.name,
+            draft.min,
+            draft.max,
+            draft.sort_order,
+        )?;
+        tx.insert_modifier_group(&group).await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            actor.branch_id,
+            Some(actor.user_id),
+            AuditAction::ModifierGroupCreated,
+            "modifier_group",
+            group.id.to_string(),
+            serde_json::json!({ "product_id": product_id.to_string(), "name": group.name }),
+        ))
+        .await?;
+        tx.commit().await?;
+        Ok(ModifierGroupView::from(&group))
+    }
+
+    pub async fn list_modifier_groups(
+        &self,
+        actor: &Actor,
+        product_id: pos_core::ids::ProductId,
+    ) -> AppResult<Vec<ModifierGroupView>> {
+        actor.require(pos_core::identity::Permission::Sell)?;
+        let mut tx = self.store.begin().await?;
+        let groups = tx
+            .list_modifier_groups(actor.organization_id, product_id)
+            .await?;
+        tx.rollback().await?;
+        Ok(groups.iter().map(ModifierGroupView::from).collect())
+    }
+
+    pub async fn create_modifier_option(
+        &self,
+        actor: &Actor,
+        draft: ModifierOptionDraft,
+    ) -> AppResult<ModifierOptionView> {
+        actor.require(pos_core::identity::Permission::ManageCatalog)?;
+        let group_id: pos_core::ids::ModifierGroupId =
+            draft.group_id.parse().map_err(|_| AppError::NotFound)?;
+        let kind = OptionKind::from_key(&draft.kind).ok_or(AppError::NotFound)?;
+        let price_delta: Money = draft.price_delta.parse()?;
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        commercial.require_feature(FeatureKey::Catalog, self.clock.now())?;
+        let group = tx
+            .find_modifier_group(actor.organization_id, group_id)
+            .await?
+            .ok_or(pos_core::DomainError::CategoryNotFound)?;
+        // product validity ensured when the group was created; re-check organization only.
+        let _ = group.product_id;
+        let option = ModifierOption::new(
+            actor.organization_id,
+            group_id,
+            draft.name,
+            kind,
+            price_delta,
+            draft.sort_order,
+        )?;
+        tx.insert_modifier_option(&option).await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            actor.branch_id,
+            Some(actor.user_id),
+            AuditAction::ModifierOptionCreated,
+            "modifier_option",
+            option.id.to_string(),
+            serde_json::json!({ "group_id": group_id.to_string(), "name": option.name }),
+        ))
+        .await?;
+        tx.commit().await?;
+        Ok(ModifierOptionView::from(&option))
+    }
+
+    pub async fn list_modifier_options(
+        &self,
+        actor: &Actor,
+        group_id: pos_core::ids::ModifierGroupId,
+    ) -> AppResult<Vec<ModifierOptionView>> {
+        actor.require(pos_core::identity::Permission::Sell)?;
+        let mut tx = self.store.begin().await?;
+        let options = tx
+            .list_modifier_options(actor.organization_id, group_id)
+            .await?;
+        tx.rollback().await?;
+        Ok(options.iter().map(ModifierOptionView::from).collect())
+    }
+
+    pub async fn configure_product(
+        &self,
+        actor: &Actor,
+        draft: ModifierConfigurationDraft,
+    ) -> AppResult<ModifierConfigurationView> {
+        actor.require(pos_core::identity::Permission::Sell)?;
+        let product_id: pos_core::ids::ProductId =
+            draft.product_id.parse().map_err(|_| AppError::NotFound)?;
+        let variant_id = draft
+            .variant_id
+            .as_deref()
+            .map(str::parse::<pos_core::ids::ProductVariantId>)
+            .transpose()
+            .map_err(|_| AppError::NotFound)?;
+        let selected_ids: Vec<pos_core::ids::ModifierOptionId> = draft
+            .selected_option_ids
+            .iter()
+            .map(|value| value.parse())
+            .collect::<Result<_, _>>()
+            .map_err(|_| AppError::NotFound)?;
+
+        let mut tx = self.store.begin().await?;
+        let product = tx
+            .find_product(actor.organization_id, product_id)
+            .await?
+            .ok_or(pos_core::DomainError::ProductNotFound)?;
+        let variant = if let Some(variant_id) = variant_id {
+            Some(
+                tx.list_product_variants(actor.organization_id, product_id)
+                    .await?
+                    .into_iter()
+                    .find(|value| value.id == variant_id)
+                    .ok_or(AppError::NotFound)?,
+            )
+        } else {
+            None
+        };
+        let groups = tx
+            .list_modifier_groups(actor.organization_id, product_id)
+            .await?;
+        let mut options = Vec::new();
+        for group in &groups {
+            options.extend(
+                tx.list_modifier_options(actor.organization_id, group.id)
+                    .await?,
+            );
+        }
+        tx.rollback().await?;
+
+        let configuration = pos_core::modifiers::configure(
+            &product,
+            variant.as_ref(),
+            &groups,
+            &options,
+            &selected_ids,
+        )?;
+        Ok(ModifierConfigurationView::from(configuration))
     }
 
     pub async fn record_inventory_movement(

@@ -23,6 +23,9 @@ pub enum DomainError {
     #[error("el producto no existe")]
     ProductNotFound,
 
+    #[error("el recurso no existe")]
+    NotFound,
+
     #[error("el producto está inactivo")]
     InactiveProduct,
 
@@ -40,6 +43,21 @@ pub enum DomainError {
 
     #[error("el impuesto debe estar entre 0 y 10000 puntos base")]
     InvalidTaxRate,
+
+    #[error("límites de modificador inválidos")]
+    InvalidModifierLimits,
+
+    #[error("regla de modificador no cumplida")]
+    ModifierRuleViolation,
+
+    #[error("la opción está duplicada")]
+    DuplicateOption,
+
+    #[error("la opción de modificador está inactiva")]
+    InactiveOption,
+
+    #[error("el delta de precio no es válido")]
+    InvalidPriceDelta,
 
     #[error("la contraseña debe tener al menos {min} caracteres")]
     WeakPassword { min: usize },

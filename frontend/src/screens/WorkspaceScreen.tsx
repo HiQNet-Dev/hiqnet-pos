@@ -9,6 +9,7 @@ import {
   type Product,
 } from "../contracts";
 import { InventoryPanel } from "./InventoryPanel";
+import { ModifierConfigurator } from "./ModifierConfigurator";
 import { CatalogPanel } from "./CatalogPanel";
 
 type Props = {
@@ -341,6 +342,9 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
           readOnly={readOnly}
           onProductsChanged={refresh}
         />
+        {actor.permissions.includes("sales.sell") && (
+          <ModifierConfigurator actor={actor} readOnly={readOnly} />
+        )}
         {actor.permissions.includes("inventory.view") && (
           <InventoryPanel actor={actor} products={products} readOnly={readOnly} />
         )}
