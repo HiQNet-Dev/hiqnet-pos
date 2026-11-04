@@ -9,7 +9,9 @@ pub mod service;
 
 pub use error::{AppError, AppResult, ErrorView};
 pub use ports::{
-    Clock, InstallationState, LicenseVerifier, PasswordHasher, SharedClock, SharedHasher,
+    CashReportTotals, Clock, ExpenseCategoryReportRow, ExpensesReportTotals, InstallationState,
+    InventoryReportTotals, LicenseVerifier, PasswordHasher, ProductSalesReportRow,
+    PurchasesReportTotals, ReturnsReportTotals, SalesReportTotals, SharedClock, SharedHasher,
     SharedStore, Store, StoreTx, SystemClock,
 };
 pub use service::{
@@ -22,7 +24,11 @@ pub use service::{
     ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PosService, ProductDraft,
     ProductVariantDraft, ProductVariantView, ProductView, PurchaseOrderDraft,
     PurchaseOrderLineDraft, PurchaseOrderLineView, PurchaseOrderView, PurchaseReceiptDraft,
-    PurchaseReceiptLineDraft, ResetUserPasswordDraft, SaleItemDraft, SaleItemView, SalePaymentView,
+    PurchaseReceiptLineDraft, ReportsCashView, ReportsExpenseCategoryView, ReportsExpensesView,
+    ReportsInventoryView, ReportsProductView, ReportsPurchasesView, ReportsQuery, ReportsSalesView,
+    ReportsView, ResetUserPasswordDraft, ReturnableSaleItemView, ReturnableSaleView, SaleItemDraft,
+    SaleItemView, SalePaymentView, SaleReturnDraft, SaleReturnLineDraft, SaleReturnLineView,
+    SaleReturnPreviewDraft, SaleReturnPreviewLineView, SaleReturnPreviewView, SaleReturnView,
     SaleView, SetUserActiveDraft, StockLevelView, SupplierDraft, SupplierView, UserDraft, UserView,
     WasteDraft, WasteView,
 };

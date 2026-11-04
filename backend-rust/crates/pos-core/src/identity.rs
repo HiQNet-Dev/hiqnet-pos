@@ -36,6 +36,8 @@ pub enum Permission {
     RecordCashMovement,
     #[serde(rename = "sales.sell")]
     Sell,
+    #[serde(rename = "sales.return")]
+    ReturnSale,
     #[serde(rename = "reports.view")]
     ViewReports,
     #[serde(rename = "backups.manage")]
@@ -61,6 +63,7 @@ impl Permission {
             Permission::CloseCashShift => "cash.shift.close",
             Permission::RecordCashMovement => "cash.movement.record",
             Permission::Sell => "sales.sell",
+            Permission::ReturnSale => "sales.return",
             Permission::ViewReports => "reports.view",
             Permission::ManageBackups => "backups.manage",
             Permission::ViewAudit => "audit.view",
@@ -101,6 +104,7 @@ impl Role {
                 Permission::CloseCashShift,
                 Permission::RecordCashMovement,
                 Permission::Sell,
+                Permission::ReturnSale,
                 Permission::ViewReports,
                 Permission::ManageBackups,
                 Permission::ViewAudit,

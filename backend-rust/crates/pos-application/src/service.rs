@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult};
-use crate::ports::{InstallationState, SharedClock, SharedHasher, SharedStore};
+use crate::ports::{InstallationState, SharedClock, SharedHasher, SharedStore, StoreTx};
 use pos_core::audit::{AuditAction, AuditEvent};
 use pos_core::cash::{CashMovement, CashMovementKind, CashRegister, CashShift, CashShiftStatus};
 use pos_core::catalog::{Category, Product, ProductVariant};
@@ -10,7 +10,8 @@ use pos_core::expenses::{Expense, ExpenseCategory, WasteRecord};
 use pos_core::identity::{Actor, Role, User, normalize_username};
 use pos_core::ids::{
     BranchId, CashRegisterId, CashShiftId, ExpenseCategoryId, ExpenseId, InstallationId,
-    OrganizationId, ProductId, PurchaseOrderId, PurchaseOrderLineId, SupplierId, UserId, WasteId,
+    OrganizationId, ProductId, PurchaseOrderId, PurchaseOrderLineId, SaleItemId, SupplierId,
+    UserId, WasteId,
 };
 use pos_core::inventory::{InventoryMovement, MovementKind};
 use pos_core::modifiers::{ModifierConfiguration, ModifierGroup, ModifierOption, OptionKind};
@@ -20,6 +21,7 @@ use pos_core::purchasing::{
     PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus, PurchaseReceipt, Supplier,
 };
 use pos_core::quantity::Quantity;
+use pos_core::returns::{ReturnDisposition, SaleReturn, SaleReturnLine, refund_for_quantity};
 use pos_core::sales::{Sale, SaleItem, SalePayment, SaleStatus, validate_payment};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -606,6 +608,170 @@ pub struct WasteView {
     pub reason: String,
     #[serde(with = "time::serde::rfc3339")]
     pub occurred_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SaleReturnLineDraft {
+    pub sale_item_id: String,
+    pub quantity: String,
+    pub disposition: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SaleReturnDraft {
+    pub sale_id: String,
+    pub shift_id: String,
+    pub reason: String,
+    pub idempotency_key: String,
+    pub lines: Vec<SaleReturnLineDraft>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SaleReturnPreviewDraft {
+    pub sale_id: String,
+    pub lines: Vec<SaleReturnLineDraft>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReportsQuery {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SaleReturnLineView {
+    pub sale_item_id: String,
+    pub product_name: String,
+    pub quantity: String,
+    pub disposition: String,
+    pub refund_net: String,
+    pub refund_tax: String,
+    pub refund_total: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SaleReturnView {
+    pub id: String,
+    pub sale_id: String,
+    pub sale_folio: String,
+    pub reason: String,
+    pub refund_total: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub occurred_at: OffsetDateTime,
+    pub lines: Vec<SaleReturnLineView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReturnableSaleItemView {
+    pub id: String,
+    pub product_name: String,
+    pub variant_name: Option<String>,
+    pub modifiers_summary: String,
+    pub quantity: String,
+    pub returned_quantity: String,
+    pub returnable_quantity: String,
+    pub unit_refund: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReturnableSaleView {
+    pub id: String,
+    pub folio: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub occurred_at: OffsetDateTime,
+    pub total: String,
+    pub items: Vec<ReturnableSaleItemView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SaleReturnPreviewLineView {
+    pub sale_item_id: String,
+    pub quantity: String,
+    pub refund_total: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SaleReturnPreviewView {
+    pub refund_total: String,
+    pub lines: Vec<SaleReturnPreviewLineView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportsProductView {
+    pub product_id: String,
+    pub product_name: String,
+    pub quantity: String,
+    pub net: String,
+    pub tax: String,
+    pub total: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportsSalesView {
+    pub count: i64,
+    pub subtotal: String,
+    pub tax: String,
+    pub total: String,
+    pub returned_count: i64,
+    pub returned_total: String,
+    pub net_total: String,
+    pub products: Vec<ReportsProductView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportsCashView {
+    pub shifts_opened: i64,
+    pub shifts_closed: i64,
+    pub entries: String,
+    pub exits: String,
+    pub expenses_from_cash: String,
+    pub refunds: String,
+    pub difference: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportsPurchasesView {
+    pub orders_created: i64,
+    pub pending_orders: i64,
+    pub received_quantity: String,
+    pub received_cost: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportsExpenseCategoryView {
+    pub name: String,
+    pub total: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportsExpensesView {
+    pub total: String,
+    pub from_cash: String,
+    pub external: String,
+    pub categories: Vec<ReportsExpenseCategoryView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportsInventoryView {
+    pub stock_quantity: String,
+    pub inbound: String,
+    pub outbound: String,
+    pub waste: String,
+    pub adjustment_in: String,
+    pub adjustment_out: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportsView {
+    #[serde(with = "time::serde::rfc3339")]
+    pub from: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub to: OffsetDateTime,
+    pub sales: ReportsSalesView,
+    pub cash: ReportsCashView,
+    pub purchases: ReportsPurchasesView,
+    pub expenses: ReportsExpensesView,
+    pub inventory: ReportsInventoryView,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2829,12 +2995,537 @@ impl PosService {
         Ok(waste_view(waste))
     }
 
+    pub async fn find_sale_for_return(
+        &self,
+        actor: &Actor,
+        folio: String,
+    ) -> AppResult<ReturnableSaleView> {
+        actor.require(pos_core::identity::Permission::ReturnSale)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let folio = folio.trim().to_owned();
+        if folio.is_empty() {
+            return Err(AppError::InvalidRequest);
+        }
+        let mut tx = self.store.begin().await?;
+        let sale = tx
+            .find_sale_by_folio(actor.organization_id, branch_id, &folio)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        let items = tx.list_sale_items(actor.organization_id, sale.id).await?;
+        let mut views = Vec::new();
+        for item in &items {
+            let returned = tx.returned_quantity(actor.organization_id, item.id).await?;
+            let returnable_milli = (item.quantity.milli_units() - returned.milli_units()).max(0);
+            views.push(ReturnableSaleItemView {
+                id: item.id.to_string(),
+                product_name: item.product_name.clone(),
+                variant_name: item.variant_name.clone(),
+                modifiers_summary: item.modifiers_summary.clone(),
+                quantity: item.quantity.to_string(),
+                returned_quantity: returned.to_string(),
+                returnable_quantity: Quantity::from_milli_units(returnable_milli)?.to_string(),
+                unit_refund: item.unit_price.checked_add(item.unit_tax)?.to_string(),
+            });
+        }
+        tx.rollback().await?;
+        Ok(ReturnableSaleView {
+            id: sale.id.to_string(),
+            folio: sale.folio,
+            occurred_at: sale.occurred_at,
+            total: sale.total.to_string(),
+            items: views,
+        })
+    }
+
+    pub async fn preview_sale_return(
+        &self,
+        actor: &Actor,
+        draft: SaleReturnPreviewDraft,
+    ) -> AppResult<SaleReturnPreviewView> {
+        actor.require(pos_core::identity::Permission::ReturnSale)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let sale_id = draft.sale_id.parse().map_err(|_| AppError::NotFound)?;
+        let mut tx = self.store.begin().await?;
+        let sale = tx
+            .find_sale(actor.organization_id, sale_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        if sale.branch_id != branch_id {
+            return Err(AppError::NotFound);
+        }
+        let items = tx.list_sale_items(actor.organization_id, sale_id).await?;
+        let resolved =
+            resolve_return_lines(tx.as_mut(), actor.organization_id, &items, &draft.lines).await?;
+        let mut total = Money::ZERO;
+        let mut lines = Vec::new();
+        for line in &resolved {
+            total = total.checked_add(line.total)?;
+            lines.push(SaleReturnPreviewLineView {
+                sale_item_id: line.item.id.to_string(),
+                quantity: line.quantity.to_string(),
+                refund_total: line.total.to_string(),
+            });
+        }
+        tx.rollback().await?;
+        Ok(SaleReturnPreviewView {
+            refund_total: total.to_string(),
+            lines,
+        })
+    }
+
+    pub async fn create_sale_return(
+        &self,
+        actor: &Actor,
+        draft: SaleReturnDraft,
+    ) -> AppResult<SaleReturnView> {
+        // Misma garantía que compras y gastos: una contención de SQLite se
+        // reintenta con el payload inmutable para recuperar el hecho confirmado.
+        for delay_ms in [20_u64, 50_u64] {
+            match self.create_sale_return_once(actor, draft.clone()).await {
+                Err(error) if error.is_storage() => {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                }
+                result => return result,
+            }
+        }
+        self.create_sale_return_once(actor, draft).await
+    }
+
+    async fn create_sale_return_once(
+        &self,
+        actor: &Actor,
+        draft: SaleReturnDraft,
+    ) -> AppResult<SaleReturnView> {
+        actor.require(pos_core::identity::Permission::ReturnSale)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let reason = draft.reason.trim().to_owned();
+        if reason.is_empty() || draft.idempotency_key.trim().is_empty() || draft.lines.is_empty() {
+            return Err(AppError::InvalidRequest);
+        }
+        let sale_id: pos_core::ids::SaleId =
+            draft.sale_id.parse().map_err(|_| AppError::NotFound)?;
+        let shift_id: CashShiftId = draft.shift_id.parse().map_err(|_| AppError::NotFound)?;
+        let fingerprint = sale_return_fingerprint(&draft, &reason)?;
+        let mut tx = self.store.begin().await?;
+        if let Some(existing) = tx
+            .find_sale_return_by_idempotency(actor.organization_id, draft.idempotency_key.trim())
+            .await?
+        {
+            if existing.request_fingerprint != fingerprint {
+                return Err(AppError::Conflict);
+            }
+            if existing.branch_id != branch_id {
+                return Err(AppError::NotFound);
+            }
+            let sale = tx
+                .find_sale(actor.organization_id, existing.sale_id)
+                .await?
+                .ok_or(AppError::NotFound)?;
+            if sale.branch_id != branch_id {
+                return Err(AppError::NotFound);
+            }
+            let lines = tx
+                .list_sale_return_lines(actor.organization_id, existing.id)
+                .await?;
+            let items = tx.list_sale_items(actor.organization_id, sale.id).await?;
+            let view = sale_return_view(existing, &sale, &lines, &items);
+            tx.rollback().await?;
+            return Ok(view);
+        }
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        commercial.require_feature(FeatureKey::Sales, self.clock.now())?;
+        let sale = tx
+            .find_sale(actor.organization_id, sale_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        if sale.branch_id != branch_id {
+            return Err(AppError::NotFound);
+        }
+        let shift = tx
+            .find_cash_shift(actor.organization_id, shift_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        if shift.status != CashShiftStatus::Open || shift.branch_id != branch_id {
+            return Err(AppError::Conflict);
+        }
+        let items = tx.list_sale_items(actor.organization_id, sale_id).await?;
+        let resolved =
+            resolve_return_lines(tx.as_mut(), actor.organization_id, &items, &draft.lines).await?;
+        let mut refund_total = Money::ZERO;
+        for line in &resolved {
+            refund_total = refund_total.checked_add(line.total)?;
+        }
+        if refund_total == Money::ZERO {
+            return Err(AppError::InvalidRequest);
+        }
+        let expected = expected_amount(
+            &shift,
+            &tx.list_cash_movements(actor.organization_id, shift.id)
+                .await?,
+        )?;
+        if expected.minor_units() < refund_total.minor_units() {
+            return Err(pos_core::DomainError::InsufficientCash.into());
+        }
+        let movement = CashMovement::new(
+            actor.organization_id,
+            branch_id,
+            shift.register_id,
+            shift.id,
+            CashMovementKind::Out,
+            refund_total,
+            format!("devolución {}", sale.folio),
+            Some(actor.user_id),
+        )?;
+        tx.insert_cash_movement(&movement).await?;
+        let return_entity = SaleReturn {
+            id: pos_core::ids::SaleReturnId::new(),
+            organization_id: actor.organization_id,
+            branch_id,
+            sale_id,
+            shift_id: shift.id,
+            cash_movement_id: movement.id,
+            operator_id: actor.user_id,
+            reason: reason.clone(),
+            refund_total,
+            idempotency_key: draft.idempotency_key.trim().to_owned(),
+            request_fingerprint: fingerprint.clone(),
+            occurred_at: self.clock.now(),
+        };
+        if !tx.insert_sale_return(&return_entity).await? {
+            let existing = tx
+                .find_sale_return_by_idempotency(
+                    actor.organization_id,
+                    &return_entity.idempotency_key,
+                )
+                .await?
+                .ok_or(AppError::Conflict)?;
+            if existing.request_fingerprint != fingerprint || existing.branch_id != branch_id {
+                return Err(AppError::Conflict);
+            }
+            let replay_lines = tx
+                .list_sale_return_lines(actor.organization_id, existing.id)
+                .await?;
+            let view = sale_return_view(existing, &sale, &replay_lines, &items);
+            tx.rollback().await?;
+            return Ok(view);
+        }
+        let mut stored_lines = Vec::new();
+        for line in &resolved {
+            let inbound_movement_id = if line.disposition == ReturnDisposition::Restock {
+                let inbound = InventoryMovement::new(
+                    actor.organization_id,
+                    branch_id,
+                    line.item.product_id,
+                    MovementKind::Inbound,
+                    line.quantity,
+                    Some(format!("devolución {}", sale.folio)),
+                    Some(actor.user_id),
+                )?;
+                tx.insert_inventory_movement(&inbound).await?;
+                Some(inbound.id)
+            } else {
+                None
+            };
+            let stored = SaleReturnLine {
+                id: pos_core::ids::SaleReturnLineId::new(),
+                return_id: return_entity.id,
+                sale_item_id: line.item.id,
+                quantity: line.quantity,
+                disposition: line.disposition,
+                refund_net: line.net,
+                refund_tax: line.tax,
+                refund_total: line.total,
+                inbound_movement_id,
+            };
+            tx.insert_sale_return_line(&stored).await?;
+            stored_lines.push(stored);
+        }
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            Some(branch_id),
+            Some(actor.user_id),
+            AuditAction::SaleReturned,
+            "sale_return",
+            return_entity.id.to_string(),
+            serde_json::json!({
+                "sale_folio": sale.folio,
+                "refund": refund_total.to_string(),
+                "lines": resolved.len(),
+                "shift_id": shift.id.to_string(),
+            }),
+        ))
+        .await?;
+        tx.commit().await?;
+        Ok(sale_return_view(
+            return_entity,
+            &sale,
+            &stored_lines,
+            &items,
+        ))
+    }
+
+    pub async fn list_sale_returns(&self, actor: &Actor) -> AppResult<Vec<SaleReturnView>> {
+        actor.require(pos_core::identity::Permission::ReturnSale)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let mut tx = self.store.begin().await?;
+        let returns = tx
+            .list_sale_returns(actor.organization_id, branch_id, 50)
+            .await?;
+        let mut views = Vec::new();
+        for item in returns {
+            let sale = tx
+                .find_sale(actor.organization_id, item.sale_id)
+                .await?
+                .ok_or(AppError::NotFound)?;
+            let lines = tx
+                .list_sale_return_lines(actor.organization_id, item.id)
+                .await?;
+            let sale_items = tx
+                .list_sale_items(actor.organization_id, item.sale_id)
+                .await?;
+            views.push(sale_return_view(item, &sale, &lines, &sale_items));
+        }
+        tx.rollback().await?;
+        Ok(views)
+    }
+
+    pub async fn reports_summary(
+        &self,
+        actor: &Actor,
+        query: ReportsQuery,
+    ) -> AppResult<ReportsView> {
+        actor.require(pos_core::identity::Permission::ViewReports)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let from = parse_rfc3339(&query.from)?;
+        let to = parse_rfc3339(&query.to)?;
+        if from >= to {
+            return Err(AppError::InvalidRequest);
+        }
+        let mut tx = self.store.begin().await?;
+        let sales = tx
+            .sales_report_totals(actor.organization_id, branch_id, from, to)
+            .await?;
+        let by_product = tx
+            .sales_report_by_product(actor.organization_id, branch_id, from, to)
+            .await?;
+        let returns = tx
+            .returns_report_totals(actor.organization_id, branch_id, from, to)
+            .await?;
+        let cash = tx
+            .cash_report_totals(actor.organization_id, branch_id, from, to)
+            .await?;
+        let purchases = tx
+            .purchases_report_totals(actor.organization_id, branch_id, from, to)
+            .await?;
+        let expenses = tx
+            .expenses_report_totals(actor.organization_id, branch_id, from, to)
+            .await?;
+        let inventory = tx
+            .inventory_report_totals(actor.organization_id, branch_id, from, to)
+            .await?;
+        tx.rollback().await?;
+
+        let returned_total =
+            Money::from_minor_units(returns.total_minor).map_err(AppError::Domain)?;
+        let gross_total = Money::from_minor_units(sales.total_minor).map_err(AppError::Domain)?;
+        let net_total = gross_total.checked_sub(returned_total)?;
+        Ok(ReportsView {
+            from,
+            to,
+            sales: ReportsSalesView {
+                count: sales.count,
+                subtotal: money_minor(sales.subtotal_minor)?,
+                tax: money_minor(sales.tax_minor)?,
+                total: money_minor(sales.total_minor)?,
+                returned_count: returns.count,
+                returned_total: returned_total.to_string(),
+                net_total: net_total.to_string(),
+                products: by_product
+                    .into_iter()
+                    .map(|row| {
+                        Ok(ReportsProductView {
+                            product_id: row.product_id.to_string(),
+                            product_name: row.product_name,
+                            quantity: Quantity::from_milli_units(row.quantity_milli)?.to_string(),
+                            net: money_minor(row.net_minor)?,
+                            tax: money_minor(row.tax_minor)?,
+                            total: money_minor(row.total_minor)?,
+                        })
+                    })
+                    .collect::<AppResult<Vec<_>>>()?,
+            },
+            cash: ReportsCashView {
+                shifts_opened: cash.shifts_opened,
+                shifts_closed: cash.shifts_closed,
+                entries: money_minor(cash.entries_minor)?,
+                exits: money_minor(cash.exits_minor)?,
+                expenses_from_cash: money_minor(cash.expenses_from_cash_minor)?,
+                refunds: money_minor(cash.refunds_minor)?,
+                difference: money_minor(cash.difference_minor)?,
+            },
+            purchases: ReportsPurchasesView {
+                orders_created: purchases.orders_created,
+                pending_orders: purchases.pending_orders,
+                received_quantity: Quantity::from_milli_units(purchases.received_quantity_milli)?
+                    .to_string(),
+                received_cost: money_minor(purchases.received_cost_minor)?,
+            },
+            expenses: ReportsExpensesView {
+                total: money_minor(expenses.total_minor)?,
+                from_cash: money_minor(expenses.from_cash_minor)?,
+                external: money_minor(expenses.external_minor)?,
+                categories: expenses
+                    .by_category
+                    .into_iter()
+                    .map(|row| {
+                        Ok(ReportsExpenseCategoryView {
+                            name: row.name,
+                            total: money_minor(row.total_minor)?,
+                        })
+                    })
+                    .collect::<AppResult<Vec<_>>>()?,
+            },
+            inventory: ReportsInventoryView {
+                stock_quantity: Quantity::from_milli_units(inventory.stock_quantity_milli)?
+                    .to_string(),
+                inbound: Quantity::from_milli_units(inventory.inbound_milli)?.to_string(),
+                outbound: Quantity::from_milli_units(inventory.outbound_milli)?.to_string(),
+                waste: Quantity::from_milli_units(inventory.waste_milli)?.to_string(),
+                adjustment_in: Quantity::from_milli_units(inventory.adjustment_in_milli)?
+                    .to_string(),
+                adjustment_out: Quantity::from_milli_units(inventory.adjustment_out_milli)?
+                    .to_string(),
+            },
+        })
+    }
+
     pub async fn commercial_state(&self) -> AppResult<CommercialStateView> {
         let mut tx = self.store.begin().await?;
         let state = tx.installation_state().await?.ok_or(AppError::NotFound)?;
         tx.rollback().await?;
         commercial_view(&state, self.clock.now())
     }
+}
+
+struct ResolvedReturnLine {
+    item: SaleItem,
+    quantity: Quantity,
+    disposition: ReturnDisposition,
+    net: Money,
+    tax: Money,
+    total: Money,
+}
+
+/// Valida pertenencia, cantidades pendientes y calcula el reembolso exacto a
+/// partir de los snapshots de la venta original.
+async fn resolve_return_lines(
+    tx: &mut dyn StoreTx,
+    organization_id: OrganizationId,
+    items: &[SaleItem],
+    drafts: &[SaleReturnLineDraft],
+) -> AppResult<Vec<ResolvedReturnLine>> {
+    if drafts.is_empty() {
+        return Err(AppError::InvalidRequest);
+    }
+    let mut seen = BTreeSet::new();
+    let mut resolved = Vec::new();
+    for draft in drafts {
+        let item_id: SaleItemId = draft.sale_item_id.parse().map_err(|_| AppError::NotFound)?;
+        if !seen.insert(item_id) {
+            return Err(AppError::InvalidRequest);
+        }
+        let quantity: Quantity = draft.quantity.parse()?;
+        if quantity.is_zero() {
+            return Err(pos_core::DomainError::NegativeQuantity.into());
+        }
+        let disposition = ReturnDisposition::from_key(draft.disposition.trim())
+            .ok_or(AppError::InvalidRequest)?;
+        let item = items
+            .iter()
+            .find(|item| item.id == item_id)
+            .ok_or(AppError::NotFound)?;
+        let returned = tx.returned_quantity(organization_id, item_id).await?;
+        let remaining = item.quantity.milli_units() - returned.milli_units();
+        if remaining < 0 || quantity.milli_units() > remaining {
+            return Err(AppError::Conflict);
+        }
+        let (net, tax, total) = refund_for_quantity(item, quantity)?;
+        resolved.push(ResolvedReturnLine {
+            item: item.clone(),
+            quantity,
+            disposition,
+            net,
+            tax,
+            total,
+        });
+    }
+    Ok(resolved)
+}
+
+fn sale_return_fingerprint(draft: &SaleReturnDraft, reason: &str) -> AppResult<String> {
+    let mut rows = Vec::new();
+    for line in &draft.lines {
+        let item_id: SaleItemId = line.sale_item_id.parse().map_err(|_| AppError::NotFound)?;
+        let quantity: Quantity = line.quantity.parse()?;
+        let disposition =
+            ReturnDisposition::from_key(line.disposition.trim()).ok_or(AppError::InvalidRequest)?;
+        rows.push(format!(
+            "{item_id}:{}:{}",
+            quantity.milli_units(),
+            disposition.as_str()
+        ));
+    }
+    rows.sort();
+    Ok(format!(
+        "{}|{}|{reason}|{}",
+        draft.sale_id.trim(),
+        draft.shift_id.trim(),
+        rows.join(",")
+    ))
+}
+
+fn sale_return_view(
+    value: SaleReturn,
+    sale: &Sale,
+    lines: &[SaleReturnLine],
+    items: &[SaleItem],
+) -> SaleReturnView {
+    SaleReturnView {
+        id: value.id.to_string(),
+        sale_id: sale.id.to_string(),
+        sale_folio: sale.folio.clone(),
+        reason: value.reason,
+        refund_total: value.refund_total.to_string(),
+        occurred_at: value.occurred_at,
+        lines: lines
+            .iter()
+            .map(|line| SaleReturnLineView {
+                sale_item_id: line.sale_item_id.to_string(),
+                product_name: items
+                    .iter()
+                    .find(|item| item.id == line.sale_item_id)
+                    .map(|item| item.product_name.clone())
+                    .unwrap_or_default(),
+                quantity: line.quantity.to_string(),
+                disposition: line.disposition.as_str().to_owned(),
+                refund_net: line.refund_net.to_string(),
+                refund_tax: line.refund_tax.to_string(),
+                refund_total: line.refund_total.to_string(),
+            })
+            .collect(),
+    }
+}
+
+fn parse_rfc3339(value: &str) -> AppResult<OffsetDateTime> {
+    OffsetDateTime::parse(value.trim(), &time::format_description::well_known::Rfc3339)
+        .map_err(|_| AppError::InvalidRequest)
+}
+
+fn money_minor(value: i64) -> AppResult<String> {
+    Ok(Money::from_minor_units(value)
+        .map_err(AppError::Domain)?
+        .to_string())
 }
 
 fn expense_view(expense: Expense) -> ExpenseView {

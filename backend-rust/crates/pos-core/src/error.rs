@@ -92,6 +92,9 @@ pub enum DomainError {
     #[error("el efectivo recibido es insuficiente")]
     InsufficientPayment,
 
+    #[error("el efectivo disponible en el turno es insuficiente")]
+    InsufficientCash,
+
     #[error("la versión de autorización comercial no es compatible")]
     UnsupportedLicenseVersion,
 }

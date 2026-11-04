@@ -63,6 +63,10 @@ import {
   type PurchaseReceiptDraft,
   type ExpenseCategory, type ExpenseCategoryDraft, type Expense, type ExpenseDraft, type Waste, type WasteDraft,
   expenseCategorySchema, expenseSchema, wasteSchema,
+  type ReturnableSale, type SaleReturn, type SaleReturnDraft, type SaleReturnPreview, type SaleReturnPreviewDraft,
+  type ReportsQuery, type ReportsView,
+  saleReturnSchema, saleReturnPreviewSchema, reportsViewSchema,
+  returnableSaleSchema,
 } from "./contracts";
 
 /** Error estable proveniente de Rust (`code`) con mensaje en español. */
@@ -156,6 +160,18 @@ export const api = {
   listExpenses: () => call<Expense[]>("list_expenses", undefined, expenseSchema.array()),
   recordWaste: (draft: WasteDraft) => call<Waste>("record_waste", { draft }, wasteSchema),
   listWaste: () => call<Waste[]>("list_waste", undefined, wasteSchema.array()),
+
+  findSaleForReturn: (folio: string) =>
+    call<ReturnableSale>("find_sale_for_return", { folio }, returnableSaleSchema),
+  previewSaleReturn: (draft: SaleReturnPreviewDraft) =>
+    call<SaleReturnPreview>("preview_sale_return", { draft }, saleReturnPreviewSchema),
+  createSaleReturn: (draft: SaleReturnDraft) =>
+    call<SaleReturn>("create_sale_return", { draft }, saleReturnSchema),
+  listSaleReturns: () =>
+    call<SaleReturn[]>("list_sale_returns", undefined, saleReturnSchema.array()),
+
+  reportsSummary: (query: ReportsQuery) =>
+    call<ReportsView>("reports_summary", { query }, reportsViewSchema),
 
   createCashRegister: (draft: CashRegisterDraft) =>
     call<CashRegister>("create_cash_register", { draft }, cashRegisterSchema),

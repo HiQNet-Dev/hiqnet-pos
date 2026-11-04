@@ -12,13 +12,14 @@ export interface PendingAttempt<T> {
 
 export type PendingExpenseAttempt = PendingAttempt<import("../contracts").ExpenseDraft>;
 export type PendingWasteAttempt = PendingAttempt<import("../contracts").WasteDraft>;
+export type PendingReturnAttempt = PendingAttempt<import("../contracts").SaleReturnDraft>;
 
 /**
  * La identidad forma parte de la clave de almacenamiento: cambiar de usuario,
  * organización o sucursal no recupera intentos de otra identidad.
  */
 export function pendingAttemptStorageKey(
-  kind: "expense" | "waste",
+  kind: "expense" | "waste" | "return",
   actor: Actor,
 ): string {
   return `hiqnet.pending-${kind}.${actor.organization_id}.${actor.branch_id ?? "sin-sucursal"}.${actor.user_id}`;
