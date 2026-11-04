@@ -9,7 +9,7 @@ import {
   type IconProps,
 } from "./icons";
 
-export type SectionId = "sales" | "catalog" | "inventory" | "purchasing" | "cash" | "admin";
+export type SectionId = "sales" | "catalog" | "inventory" | "purchasing" | "expenses" | "cash" | "admin";
 
 export interface SectionDefinition {
   id: SectionId;
@@ -63,6 +63,15 @@ export const SECTIONS: SectionDefinition[] = [
     description: "Proveedores, órdenes de compra y recepción de mercancía.",
     permissions: ["purchasing.manage"],
     Icon: CatalogIcon,
+  },
+  {
+    id: "expenses",
+    label: "Gastos",
+    shortLabel: "Gastos",
+    title: "Gastos operativos",
+    description: "Gastos externos y pagos desde caja.",
+    permissions: ["expenses.manage"],
+    Icon: CashIcon,
   },
   {
     id: "cash",

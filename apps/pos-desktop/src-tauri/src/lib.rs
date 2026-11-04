@@ -10,13 +10,14 @@ use pos_application::{
     AppError, AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, BranchView,
     CashCloseShiftDraft, CashMovementDraft, CashMovementView, CashOpenShiftDraft,
     CashRegisterDraft, CashRegisterView, CashShiftView, CategoryDraft, CategoryView,
-    ChangeOwnPasswordDraft, CheckoutDraft, CommercialStateView, InventoryMovementDraft,
-    InventoryMovementView, LoginRequest, ModifierConfigurationDraft, ModifierConfigurationView,
-    ModifierGroupDraft, ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PosService,
-    ProductDraft, ProductVariantDraft, ProductVariantView, ProductView, PurchaseOrderDraft,
-    PurchaseOrderView, PurchaseReceiptDraft, ResetUserPasswordDraft, SaleView, SetUserActiveDraft,
-    SharedClock, SharedHasher, SharedStore, StockLevelView, SupplierDraft, SupplierView,
-    SystemClock, UserDraft, UserView,
+    ChangeOwnPasswordDraft, CheckoutDraft, CommercialStateView, ExpenseCategoryDraft,
+    ExpenseCategoryView, ExpenseDraft, ExpenseView, InventoryMovementDraft, InventoryMovementView,
+    LoginRequest, ModifierConfigurationDraft, ModifierConfigurationView, ModifierGroupDraft,
+    ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PosService, ProductDraft,
+    ProductVariantDraft, ProductVariantView, ProductView, PurchaseOrderDraft, PurchaseOrderView,
+    PurchaseReceiptDraft, ResetUserPasswordDraft, SaleView, SetUserActiveDraft, SharedClock,
+    SharedHasher, SharedStore, StockLevelView, SupplierDraft, SupplierView, SystemClock, UserDraft,
+    UserView, WasteDraft, WasteView,
 };
 use pos_core::identity::{Actor, Permission};
 use pos_core::ids::{BranchId, ProductId, PurchaseOrderId};
@@ -357,6 +358,47 @@ async fn receive_purchase_order(
 }
 
 #[tauri::command(rename_all = "snake_case")]
+async fn create_expense_category(
+    state: State<'_, AppState>,
+    draft: ExpenseCategoryDraft,
+) -> IpcResult<ExpenseCategoryView> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.create_expense_category(&actor, draft).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn list_expense_categories(
+    state: State<'_, AppState>,
+) -> IpcResult<Vec<ExpenseCategoryView>> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.list_expense_categories(&actor).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn record_expense(state: State<'_, AppState>, draft: ExpenseDraft) -> IpcResult<ExpenseView> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.record_expense(&actor, draft).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn list_expenses(state: State<'_, AppState>) -> IpcResult<Vec<ExpenseView>> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.list_expenses(&actor).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn record_waste(state: State<'_, AppState>, draft: WasteDraft) -> IpcResult<WasteView> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.record_waste(&actor, draft).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn list_waste(state: State<'_, AppState>) -> IpcResult<Vec<WasteView>> {
+    let actor = authenticated(&state).await?;
+    Ok(state.service.list_waste(&actor).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
 async fn create_cash_register(
     state: State<'_, AppState>,
     draft: CashRegisterDraft,
@@ -609,6 +651,12 @@ pub fn run() {
             get_purchase_order,
             confirm_purchase_order,
             receive_purchase_order,
+            create_expense_category,
+            list_expense_categories,
+            record_expense,
+            list_expenses,
+            record_waste,
+            list_waste,
             create_cash_register,
             list_cash_registers,
             open_cash_shift,

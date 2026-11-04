@@ -8,6 +8,7 @@ pub mod cash;
 pub mod catalog;
 pub mod entitlements;
 pub mod error;
+pub mod expenses;
 pub mod identity;
 pub mod ids;
 pub mod inventory;

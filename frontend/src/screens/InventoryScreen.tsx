@@ -5,8 +5,10 @@ import {
   type Actor,
   type InventoryMovement,
   type Product,
+  type WasteDraft,
 } from "../contracts";
 import { formatQuantity } from "../lib/money";
+import type { PendingWasteAttempt } from "../lib/pendingAttempt";
 
 interface Props {
   actor: Actor;
@@ -14,6 +16,8 @@ interface Props {
   products: Product[];
   loading: boolean;
   onStockChanged: () => void;
+  pendingWaste: PendingWasteAttempt | null;
+  onPendingWasteChange: (attempt: PendingWasteAttempt | null) => void;
 }
 
 const KIND_LABELS: Record<string, string> = {
@@ -23,14 +27,17 @@ const KIND_LABELS: Record<string, string> = {
   adjustment_out: "Ajuste −",
 };
 
-export function InventoryScreen({ actor, readOnly, products, loading, onStockChanged }: Props) {
+export function InventoryScreen({ actor, readOnly, products, loading, onStockChanged, pendingWaste, onPendingWasteChange }: Props) {
   const canManage = actor.permissions.includes("inventory.manage");
+  const canWaste = actor.permissions.includes("waste.manage");
   const [productId, setProductId] = useState("");
   const [kind, setKind] = useState<"inbound" | "outbound" | "adjustment_in" | "adjustment_out">(
     "inbound",
   );
   const [quantity, setQuantity] = useState("");
   const [reason, setReason] = useState("");
+  const [wasteQuantity, setWasteQuantity] = useState("");
+  const [wasteReason, setWasteReason] = useState("caducidad");
   const [stock, setStock] = useState<string | null>(null);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [busy, setBusy] = useState(false);
@@ -38,6 +45,7 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const requestRef = useRef(0);
+  const wasteLocked = pendingWaste !== null;
 
   const selectedProduct = products.find((product) => product.id === productId) ?? null;
 
@@ -81,6 +89,43 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
         cause instanceof IpcError ? cause.message : "No fue posible consultar el inventario.",
       );
     }
+  }
+
+  /** Registra el intento antes de enviar y lo elimina sólo con resultado definitivo. */
+  async function sendWaste(attempt: PendingWasteAttempt) {
+    setBusy(true); setError(null); setNotice(null);
+    onPendingWasteChange(attempt);
+    try {
+      await api.recordWaste(attempt.payload);
+      onPendingWasteChange(null);
+      setWasteQuantity("");
+      setNotice("Merma registrada y existencias actualizadas.");
+      if (productId === attempt.payload.product_id) await refreshDetail();
+      onStockChanged();
+    } catch (cause) {
+      const uncertain = !(cause instanceof IpcError) || cause.code === "storage_error" || cause.code === "unknown_error";
+      if (uncertain) {
+        setError("No se pudo confirmar el resultado. Reintenta sin modificar los datos; se usará la misma operación.");
+      } else {
+        onPendingWasteChange(null);
+        setError(cause instanceof IpcError ? cause.message : "No fue posible registrar la merma.");
+      }
+    } finally { setBusy(false); }
+  }
+
+  async function recordWaste(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canWaste || readOnly || wasteLocked || !productId || !wasteQuantity || !wasteReason.trim()) return;
+    const payload: WasteDraft = {
+      product_id: productId,
+      quantity: wasteQuantity,
+      reason: wasteReason.trim(),
+      idempotency_key: crypto.randomUUID(),
+    };
+    await sendWaste({
+      fingerprint: [payload.product_id, payload.quantity, payload.reason].join("|"),
+      payload,
+    });
   }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -171,6 +216,44 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
         </div>
       )}
 
+      {pendingWaste && (
+        <section className="surface attention" aria-label="Merma pendiente de confirmar">
+          <header className="surface-header">
+            <div>
+              <h2>Merma pendiente de confirmar</h2>
+              <p className="muted">
+                Se reintentará la misma operación: no se descontará dos veces el inventario.
+              </p>
+            </div>
+          </header>
+          <dl className="mini-grid">
+            <div>
+              <dt>Producto</dt>
+              <dd>
+                {products.find((product) => product.id === pendingWaste.payload.product_id)?.name ??
+                  pendingWaste.payload.product_id}
+              </dd>
+            </div>
+            <div>
+              <dt>Cantidad</dt>
+              <dd className="mono">{formatQuantity(pendingWaste.payload.quantity)}</dd>
+            </div>
+            <div>
+              <dt>Motivo</dt>
+              <dd>{pendingWaste.payload.reason}</dd>
+            </div>
+          </dl>
+          <button
+            type="button"
+            className="button button-primary"
+            onClick={() => void sendWaste(pendingWaste)}
+            disabled={busy || readOnly}
+          >
+            {busy ? "Reintentando…" : "Reintentar merma"}
+          </button>
+        </section>
+      )}
+
       {loading ? (
         <p className="muted">Cargando inventario…</p>
       ) : !selectedProduct ? (
@@ -242,6 +325,14 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
                 <button type="submit" className="button button-primary button-block" disabled={busy}>
                   Registrar movimiento
                 </button>
+              </form>
+            )}
+            {actor.permissions.includes("waste.manage") && !readOnly && !pendingWaste && (
+              <form className="form-grid form-compact movement-form" onSubmit={recordWaste} noValidate>
+                <h3>Registrar merma</h3>
+                <p className="muted">Reduce existencias; no genera gasto ni salida de caja.</p>
+                <div className="field-row"><label className="field field-short"><span>Cantidad</span><input inputMode="decimal" value={wasteQuantity} onChange={(event) => setWasteQuantity(event.target.value)} placeholder="0" required /></label><label className="field"><span>Motivo</span><select value={wasteReason} onChange={(event) => setWasteReason(event.target.value)}><option value="caducidad">Caducidad</option><option value="daño">Daño</option><option value="pérdida">Pérdida</option><option value="otro">Otro</option></select></label></div>
+                <button type="submit" className="button button-quiet" disabled={busy || !wasteQuantity}>Registrar merma</button>
               </form>
             )}
           </section>

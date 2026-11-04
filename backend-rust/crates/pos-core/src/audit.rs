@@ -32,6 +32,9 @@ pub enum AuditAction {
     PurchaseOrderCreated,
     PurchaseOrderConfirmed,
     PurchaseReceived,
+    ExpenseCategoryCreated,
+    ExpenseRecorded,
+    WasteRecorded,
 }
 
 impl AuditAction {
@@ -62,6 +65,9 @@ impl AuditAction {
             "purchasing.order_created" => Some(AuditAction::PurchaseOrderCreated),
             "purchasing.order_confirmed" => Some(AuditAction::PurchaseOrderConfirmed),
             "purchasing.received" => Some(AuditAction::PurchaseReceived),
+            "expenses.category_created" => Some(AuditAction::ExpenseCategoryCreated),
+            "expenses.recorded" => Some(AuditAction::ExpenseRecorded),
+            "waste.recorded" => Some(AuditAction::WasteRecorded),
             _ => None,
         }
     }
@@ -93,6 +99,9 @@ impl AuditAction {
             AuditAction::PurchaseOrderCreated => "purchasing.order_created",
             AuditAction::PurchaseOrderConfirmed => "purchasing.order_confirmed",
             AuditAction::PurchaseReceived => "purchasing.received",
+            AuditAction::ExpenseCategoryCreated => "expenses.category_created",
+            AuditAction::ExpenseRecorded => "expenses.recorded",
+            AuditAction::WasteRecorded => "waste.recorded",
         }
     }
 }

@@ -187,6 +187,29 @@ una licencia que permita escrituras. La organización y sucursal se obtienen del
 - Las operaciones se auditan como `purchasing.supplier_created`,
   `purchasing.order_created`, `purchasing.order_confirmed` y `purchasing.received`.
 
+## Gastos y merma
+
+Los comandos de gastos requieren `expenses.manage`; los de merma requieren
+`waste.manage`. Ambos permisos se evalúan en Rust y están asignados inicialmente
+solo al rol `owner`. La organización y sucursal se derivan del `Actor`.
+
+| Comando | Entrada | Efecto |
+| --- | --- | --- |
+| `create_expense_category` | `{ "draft": { "name" } }` | Crea categoría de gasto |
+| `list_expense_categories` | ninguna | Categorías de la organización |
+| `record_expense` | `{ "draft": { "category_id", "amount", "concept", "paid_from_cash", "shift_id?", "idempotency_key" } }` | Registra gasto externo o salida de caja vinculada |
+| `list_expenses` | ninguna | Gastos de la sucursal |
+| `record_waste` | `{ "draft": { "product_id", "quantity", "reason", "idempotency_key" } }` | Registra merma y `adjustment_out` |
+| `list_waste` | ninguna | Mermas de la sucursal |
+
+- Un gasto externo no crea `cash_movement`.
+- Un gasto pagado desde caja exige un turno abierto con saldo suficiente y crea una
+  única salida `out` vinculada al gasto, dentro de la misma transacción.
+- Una merma exige stock suficiente, crea un único `adjustment_out` con motivo
+  obligatorio y no crea gasto ni movimiento de caja.
+- `idempotency_key` repetida con el mismo contenido recupera el hecho persistido;
+  contenido distinto devuelve `conflict`.
+
 ## Caja y turnos
 
 Comandos: `create_cash_register`, `list_cash_registers`, `open_cash_shift`,

@@ -37,7 +37,7 @@ Estados: **VERIFICADO** (implementado y probado), **PARCIAL**, **PENDIENTE**,
 | Concurrencia de salidas | VERIFICADO | Prueba con dos solicitudes y stock limitado |
 | Migración 0002 → 0003 | VERIFICADO | Prueba con datos sintéticos y triggers recreados |
 | Proveedores y compras | PARCIAL | G2.7: proveedor, orden en borrador/confirmada y recepción parcial/final idempotente que actualiza el ledger; sin pagos a proveedores ni costeo avanzado |
-| Gastos y devoluciones | PENDIENTE | Fase G2 |
+| Gastos operativos y merma | PARCIAL | G2.8: gasto externo o pagado desde caja y merma idempotente con ledger; sin anulación compensatoria, cuentas por pagar ni valuación de merma |
 | Reportes | PENDIENTE | Fase G2 |
 | Sincronización Pro | PENDIENTE | Fase G6; requiere ADR de autoridad |
 | Billing real | PENDIENTE | D-07 sin decidir |

@@ -61,6 +61,8 @@ import {
   type PurchaseOrder,
   type PurchaseOrderDraft,
   type PurchaseReceiptDraft,
+  type ExpenseCategory, type ExpenseCategoryDraft, type Expense, type ExpenseDraft, type Waste, type WasteDraft,
+  expenseCategorySchema, expenseSchema, wasteSchema,
 } from "./contracts";
 
 /** Error estable proveniente de Rust (`code`) con mensaje en español. */
@@ -147,6 +149,13 @@ export const api = {
 
   receivePurchaseOrder: (draft: PurchaseReceiptDraft) =>
     call<PurchaseOrder>("receive_purchase_order", { draft }, purchaseOrderSchema),
+
+  createExpenseCategory: (draft: ExpenseCategoryDraft) => call<ExpenseCategory>("create_expense_category", { draft }, expenseCategorySchema),
+  listExpenseCategories: () => call<ExpenseCategory[]>("list_expense_categories", undefined, expenseCategorySchema.array()),
+  recordExpense: (draft: ExpenseDraft) => call<Expense>("record_expense", { draft }, expenseSchema),
+  listExpenses: () => call<Expense[]>("list_expenses", undefined, expenseSchema.array()),
+  recordWaste: (draft: WasteDraft) => call<Waste>("record_waste", { draft }, wasteSchema),
+  listWaste: () => call<Waste[]>("list_waste", undefined, wasteSchema.array()),
 
   createCashRegister: (draft: CashRegisterDraft) =>
     call<CashRegister>("create_cash_register", { draft }, cashRegisterSchema),

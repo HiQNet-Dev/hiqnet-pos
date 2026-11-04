@@ -73,6 +73,9 @@ id_type!(
     "Identificador de línea de orden de compra."
 );
 id_type!(PurchaseReceiptId, "Identificador de recepción de compra.");
+id_type!(ExpenseCategoryId, "Identificador de categoría de gasto.");
+id_type!(ExpenseId, "Identificador de gasto operativo.");
+id_type!(WasteId, "Identificador de registro de merma.");
 id_type!(AuditEventId, "Identificador de evento de auditoría.");
 id_type!(
     InstallationId,
