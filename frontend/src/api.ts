@@ -19,6 +19,7 @@ import {
   productVariantSchema,
   saleViewSchema,
   stockLevelSchema,
+  userSchema,
   type Actor,
   type AppStatus,
   type AuditEvent,
@@ -39,7 +40,10 @@ import {
   type Category,
   type CategoryDraft,
   type BranchSummary,
+  type ChangePasswordDraft,
   type StockLevel,
+  type User,
+  type UserDraft,
   type ModifierConfiguration,
   type ModifierConfigurationDraft,
   type ModifierGroup,
@@ -128,6 +132,27 @@ export const api = {
 
   listStockLevels: () =>
     call<StockLevel[]>("list_stock_levels", undefined, stockLevelSchema.array()),
+
+  listUsers: () => call<User[]>("list_users", undefined, userSchema.array()),
+
+  createUser: (draft: UserDraft) => call<User>("create_user", { draft }, userSchema),
+
+  setUserActive: (userId: string, active: boolean) =>
+    call<User>(
+      "set_user_active",
+      { draft: { user_id: userId, active } },
+      userSchema,
+    ),
+
+  resetUserPassword: (userId: string, password: string) =>
+    call<null>(
+      "reset_user_password",
+      { draft: { user_id: userId, password } },
+      z.null(),
+    ),
+
+  changePassword: (draft: ChangePasswordDraft) =>
+    call<null>("change_password", { draft }, z.null()),
 
   openCashShift: (draft: CashOpenShiftDraft) =>
     call<CashShift>("open_cash_shift", { draft }, cashShiftSchema),

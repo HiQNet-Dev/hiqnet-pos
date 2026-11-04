@@ -20,6 +20,8 @@ const api = vi.hoisted(() => ({
   listModifierGroups: vi.fn(),
   listModifierOptions: vi.fn(),
   listProductVariants: vi.fn(),
+  listUsers: vi.fn(),
+  changePassword: vi.fn(),
 }));
 
 vi.mock("./api", () => ({
@@ -96,6 +98,7 @@ describe("App", () => {
     api.listProductVariants.mockResolvedValue([]);
     api.listModifierGroups.mockResolvedValue([]);
     api.listModifierOptions.mockResolvedValue([]);
+    api.listUsers.mockResolvedValue([]);
     api.listCashRegisters.mockResolvedValue([]);
     api.listCashShiftHistory.mockResolvedValue([]);
     api.activeCashShift.mockResolvedValue(null);
