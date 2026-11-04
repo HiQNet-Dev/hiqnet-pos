@@ -320,6 +320,10 @@ pub struct CashShiftView {
     pub id: String,
     pub register_id: String,
     pub status: String,
+    pub opened_by: String,
+    pub opened_at: time::OffsetDateTime,
+    pub closed_by: Option<String>,
+    pub closed_at: Option<time::OffsetDateTime>,
     pub opening_amount: String,
     pub expected_amount: String,
     pub entry_total: String,
@@ -1129,7 +1133,7 @@ impl PosService {
         .await?;
         tx.commit().await?;
         let expected = shift.opening_amount;
-        Ok(self.shift_view(actor, shift, Vec::new(), expected, Money::ZERO, 0))
+        self.shift_view(actor, shift, Vec::new(), expected, Money::ZERO, 0)
     }
 
     pub async fn active_cash_shift(
@@ -1164,7 +1168,7 @@ impl PosService {
             expected,
             Money::ZERO,
             0,
-        )))
+        )?))
     }
 
     pub async fn register_cash_movement(
@@ -1285,6 +1289,10 @@ impl PosService {
             id: open_shift.id.to_string(),
             register_id: open_shift.register_id.to_string(),
             status: "closed".into(),
+            opened_by: open_shift.opened_by.to_string(),
+            opened_at: open_shift.opened_at,
+            closed_by: Some(actor.user_id.to_string()),
+            closed_at: Some(OffsetDateTime::now_utc()),
             opening_amount: open_shift.opening_amount.to_string(),
             expected_amount: expected_string,
             entry_total: entry_total.to_string(),
@@ -1323,7 +1331,7 @@ impl PosService {
         };
         let counted = shift.counted_amount.unwrap_or(Money::ZERO);
         let diff = shift.difference_minor.unwrap_or(0);
-        let view = self.shift_view(actor, shift, movements, expected, counted, diff);
+        let view = self.shift_view(actor, shift, movements, expected, counted, diff)?;
         Ok(view)
     }
 
@@ -1342,7 +1350,7 @@ impl PosService {
             let expected = shift.expected_amount.unwrap_or(shift.opening_amount);
             let counted = shift.counted_amount.unwrap_or(Money::ZERO);
             let diff = shift.difference_minor.unwrap_or(0);
-            views.push(self.shift_view(actor, shift, movements, expected, counted, diff));
+            views.push(self.shift_view(actor, shift, movements, expected, counted, diff)?);
         }
         tx.rollback().await?;
         Ok(views)
@@ -1356,29 +1364,20 @@ impl PosService {
         expected: Money,
         counted: Money,
         difference_minor: i64,
-    ) -> CashShiftView {
-        let entry_total_minor: i64 = movements
-            .iter()
-            .filter(|m| m.kind == CashMovementKind::In)
-            .map(|m| m.amount.minor_units())
-            .sum();
-        let exit_total_minor: i64 = movements
-            .iter()
-            .filter(|m| m.kind == CashMovementKind::Out)
-            .map(|m| m.amount.minor_units())
-            .sum();
-        CashShiftView {
+    ) -> AppResult<CashShiftView> {
+        let (entry_total, exit_total) = cash_totals(&movements)?;
+        Ok(CashShiftView {
             id: shift.id.to_string(),
             register_id: shift.register_id.to_string(),
             status: shift.status.as_str().to_owned(),
+            opened_by: shift.opened_by.to_string(),
+            opened_at: shift.opened_at,
+            closed_by: shift.closed_by.map(|id| id.to_string()),
+            closed_at: shift.closed_at,
             opening_amount: shift.opening_amount.to_string(),
             expected_amount: expected.to_string(),
-            entry_total: Money::from_minor_units(entry_total_minor)
-                .unwrap_or(Money::ZERO)
-                .to_string(),
-            exit_total: Money::from_minor_units(exit_total_minor)
-                .unwrap_or(Money::ZERO)
-                .to_string(),
+            entry_total: entry_total.to_string(),
+            exit_total: exit_total.to_string(),
             counted_amount: shift.counted_amount.map(|m| m.to_string()).or_else(|| {
                 if shift.status == CashShiftStatus::Closed {
                     Some(counted.to_string())
@@ -1388,7 +1387,7 @@ impl PosService {
             }),
             difference_minor: shift.difference_minor.or(Some(difference_minor)),
             movements: movements.iter().map(CashMovementView::from).collect(),
-        }
+        })
     }
 
     pub async fn commercial_state(&self) -> AppResult<CommercialStateView> {

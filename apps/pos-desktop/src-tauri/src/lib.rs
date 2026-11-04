@@ -229,6 +229,14 @@ async fn register_cash_movement(
 }
 
 #[tauri::command]
+async fn list_cash_shift_history(
+    state: State<'_, AppState>,
+) -> IpcResult<Vec<CashShiftView>> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.list_cash_shift_history(&actor).await?)
+}
+
+#[tauri::command]
 async fn close_cash_shift(
     state: State<'_, AppState>,
     draft: CashCloseShiftDraft,
@@ -414,6 +422,7 @@ pub fn run() {
             open_cash_shift,
             active_cash_shift,
             register_cash_movement,
+            list_cash_shift_history,
             close_cash_shift,
             create_product,
             list_products,

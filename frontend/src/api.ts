@@ -132,6 +132,9 @@ export const api = {
   closeCashShift: (draft: CashCloseShiftDraft) =>
     call<CashShift>("close_cash_shift", { draft }, cashShiftSchema),
 
+  listCashShiftHistory: () =>
+    call<CashShift[]>("list_cash_shift_history", undefined, cashShiftSchema.array()),
+
   assignProductCategory: (productId: string, categoryId: string | null) =>
     call<Product>(
       "assign_product_category",

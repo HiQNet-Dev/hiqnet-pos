@@ -15,6 +15,7 @@ export function CashPanel({ actor, readOnly }: Props) {
   const canView = actor.permissions.includes("cash.shift.view");
 
   const [registers, setRegisters] = useState<CashRegister[]>([]);
+  const [history, setHistory] = useState<CashShift[]>([]);
   const [registerId, setRegisterId] = useState("");
   const [shift, setShift] = useState<CashShift | null>(null);
   const [openingAmount, setOpeningAmount] = useState("");
@@ -28,6 +29,20 @@ export function CashPanel({ actor, readOnly }: Props) {
 
   const [registerName, setRegisterName] = useState("");
   const [registerCode, setRegisterCode] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!canView) return;
+    api
+      .listCashShiftHistory()
+      .then((items) => {
+        if (!cancelled) setHistory(items);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [canView]);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,6 +155,8 @@ export function CashPanel({ actor, readOnly }: Props) {
       const closed = await api.closeCashShift({ shift_id: shift.id, counted_amount: countedAmount });
       setShift(closed);
       setCountedAmount("");
+      const updatedHistory = await api.listCashShiftHistory();
+      setHistory(updatedHistory);
       setNotice(
         `Turno cerrado. Diferencia: ${closed.difference_minor ?? 0} centavos.`,
       );
@@ -329,6 +346,36 @@ export function CashPanel({ actor, readOnly }: Props) {
             </form>
           )}
         </>
+      )}
+
+      {history.length > 0 && (
+        <div className="catalog-detail">
+          <p className="eyebrow">Historial de turnos cerrados</p>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Cierre</th>
+                <th scope="col">Caja</th>
+                <th scope="col">Operador</th>
+                <th scope="col">Esperado</th>
+                <th scope="col">Contado</th>
+                <th scope="col">Diferencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.closed_at ?? item.opened_at}</td>
+                  <td>{item.register_id}</td>
+                  <td>{item.closed_by ?? item.opened_by}</td>
+                  <td>{item.expected_amount}</td>
+                  <td>{item.counted_amount ?? "—"}</td>
+                  <td>{item.difference_minor ?? 0} centavos</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {shift?.status === "closed" && (
