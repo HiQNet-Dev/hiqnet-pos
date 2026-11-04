@@ -1,6 +1,8 @@
 # ADR-006 (propuesto): motor de modificadores y personalización
 
-Estado: **Propuesto** — no implementado.
+Estado: **Propuesto** — parcialmente implementado bajo revisión.
+
+Aprobación técnica explícita: **pendiente**.
 
 ## Alcance de G2.2B
 
@@ -37,6 +39,26 @@ Licuado de fresa:
 - El total configurable representa importe neto + impuesto.
 - La política fiscal mexicana final y el redondeo por venta corresponden a
   G2.4/G4 y siguen en análisis legal.
+
+## Estado actual de implementación (2026-11-03)
+
+Implementado en `main` mediante PR #5:
+- Tablas `modifier_group` y `modifier_option` en migración `0005`.
+- Casos de uso e IPC tipados para grupos, opciones y configuración.
+- Motor Rust con validación y cálculo autoritativo.
+- UI de configuración y desglose.
+
+Todavía se mantienen como propuestos, aunque el código exista:
+- Fusión arquitectónica definitiva de modificadores y ventas.
+- Relación con recetas e insumos.
+- Política fiscal final.
+
+## Distinción de precios
+
+- `ProductVariant.unit_price` es un precio neto propio de una presentación.
+- `ModifierOption.price_delta` es un incremento neto independiente.
+- El impuesto resultante es la suma de ambos, calculada con la tasa del producto.
+- Ningún precio de variante sustituye automáticamente el precio base del producto.
 
 ## Fuera de alcance
 
