@@ -1,6 +1,6 @@
 # ADR-006 (propuesto): motor de modificadores y personalización
 
-Estado: **Propuesto** — parcialmente implementado bajo revisión.
+Estado: **Propuesto** — implementado en PR #5 y pendiente de ratificación.
 
 Aprobación técnica explícita: **pendiente**.
 
@@ -55,10 +55,13 @@ Todavía se mantienen como propuestos, aunque el código exista:
 
 ## Distinción de precios
 
-- `ProductVariant.unit_price` es un precio neto propio de una presentación.
-- `ModifierOption.price_delta` es un incremento neto independiente.
+- Cuando se selecciona una variante, su precio neto propio **sustituye** al precio
+  base del producto para esa configuración.
+- `ModifierOption.price_delta` es un incremento neto independiente que se suma
+  después.
 - El impuesto resultante es la suma de ambos, calculada con la tasa del producto.
-- Ningún precio de variante sustituye automáticamente el precio base del producto.
+- En el ejemplo de licuado, el tamaño se representa mediante variantes, no como
+  un grupo de modificadores duplicado.
 
 ## Fuera de alcance
 
