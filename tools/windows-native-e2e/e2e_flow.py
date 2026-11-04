@@ -36,8 +36,13 @@ UNITARIO_TOTAL = "16.24"
 TOTAL_VENTA = "32.48"
 CAMBIO = "17.52"
 SALDO_ESPERADO = "132.48"
+GASTO_EXTERNO = "9.00"
+GASTO_CAJA = "12.00"
+SALDO_CIERRE = "120.48"
 STOCK_INICIAL = "20"
 STOCK_FINAL = "18"
+STOCK_COMPRAS = "23"
+STOCK_MERMA = "22"
 
 NAV = "//nav[@aria-label='Navegación principal']//button[@data-section='{}']"
 DIALOG = "//div[@role='dialog']"
@@ -387,17 +392,17 @@ def verificar_persistencia(app: App) -> dict:
 
 
 def cerrar_turno(app: App):
-    app.fill("//section[@aria-label='Operación del turno']", "Efectivo contado", SALDO_ESPERADO)
+    app.fill("//section[@aria-label='Operación del turno']", "Efectivo contado", SALDO_CIERRE)
     app.click_xpath("//button[normalize-space()='Cerrar turno']")
     app.wait_text("Turno cerrado")
 
     app.wait_text("Resultado del arqueo")
     arqueo = app.text_of("//section[@aria-label='Operación del turno']")
     assert_contains(arqueo, "Exacto", "la diferencia del arqueo exacto no es cero")
-    assert_contains(arqueo, SALDO_ESPERADO, "el cierre no conserva el saldo esperado")
+    assert_contains(arqueo, SALDO_CIERRE, "el cierre no conserva el saldo esperado")
     historial = app.text_of("//section[@aria-label='Historial de turnos']")
     assert_contains(historial, "Caja E2E · CJ-01", "el historial no identifica la caja")
-    assert_contains(historial, SALDO_ESPERADO, "el historial no conserva el esperado")
+    assert_contains(historial, SALDO_CIERRE, "el historial no conserva el esperado")
     app.screenshot("arqueo-cierre")
 
 
@@ -441,7 +446,48 @@ def gestionar_compras(app: App) -> dict:
     assert order["status"] == "received", "la orden debe quedar recibida"
     assert app.invoke("current_stock", {"product_id": order["lines"][0]["product_id"]}) == "23", "el stock final debe sumar cinco"
     app.screenshot("compras-recepcion-final")
-    return {"folio": order["folio"], "order_id": order["id"], "stock_final": "23"}
+    return {"folio": order["folio"], "order_id": order["id"], "stock_final": STOCK_COMPRAS}
+
+
+def gestionar_gastos_y_merma(app: App) -> dict:
+    """Gasto externo, gasto de caja y merma operados desde la interfaz real."""
+    app.nav("expenses")
+    wait_screen(app, "Gastos")
+    app.screenshot("gastos-vacio")
+    app.fill("//section[.//h2[normalize-space()='Categorías']]", "Nueva categoría", "Operación E2E")
+    app.click_xpath("//section[.//h2[normalize-space()='Categorías']]//button[normalize-space()='Crear']")
+    app.wait_text("Categoría creada")
+    expense_scope = "//section[.//h2[normalize-space()='Registrar gasto']]"
+    app.select(expense_scope, "Categoría", "Operación E2E")
+    app.fill(expense_scope, "Concepto", "Servicio externo E2E")
+    app.fill(expense_scope, "Importe", GASTO_EXTERNO)
+    app.click_xpath(f"{expense_scope}//button[normalize-space()='Registrar gasto']")
+    app.wait_text("Gasto externo registrado")
+    app.fill(expense_scope, "Concepto", "Limpieza E2E")
+    app.fill(expense_scope, "Importe", GASTO_CAJA)
+    app.click_xpath(f"{expense_scope}//label[contains(@class,'checkbox-field')]//input")
+    app.screenshot("gasto-caja")
+    app.click_xpath(f"{expense_scope}//button[normalize-space()='Registrar gasto']")
+    app.wait_text("Gasto y salida de caja registrados")
+
+    app.nav("inventory")
+    wait_screen(app, "Inventario")
+    app.select("//header[contains(@class,'screen-header')]", "Producto", "CAF-001 · Café E2E")
+    waste_scope = "//form[.//h3[normalize-space()='Registrar merma']]"
+    app.fill(waste_scope, "Cantidad", "1")
+    app.select(waste_scope, "Motivo", "Daño")
+    app.screenshot("merma")
+    app.click_xpath(f"{waste_scope}//button[normalize-space()='Registrar merma']")
+    app.wait_text("Merma registrada")
+    app.wait_xpath(f"//span[contains(@class,'stock-figure') and normalize-space()='{STOCK_MERMA}']")
+
+    app.nav("cash")
+    wait_screen(app, "Caja y turnos")
+    app.wait_text(SALDO_CIERRE)
+    caja = app.text_of("//section[@aria-label='Operación del turno']")
+    assert_contains(caja, SALDO_CIERRE, "el gasto de caja no actualizó el saldo esperado")
+    assert_contains(caja, "gasto: Limpieza E2E", "el movimiento de caja no está vinculado al gasto")
+    return {"external_amount": GASTO_EXTERNO, "cash_amount": GASTO_CAJA, "stock_after_waste": STOCK_MERMA, "expected_cash": SALDO_CIERRE}
 
 
 def gestionar_usuarios(app: App) -> dict:
@@ -618,12 +664,19 @@ def main() -> int:
         report["compras"] = gestionar_compras(app)
         steps.append("compras")
 
+        report["gastos_merma"] = gestionar_gastos_y_merma(app)
+        steps.append("gastos_merma")
+
         app.quit()
         app = App(app_path)
         iniciar_sesion(app)
         persisted_order = app.invoke("get_purchase_order", {"order_id": report["compras"]["order_id"]})
         assert persisted_order["status"] == "received", "la orden no persistió tras reiniciar"
-        steps.append("compras_reinicio")
+        assert len(app.invoke("list_expenses")) == 2, "los gastos no persistieron tras reiniciar"
+        assert len(app.invoke("list_waste")) == 1, "la merma no persistió tras reiniciar"
+        product_id = report["modificadores"]["product_id"]
+        assert app.invoke("current_stock", {"product_id": product_id}) == STOCK_MERMA, "la merma no persistió tras reiniciar"
+        steps.append("compras_gastos_reinicio")
 
         app.nav("cash")
         wait_screen(app, "Caja y turnos")

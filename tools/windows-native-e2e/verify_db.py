@@ -22,6 +22,7 @@ MIGRACIONES_ESPERADAS = {
     "cash registers shifts",
     "sales checkout",
     "purchasing",
+    "expenses waste",
 }
 
 
@@ -115,9 +116,9 @@ def main() -> int:
                 }
                 if shift["status"] != "closed":
                     failures.append("el turno quedó abierto")
-                if shift["expected_amount_minor"] != 13248:
-                    failures.append("el saldo esperado del turno no incorpora la venta")
-                if shift["counted_amount_minor"] != 13248 or shift["difference_minor"] != 0:
+                if shift["expected_amount_minor"] != 12048:
+                    failures.append("el saldo esperado no incorpora exactamente el gasto pagado desde caja")
+                if shift["counted_amount_minor"] != 12048 or shift["difference_minor"] != 0:
                     failures.append("el arqueo exacto no se persistió como diferencia cero")
 
             ingreso = one(
@@ -141,8 +142,8 @@ def main() -> int:
                 product["id"],
             )
             checks["stock_milli"] = stock["stock"]
-            if stock["stock"] != 23000:
-                failures.append("el inventario no refleja venta y las cinco unidades recibidas")
+            if stock["stock"] != 22000:
+                failures.append("el inventario no refleja venta, compras y merma")
 
         auditoria = one(
             connection,
@@ -181,7 +182,30 @@ def main() -> int:
         if one(connection, "SELECT COUNT(*) AS n FROM audit_event WHERE action = 'purchasing.received'")["n"] != 2:
             failures.append("falta auditoría de las recepciones")
 
-        for action in ("cash.shift_opened", "cash.shift_closed"): 
+        expense_summary = one(connection, "SELECT COUNT(*) AS total, COALESCE(SUM(amount_minor), 0) AS amount FROM expense")
+        cash_expense = one(connection, "SELECT COUNT(*) AS total FROM expense WHERE cash_movement_id IS NOT NULL")
+        linked_cash = one(connection, "SELECT COUNT(*) AS total FROM cash_movement cm JOIN expense e ON e.cash_movement_id = cm.id WHERE cm.kind = 'out' AND cm.amount_minor = 1200")
+        checks["gastos"] = {"total": expense_summary["total"], "amount_minor": expense_summary["amount"], "cash": cash_expense["total"]}
+        if (expense_summary["total"], expense_summary["amount"], cash_expense["total"], linked_cash["total"]) != (2, 2100, 1, 1):
+            failures.append("los gastos o su salida de caja vinculada no cuadran")
+        if one(connection, "SELECT COUNT(*) AS n FROM audit_event WHERE action = 'expenses.recorded'")["n"] != 2:
+            failures.append("falta auditoría de gastos")
+
+        waste = one(connection, "SELECT COUNT(*) AS total, COALESCE(SUM(quantity_milli), 0) AS quantity FROM waste_record")
+        waste_ledger = one(connection, "SELECT COUNT(*) AS total FROM inventory_movement WHERE kind = 'adjustment_out' AND reason = 'merma: daño' AND quantity_milli = 1000")
+        checks["merma"] = {"total": waste["total"], "quantity_milli": waste["quantity"], "ledger": waste_ledger["total"]}
+        if (waste["total"], waste["quantity"], waste_ledger["total"]) != (1, 1000, 1):
+            failures.append("la merma no cuadra con el ledger")
+        if one(connection, "SELECT COUNT(*) AS n FROM audit_event WHERE action = 'waste.recorded'")["n"] != 1:
+            failures.append("falta auditoría de merma")
+
+        integrity = one(connection, "PRAGMA integrity_check")[0]
+        if integrity != "ok":
+            failures.append(f"SQLite integrity_check devolvió {integrity}")
+        if q(connection, "PRAGMA foreign_key_check"):
+            failures.append("SQLite foreign_key_check encontró referencias inválidas")
+
+        for action in ("cash.shift_opened", "cash.shift_closed"):
             if one(connection, "SELECT COUNT(*) AS n FROM audit_event WHERE action = ?", action)["n"] < 1:
                 failures.append(f"falta auditoría de {action}")
     finally:
