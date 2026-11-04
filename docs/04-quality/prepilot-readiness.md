@@ -20,7 +20,9 @@ mediciones locales; lo no ejecutado se declara explícitamente.
 | Devoluciones | Implementado y probado | E2E nativo; solo efectivo, sin notas de crédito |
 | Reportes operativos | Implementado y probado | Agregados SQLite; sin utilidad ni costo de ventas |
 | Respaldo verificado | Implementado y probado | `backup_safety.rs`; el respaldo se verifica y se descarta si falla |
-| Restauración offline | Implementado y probado | Utilidad `--restore-backup` con copia de recuperación |
+| Restauración offline | Implementado y probado | Utilidad `--restore-backup` con copia de recuperación y bloqueo exclusivo de proceso |
+| Restauración con la app abierta | Implementado y probado | `e2e_restore_guard.py` sobre el ejecutable: código 2 y base intacta |
+| Rechazo de doble instancia | Implementado y probado | La app toma `hiqnet-pos.db.lock` al arrancar y avisa si ya está abierta |
 | Migraciones y actualización de esquema | Implementado y probado | Actualización 0003→0010, 0007→0010 y 0009→0010 con datos |
 | Rechazo de esquema posterior | Implementado y probado | `open` y `verify_backup` devuelven `IncompatibleSchema` |
 | Detección de base corrupta | Implementado y probado | `PRAGMA quick_check` al abrir |
@@ -47,6 +49,7 @@ mediciones locales; lo no ejecutado se declara explícitamente.
 - `tauri build --debug --no-bundle` y bundle NSIS interno.
 - E2E nativo comercial completo + `verify_db.py`.
 - E2E nativo de devoluciones/reportes + `verify_returns_db.py`.
+- E2E nativo de guardia de restauración (`e2e_restore_guard.py`).
 - `perf_smoke.py` con 200 ventas.
 - Utilidad offline: verificación, restauración y rechazo de archivo corrupto.
 
@@ -66,3 +69,8 @@ mediciones locales; lo no ejecutado se declara explícitamente.
   sin actualizaciones.
 - Emisión de licencias productiva aún no existe; el Trial es el modo verificable.
 - Sin prueba de corte de energía ni de jornada prolongada.
+- El bloqueo de la base es cooperativo: otra herramienta que ignore
+  `hiqnet-pos.db.lock` podría reemplazar el archivo. El procedimiento soportado
+  es cerrar HiQNet POS y usar la utilidad incluida.
+- El respaldo no sustituye a una copia externa: si el disco falla, respaldo y
+  base se pierden juntos.

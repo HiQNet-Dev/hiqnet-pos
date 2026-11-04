@@ -15,6 +15,7 @@ extremo.
 | `verify_db.py` | Verificación de solo lectura de la base del flujo comercial (venta, pago, stock, caja, compras, gastos, merma, auditoría e integridad) |
 | `e2e_returns.py` | Devolución parcial operada por la interfaz, reportes por la interfaz, reinicio, persistencia y denegación al cajero |
 | `verify_returns_db.py` | Verificación de la devolución: partida `restock`, `inbound`, salida de caja única, stock y auditoría |
+| `e2e_restore_guard.py` | Respaldo desde la aplicación, rechazo de restauración con la aplicación abierta, restauración correcta tras cerrarla y reapertura con los datos intactos |
 | `perf_smoke.py` | Medición local: arranque, 200 checkouts por IPC, consultas y reportes |
 | `e2e_smoke.py` | Comprobación mínima de que el driver puede abrir la aplicación |
 
@@ -68,6 +69,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows-native-e2e/run
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows-native-e2e/run-e2e.ps1 `
     -Script tools/windows-native-e2e/e2e_returns.py -KeepArtifacts
 
+# Guardia de restauración (bloqueo de base en uso)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows-native-e2e/run-e2e.ps1 `
+    -Script tools/windows-native-e2e/e2e_restore_guard.py -KeepArtifacts
+
 # Rendimiento local (no es un SLA)
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows-native-e2e/run-e2e.ps1 `
     -Script tools/windows-native-e2e/perf_smoke.py -KeepArtifacts
@@ -80,13 +85,25 @@ python tools/windows-native-e2e/verify_db.py <run_directory>\hiqnet-pos.db
 python tools/windows-native-e2e/verify_returns_db.py <run_directory>\hiqnet-pos.db
 ```
 
-## Aislamiento
+## Aislamiento y limpieza
 
 - Cada ejecución usa `%TEMP%\hiqnet-e2e-<guid>\hiqnet-pos.db` vía
   `HIQNET_POS_DB_PATH`; nunca `%LOCALAPPDATA%\HiQNet\POS\data`.
-- `run-e2e.ps1` valida la cabecera SQLite y restaura las variables de entorno.
-- La limpieza identifica únicamente el árbol de procesos descendiente del
-  `tauri-driver` iniciado por la ejecución (por PID), nunca por nombre ni fecha.
+- La línea `sqlite=` indica `header_ok (main=<bytes>, wal=<bytes>)` o `missing`.
+  Con WAL activo el archivo principal puede ser pequeño y los datos vivir en
+  `-wal`: esa línea **no** prueba contenido. La verificación de contenido es
+  `verify_db.py` / `verify_returns_db.py` sobre el directorio indicado.
+- La limpieza termina únicamente el árbol de procesos descendiente del
+  `tauri-driver` iniciado por la ejecución. Si el driver murió antes, los hijos
+  huérfanos se identifican porque su línea de comandos contiene la base única de
+  esta corrida; ninguna instalación personal usa esa ruta. Nunca se selecciona
+  por nombre o fecha de inicio.
+- Un fallo al detener procesos no impide restaurar `HIQNET_POS_DB_PATH`,
+  `HIQNET_E2E_ARTIFACT_DIR` ni `HIQNET_E2E_PORT`; la restauración ocurre siempre
+  en el bloque `finally`.
+- Si el driver no arranca o termina antes del sondeo, el arnés informa
+  `result=FAIL`, código de salida distinto de cero y conserva
+  `tauri-driver.err.log` cuando se usa `-KeepArtifacts`.
 - Sin `-KeepArtifacts` el directorio temporal se elimina.
 
 ## Escenario determinista (flujo comercial)

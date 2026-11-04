@@ -25,7 +25,7 @@ guarda los datos operativos en el equipo del comercio.
 | Devoluciones de venta y reportes operativos | Implementado y verificado |
 | Auditoría append-only en la misma transacción | Implementado y verificado |
 | SQLite en `%LOCALAPPDATA%` con WAL y migraciones SQLx | Implementado y verificado |
-| Respaldo verificado y restauración offline segura | Implementado y verificado |
+| Respaldo verificado y restauración offline segura | Implementado y verificado (rechaza restaurar con la app abierta) |
 | Trial de 30 días y modo solo lectura al vencer | Implementado y verificado |
 | Verificación de licencias Ed25519 | Contrato y verificador implementados; emisión productiva **pendiente** |
 | Instalador NSIS | Construible; **sin firma**, solo prueba interna |

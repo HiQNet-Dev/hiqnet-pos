@@ -10,10 +10,31 @@ use sqlx::{ConnectOptions, SqlitePool};
 use std::time::Duration;
 
 pub mod backup;
+pub mod lock;
 pub mod uow;
 
 pub use backup::{backup_to, open_read_only, restore_from_backup, verify_backup};
+pub use lock::{DatabaseLock, lock_path, try_lock};
 pub use uow::SqliteStore;
+
+/// Abre la base manteniendo el bloqueo exclusivo del proceso.
+///
+/// La aplicación de escritorio debe conservar el guard mientras esté en
+/// ejecución: es lo que impide que la utilidad de restauración reemplace el
+/// archivo por debajo de una instancia abierta.
+pub async fn open_locked(
+    path: impl AsRef<Path>,
+) -> Result<(SqlitePool, DatabaseLock), StorageError> {
+    let path = path.as_ref();
+    let guard = lock::try_lock(path)?;
+    match open(path).await {
+        Ok(pool) => Ok((pool, guard)),
+        Err(error) => {
+            drop(guard);
+            Err(error)
+        }
+    }
+}
 
 /// Error propio del adaptador, sin filtrar detalles hacia la UI.
 #[derive(Debug, thiserror::Error)]
@@ -45,11 +66,17 @@ pub enum StorageError {
 
 /// Última versión de migración conocida por este ejecutable.
 pub fn latest_schema_version() -> i64 {
-    sqlx::migrate!("../../migrations/local")
+    embedded_migrations()
         .iter()
         .map(|migration| migration.version)
         .max()
         .unwrap_or(0)
+}
+
+/// Migraciones embebidas en el binario. Son la referencia de checksum para
+/// validar respaldos e historiales de esquema.
+pub(crate) fn embedded_migrations() -> sqlx::migrate::Migrator {
+    sqlx::migrate!("../../migrations/local")
 }
 
 /// Abre (y crea si es necesario) la base local, aplica migraciones embebidas y

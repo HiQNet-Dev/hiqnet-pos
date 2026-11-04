@@ -61,16 +61,33 @@ pos-desktop.exe --restore-backup D:\respaldos\hiqnet-pos-1700000000.db `
 
 La utilidad:
 
-1. verifica el respaldo (integridad, tablas, claves foráneas y versión);
-2. comprueba que no haya otro escritor activo (`BEGIN IMMEDIATE`); si lo hay,
-   rechaza la restauración con `DatabaseInUse`;
-3. crea una **copia de recuperación** `hiqnet-pos.db.pre-restore-<epoch>.db`
-   mediante `VACUUM INTO`, incluyendo el estado del WAL;
-4. elimina `-wal`/`-shm` obsoletos y reemplaza el archivo principal;
-5. verifica la base restaurada y, si falla, revierte a la copia de recuperación.
+1. verifica el respaldo (integridad, tablas, claves foráneas, historial de
+   migraciones y versión);
+2. toma el **bloqueo exclusivo del proceso** (`hiqnet-pos.db.lock`). Si HiQNet POS
+   está abierto —aunque esté inactivo— rechaza la operación con
+   `cierra HiQNet POS antes de restaurar un respaldo` y no toca ningún archivo;
+3. sondea la base con `BEGIN EXCLUSIVE` para descartar transacciones ajenas
+   abiertas por otras herramientas;
+4. crea y verifica una **copia de recuperación**
+   `hiqnet-pos.db.pre-restore-<epoch>.db` mediante `VACUUM INTO`, incluyendo el
+   estado del WAL. Cada restauración crea una copia nueva; nunca sobrescribe una
+   anterior;
+5. copia el respaldo a `hiqnet-pos.db.restore-tmp`, verifica esa copia y solo
+   entonces la mueve sobre la base. Si algo falla antes, la base actual queda
+   intacta;
+6. verifica la base restaurada y, si falla, revierte a la copia de recuperación.
+
+El bloqueo se mantiene durante todo el reemplazo, de modo que la aplicación no
+puede reabrir la base a mitad del procedimiento. Es un bloqueo cooperativo:
+protege frente a otras instancias de HiQNet POS y frente a utilidades que respeten
+el archivo, no frente a un programa externo que lo ignore deliberadamente.
+
+Al arrancar, la aplicación toma ese mismo bloqueo. Si ya está abierto en el
+equipo, muestra `HiQNet POS ya está abierto en este equipo` en lugar de trabajar
+sobre la base de otra instancia.
 
 Consecuencia: **todo cambio posterior al respaldo se pierde** (ventas,
-devoluciones, compras, gastos, merma, usuarios, licencias y auditoría vuelven al
+deoluciones, compras, gastos, merma, usuarios, licencias y auditoría vuelven al
 estado del archivo). La copia de recuperación permite deshacer una restauración
 equivocada si aún no se operó sobre la base restaurada.
 
@@ -104,8 +121,18 @@ arrancar. Revertir el ejecutable **no** revierte la base.
 - respaldo verificado → cambio posterior → restauración → solo estado respaldado;
 - copia de recuperación con el estado previo completo;
 - rechazo de archivo ajeno/corrupto y de esquema más nuevo;
-- rechazo de restauración con escritura activa;
-- no sobrescritura de un respaldo existente;
+- rechazo de restauración con escritura activa y con otra instancia abierta;
+- rechazo de historial de migraciones manipulado (checksum distinto);
+- no sobrescritura de un respaldo existente ni de una copia de recuperación;
+- restauración con respaldo inválido deja la base intacta;
+- sin archivos `.restore-tmp` residuales;
 - detección de base corrupta al abrir.
+
+`tools/windows-native-e2e/e2e_restore_guard.py` (ejecutable real, base aislada):
+
+- respaldo creado por la aplicación;
+- `--restore-backup` con la aplicación abierta → código 2 y base intacta;
+- `--verify-backup` y `--restore-backup` con la aplicación cerrada → código 0;
+- copia `pre-restore` presente y reapertura con los datos restaurados.
 
 `returns_migration.rs` cubre la actualización `0009 → 0010` conservando gastos.

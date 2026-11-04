@@ -3,6 +3,8 @@
 *.db-journal
 *.db-wal
 *.db-shm
+*.db.lock
+*.restore-tmp
 *.sqlite
 *.sqlite3
 *.sqlite3-wal

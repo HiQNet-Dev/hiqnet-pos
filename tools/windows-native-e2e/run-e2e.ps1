@@ -120,6 +120,25 @@ function Stop-RunProcesses {
     if (-not $driver.HasExited) {
         try { Stop-Process -Id $driver.Id -Force -ErrorAction Stop } catch { }
     }
+
+    # Si el driver murió antes de la limpieza, sus hijos quedan huérfanos y el
+    # árbol ya no los alcanza. La app de esta ejecución es identificable sin
+    # ambigüedad porque su línea de comandos incluye la base única de la corrida;
+    # ninguna instalación personal usa esa ruta.
+    foreach ($stray in @(Get-CimInstance Win32_Process -Filter "Name = 'pos-desktop.exe'")) {
+        $commandLine = $stray.CommandLine
+        if ($commandLine -and $commandLine.Contains($databasePath)) {
+            try { Stop-Process -Id ([int]$stray.ProcessId) -Force -ErrorAction Stop } catch { }
+        }
+    }
+}
+
+function Get-DriverExitText {
+    # En PowerShell 5.1 `ExitCode` de un proceso iniciado con `-PassThru` puede
+    # quedar vacío; el mensaje debe ser honesto en lugar de mostrar un hueco.
+    try { $driver.Refresh() } catch { }
+    if ($null -ne $driver.ExitCode) { return [string]$driver.ExitCode }
+    return "desconocido"
 }
 
 function Assert-LocalPortAvailable {
@@ -158,7 +177,7 @@ try {
     $ready = $false
     while (-not $ready -and (Get-Date) -lt $deadline) {
         if ($driver.HasExited) {
-            throw "tauri-driver terminó con código $($driver.ExitCode). Revisa $driverErrorLog"
+            throw "tauri-driver terminó con código $(Get-DriverExitText). Revisa $driverErrorLog"
         }
         $client = New-Object System.Net.Sockets.TcpClient
         try {
@@ -176,7 +195,7 @@ try {
         throw "tauri-driver no aceptó conexiones en el puerto $Port"
     }
     if ($driver.HasExited) {
-        throw "tauri-driver terminó con código $($driver.ExitCode) después del sondeo. Revisa $driverErrorLog"
+        throw "tauri-driver terminó con código $(Get-DriverExitText) después del sondeo. Revisa $driverErrorLog"
     }
     Write-Output "driver_ready=True"
 
@@ -195,7 +214,12 @@ try {
             $stream.Dispose()
         }
         if ($header -eq "SQLite format 3`0") {
-            $dbState = "valid ($length bytes)"
+            # Con WAL activo, el archivo principal puede ser pequeño y los datos
+            # vivir en `-wal`. La comprobación de contenido es `verify_db.py`;
+            # esto solo confirma que existe una base legible para inspección.
+            $walPath = "$databasePath-wal"
+            $walBytes = if (Test-Path -LiteralPath $walPath) { (Get-Item -LiteralPath $walPath).Length } else { 0 }
+            $dbState = "header_ok (main=$length bytes, wal=$walBytes bytes)"
         }
         else {
             $dbState = "invalid header"
@@ -212,7 +236,9 @@ catch {
     $exitCode = 1
 }
 finally {
-    Stop-RunProcesses
+    # Un fallo al detener procesos nunca debe impedir restaurar el entorno ni
+    # dejar la sesión del operador apuntando a la base temporal.
+    try { Stop-RunProcesses } catch { Write-Output "cleanup_error=$($_.Exception.Message)" }
     if ($previousDatabasePath) {
         $env:HIQNET_POS_DB_PATH = $previousDatabasePath
     }

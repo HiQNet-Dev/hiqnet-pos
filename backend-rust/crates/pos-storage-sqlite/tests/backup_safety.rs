@@ -1,5 +1,6 @@
 use pos_storage_sqlite::{
-    StorageError, backup_to, latest_schema_version, open, restore_from_backup, verify_backup,
+    StorageError, backup_to, latest_schema_version, open, restore_from_backup, try_lock,
+    verify_backup,
 };
 use sqlx::Row;
 
@@ -180,6 +181,128 @@ async fn base_corrupta_se_rechaza_al_abrir() {
         matches!(error, StorageError::Corrupt | StorageError::Open),
         "obtenido {error:?}"
     );
+}
+
+#[tokio::test]
+async fn rechaza_restaurar_con_otra_instancia_abierta() {
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("hiqnet-pos.db");
+    let backup = dir.path().join("respaldo.db");
+
+    let pool = open(&database).await.unwrap();
+    seed_organization(&pool).await;
+    seed_product(&pool, "p-1", "UNO").await;
+    backup_to(&pool, &backup).await.unwrap();
+    seed_product(&pool, "p-2", "DOS").await;
+    pool.close().await;
+
+    // Otra instancia de HiQNet POS abierta y ociosa: sin transacción activa,
+    // pero con la base en uso.
+    let running = try_lock(&database).unwrap();
+
+    let error = restore_from_backup(&database, &backup).await.unwrap_err();
+    assert!(
+        matches!(error, StorageError::DatabaseInUse),
+        "obtenido {error:?}"
+    );
+    assert_eq!(
+        product_count(&database).await,
+        2,
+        "la base en uso no se modifica"
+    );
+
+    drop(running);
+    restore_from_backup(&database, &backup).await.unwrap();
+    assert_eq!(product_count(&database).await, 1);
+}
+
+#[tokio::test]
+async fn restauracion_no_deja_archivos_temporales() {
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("hiqnet-pos.db");
+    let backup = dir.path().join("respaldo.db");
+
+    let pool = open(&database).await.unwrap();
+    seed_organization(&pool).await;
+    seed_product(&pool, "p-1", "UNO").await;
+    backup_to(&pool, &backup).await.unwrap();
+    pool.close().await;
+
+    restore_from_backup(&database, &backup).await.unwrap();
+
+    let leftovers: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().to_string())
+        .filter(|name| name.contains("restore-tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "archivos sobrantes: {leftovers:?}");
+}
+
+#[tokio::test]
+async fn respaldo_invalido_deja_la_base_intacta() {
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("hiqnet-pos.db");
+    let corrupt = dir.path().join("roto.db");
+
+    let pool = open(&database).await.unwrap();
+    seed_organization(&pool).await;
+    seed_product(&pool, "p-1", "UNO").await;
+    pool.close().await;
+
+    std::fs::write(&corrupt, vec![0x41_u8; 8192]).unwrap();
+    assert!(restore_from_backup(&database, &corrupt).await.is_err());
+    assert_eq!(product_count(&database).await, 1);
+}
+
+#[tokio::test]
+async fn rechaza_historial_de_migraciones_manipulado() {
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("hiqnet-pos.db");
+    let pool = open(&database).await.unwrap();
+    seed_organization(&pool).await;
+    sqlx::query("UPDATE _sqlx_migrations SET checksum = X'00' WHERE version = 1")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+
+    assert!(matches!(
+        verify_backup(&database).await,
+        Err(StorageError::InvalidBackup)
+    ));
+}
+
+#[tokio::test]
+async fn restauraciones_sucesivas_conservan_cada_copia_de_recuperacion() {
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("hiqnet-pos.db");
+    let older = dir.path().join("anterior.db");
+    let newer = dir.path().join("reciente.db");
+
+    let pool = open(&database).await.unwrap();
+    seed_organization(&pool).await;
+    seed_product(&pool, "p-1", "UNO").await;
+    backup_to(&pool, &older).await.unwrap();
+    seed_product(&pool, "p-2", "DOS").await;
+    backup_to(&pool, &newer).await.unwrap();
+    pool.close().await;
+
+    restore_from_backup(&database, &older).await.unwrap();
+    restore_from_backup(&database, &newer).await.unwrap();
+
+    let recovery_copies = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .contains(".pre-restore-")
+        })
+        .count();
+    assert_eq!(recovery_copies, 2, "ninguna copia se sobrescribe");
+    assert_eq!(product_count(&database).await, 2);
 }
 
 #[tokio::test]
