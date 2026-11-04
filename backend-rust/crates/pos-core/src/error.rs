@@ -83,6 +83,9 @@ pub enum DomainError {
     #[error("stock insuficiente para registrar la salida")]
     InsufficientStock,
 
+    #[error("el efectivo recibido es insuficiente")]
+    InsufficientPayment,
+
     #[error("la versión de autorización comercial no es compatible")]
     UnsupportedLicenseVersion,
 }

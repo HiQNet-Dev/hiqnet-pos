@@ -18,6 +18,14 @@ const api = vi.hoisted(() => ({
   currentStock: vi.fn(),
   listInventoryMovements: vi.fn(),
   recordInventoryMovement: vi.fn(),
+  listCashRegisters: vi.fn(),
+  listCashShiftHistory: vi.fn(),
+  activeCashShift: vi.fn(),
+  listModifierGroups: vi.fn(),
+  listModifierOptions: vi.fn(),
+  configureProduct: vi.fn(),
+  checkoutSale: vi.fn(),
+  getSale: vi.fn(),
   listAuditEvents: vi.fn(),
   commercialState: vi.fn(),
   backupDatabase: vi.fn(),
@@ -71,6 +79,11 @@ describe("App", () => {
     api.listProductVariants.mockResolvedValue([]);
     api.currentStock.mockResolvedValue("0");
     api.listInventoryMovements.mockResolvedValue([]);
+    api.listCashRegisters.mockResolvedValue([]);
+    api.listCashShiftHistory.mockResolvedValue([]);
+    api.activeCashShift.mockResolvedValue(null);
+    api.listModifierGroups.mockResolvedValue([]);
+    api.listModifierOptions.mockResolvedValue([]);
     api.listAuditEvents.mockResolvedValue([]);
   });
 

@@ -9,6 +9,7 @@ use pos_core::inventory::InventoryMovement;
 use pos_core::modifiers::{ModifierGroup, ModifierOption};
 use pos_core::money::Money;
 use pos_core::organization::{Branch, Organization};
+use pos_core::sales::{Sale, SaleItem, SalePayment};
 use serde::Serialize;
 use time::OffsetDateTime;
 
@@ -118,6 +119,30 @@ pub trait StoreTx: Send {
         organization_id: OrganizationId,
         branch_id: BranchId,
     ) -> AppResult<Vec<CashShift>>;
+
+    async fn insert_sale(&mut self, sale: &Sale) -> AppResult<()>;
+    async fn insert_sale_item(&mut self, item: &SaleItem) -> AppResult<()>;
+    async fn insert_sale_payment(&mut self, payment: &SalePayment) -> AppResult<()>;
+    async fn find_sale_by_idempotency(
+        &mut self,
+        organization_id: OrganizationId,
+        idempotency_key: &str,
+    ) -> AppResult<Option<Sale>>;
+    async fn find_sale(
+        &mut self,
+        organization_id: OrganizationId,
+        sale_id: pos_core::ids::SaleId,
+    ) -> AppResult<Option<Sale>>;
+    async fn list_sale_items(
+        &mut self,
+        organization_id: OrganizationId,
+        sale_id: pos_core::ids::SaleId,
+    ) -> AppResult<Vec<SaleItem>>;
+    async fn list_sale_payments(
+        &mut self,
+        organization_id: OrganizationId,
+        sale_id: pos_core::ids::SaleId,
+    ) -> AppResult<Vec<SalePayment>>;
 
     async fn insert_modifier_group(&mut self, group: &ModifierGroup) -> AppResult<()>;
     async fn find_modifier_group(

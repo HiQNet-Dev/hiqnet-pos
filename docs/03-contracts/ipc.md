@@ -113,6 +113,28 @@ Entrada: `{ "draft": { "product_id": "...", "name": "Grande", "sku": "CAF-001-G"
 El SKU es opcional y único por organización. `list_product_variants` requiere
 `sales.sell` y recibe `{ "product_id": "..." }`.
 
+## Ventas
+
+`checkout_sale` requiere `sales.sell` y un turno de caja abierto. Entrada:
+
+```json
+{
+  "draft": {
+    "shift_id": "...",
+    "idempotency_key": "...",
+    "items": [{ "product_id": "...", "variant_id": null, "quantity": "1", "selected_option_ids": [] }],
+    "cash_received": "50.00"
+  }
+}
+```
+
+Devuelve folio, subtotal, impuesto, total, partidas y cambio. La misma clave de
+idempotencia devuelve la misma venta; contenido distinto produce `conflict`.
+La operación descuenta inventario y registra el efectivo en caja en una sola
+transacción.
+
+`get_sale` requiere `sales.sell` y devuelve una venta confirmada de la organización.
+
 ## Modificadores de catálogo
 
 Comandos: `create_modifier_group`, `list_modifier_groups`,

@@ -23,7 +23,7 @@ Estados: **VERIFICADO** (implementado y probado), **PARCIAL**, **PENDIENTE**,
 | App Tauri arranca en Windows | VERIFICADO | Ejecutable construido y arrancado; base creada |
 | Instalador NSIS firmado | PENDIENTE | Requiere decisión de firma (D-09) |
 | Smoke E2E con Playwright | PARCIAL | Smoke de UI en navegador; E2E Tauri pendiente |
-| Ventas y pagos | PENDIENTE | Fase G2 |
+| Ventas y pagos | PARCIAL | Checkout en efectivo, carrito, pago, inventario y caja; faltan otros métodos y E2E |
 | Caja, turnos y arqueo | PENDIENTE | Fase G2 |
 | Categorías de catálogo | PARCIAL | Dominio, migración 0004, IPC, asignación a productos y UI; sin E2E Tauri |
 | Variantes de producto | PARCIAL | SKU por organización, precio exacto, selección en UI; sin inventario por variante |

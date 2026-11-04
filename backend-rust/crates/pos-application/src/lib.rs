@@ -15,8 +15,9 @@ pub use ports::{
 pub use service::{
     AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, CashCloseShiftDraft,
     CashMovementDraft, CashMovementView, CashOpenShiftDraft, CashRegisterDraft, CashRegisterView,
-    CashShiftView, CategoryDraft, CategoryView, CommercialStateView, InventoryMovementDraft,
-    InventoryMovementView, LoginRequest, ModifierConfigurationDraft, ModifierConfigurationView,
-    ModifierGroupDraft, ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PosService,
-    ProductDraft, ProductVariantDraft, ProductVariantView, ProductView,
+    CashShiftView, CategoryDraft, CategoryView, CheckoutDraft, CommercialStateView,
+    InventoryMovementDraft, InventoryMovementView, LoginRequest, ModifierConfigurationDraft,
+    ModifierConfigurationView, ModifierGroupDraft, ModifierGroupView, ModifierOptionDraft,
+    ModifierOptionView, PosService, ProductDraft, ProductVariantDraft, ProductVariantView,
+    ProductView, SaleItemDraft, SaleItemView, SalePaymentView, SaleView,
 };

@@ -20,6 +20,7 @@ pub enum AuditAction {
     CashShiftOpened,
     CashMovementRegistered,
     CashShiftClosed,
+    SaleCompleted,
     InventoryMovementRegistered,
     BackupCreated,
 }
@@ -40,6 +41,7 @@ impl AuditAction {
             "cash.shift_opened" => Some(AuditAction::CashShiftOpened),
             "cash.movement_registered" => Some(AuditAction::CashMovementRegistered),
             "cash.shift_closed" => Some(AuditAction::CashShiftClosed),
+            "sales.completed" => Some(AuditAction::SaleCompleted),
             "inventory.movement_registered" => Some(AuditAction::InventoryMovementRegistered),
             "backup.created" => Some(AuditAction::BackupCreated),
             _ => None,
@@ -61,6 +63,7 @@ impl AuditAction {
             AuditAction::CashShiftOpened => "cash.shift_opened",
             AuditAction::CashMovementRegistered => "cash.movement_registered",
             AuditAction::CashShiftClosed => "cash.shift_closed",
+            AuditAction::SaleCompleted => "sales.completed",
             AuditAction::InventoryMovementRegistered => "inventory.movement_registered",
             AuditAction::BackupCreated => "backup.created",
         }

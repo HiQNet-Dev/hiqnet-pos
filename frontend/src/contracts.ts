@@ -161,6 +161,49 @@ export type CashMovementDraft = z.infer<typeof cashMovementDraftSchema>;
 export type CashOpenShiftDraft = z.infer<typeof cashOpenShiftDraftSchema>;
 export type CashCloseShiftDraft = z.infer<typeof cashCloseShiftDraftSchema>;
 
+export const saleItemDraftSchema = z.object({
+  product_id: z.string().min(1),
+  variant_id: z.string().nullable().optional(),
+  quantity: z.string().regex(/^\d+(\.\d{1,3})?$/),
+  selected_option_ids: z.array(z.string()),
+});
+
+export const checkoutDraftSchema = z.object({
+  shift_id: z.string().min(1),
+  idempotency_key: z.string().min(1),
+  items: z.array(saleItemDraftSchema).min(1),
+  cash_received: z.string(),
+});
+
+export const saleViewSchema = z.object({
+  id: z.string(),
+  folio: z.string(),
+  status: z.string(),
+  subtotal: z.string(),
+  tax: z.string(),
+  total: z.string(),
+  items: z.array(
+    z.object({
+      id: z.string(),
+      product_id: z.string(),
+      product_name: z.string(),
+      variant_name: z.string().nullable(),
+      quantity: z.string(),
+      unit_price: z.string(),
+      unit_tax: z.string(),
+      line_total: z.string(),
+      modifiers_summary: z.string(),
+    }),
+  ),
+  payment: z
+    .object({ method: z.string(), amount: z.string(), change: z.string() })
+    .nullable(),
+});
+
+export type SaleItemDraft = z.infer<typeof saleItemDraftSchema>;
+export type CheckoutDraft = z.infer<typeof checkoutDraftSchema>;
+export type SaleView = z.infer<typeof saleViewSchema>;
+
 export const modifierGroupSchema = z.object({
   id: z.string(),
   name: z.string(),
