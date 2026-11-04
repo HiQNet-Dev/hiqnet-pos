@@ -1146,15 +1146,24 @@ impl PosService {
             tx.rollback().await?;
             return Ok(None);
         };
+        if shift.branch_id != actor.branch_id.ok_or(AppError::NotFound)? {
+            return Err(pos_core::DomainError::AccessDenied {
+                required: "cash.shift.view",
+            }
+            .into());
+        }
         let movements = tx
             .list_cash_movements(actor.organization_id, shift.id)
             .await?;
+        let expected = expected_amount(&shift, &movements)?;
         tx.rollback().await?;
-        let expected = shift.expected_amount.unwrap_or(shift.opening_amount);
-        let counted = shift.counted_amount.unwrap_or(Money::ZERO);
-        let diff = shift.difference_minor.unwrap_or(0);
         Ok(Some(self.shift_view(
-            actor, shift, movements, expected, counted, diff,
+            actor,
+            shift,
+            movements,
+            expected,
+            Money::ZERO,
+            0,
         )))
     }
 
@@ -1182,18 +1191,8 @@ impl PosService {
             let movements = tx
                 .list_cash_movements(actor.organization_id, open_shift.id)
                 .await?;
-            let entry_total: i64 = movements
-                .iter()
-                .filter(|m| m.kind == CashMovementKind::In)
-                .map(|m| m.amount.minor_units())
-                .sum();
-            let exit_total: i64 = movements
-                .iter()
-                .filter(|m| m.kind == CashMovementKind::Out)
-                .map(|m| m.amount.minor_units())
-                .sum();
-            let expected = open_shift.opening_amount.minor_units() + entry_total - exit_total;
-            if expected - amount.minor_units() < 0 {
+            let expected = expected_amount(&open_shift, &movements)?;
+            if expected.minor_units() < amount.minor_units() {
                 return Err(AppError::Conflict);
             }
         }
@@ -1244,21 +1243,16 @@ impl PosService {
             }
             .into());
         }
+        if actor.role != Role::Owner && open_shift.opened_by != actor.user_id {
+            return Err(pos_core::DomainError::AccessDenied {
+                required: "cash.shift.close",
+            }
+            .into());
+        }
         let movements = tx
             .list_cash_movements(actor.organization_id, open_shift.id)
             .await?;
-        let entry_total: Money = movements
-            .iter()
-            .filter(|movement| movement.kind == CashMovementKind::In)
-            .fold(Money::ZERO, |acc, movement| {
-                acc.checked_add(movement.amount).unwrap()
-            });
-        let exit_total: Money = movements
-            .iter()
-            .filter(|movement| movement.kind == CashMovementKind::Out)
-            .fold(Money::ZERO, |acc, movement| {
-                acc.checked_add(movement.amount).unwrap()
-            });
+        let (entry_total, exit_total) = cash_totals(&movements)?;
         let expected = open_shift
             .opening_amount
             .checked_add(entry_total)?
@@ -1312,11 +1306,21 @@ impl PosService {
             .find_cash_shift(actor.organization_id, shift_id)
             .await?
             .ok_or(AppError::NotFound)?;
+        if shift.branch_id != actor.branch_id.ok_or(AppError::NotFound)? {
+            return Err(pos_core::DomainError::AccessDenied {
+                required: "cash.shift.view",
+            }
+            .into());
+        }
         let movements = tx
             .list_cash_movements(actor.organization_id, shift.id)
             .await?;
         tx.rollback().await?;
-        let expected = shift.expected_amount.unwrap_or(Money::ZERO);
+        let expected = if shift.status == CashShiftStatus::Open {
+            expected_amount(&shift, &movements)?
+        } else {
+            shift.expected_amount.ok_or(AppError::NotFound)?
+        };
         let counted = shift.counted_amount.unwrap_or(Money::ZERO);
         let diff = shift.difference_minor.unwrap_or(0);
         let view = self.shift_view(actor, shift, movements, expected, counted, diff);
@@ -1324,29 +1328,21 @@ impl PosService {
     }
 
     pub async fn list_cash_shift_history(&self, actor: &Actor) -> AppResult<Vec<CashShiftView>> {
-        // Minimal history: open shift if any; closed shifts are not queried in this slice.
         actor.require(pos_core::identity::Permission::ViewCashShift)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
         let mut tx = self.store.begin().await?;
-        let registers = tx
-            .list_cash_registers(
-                actor.organization_id,
-                actor.branch_id.ok_or(AppError::NotFound)?,
-            )
+        let closed = tx
+            .list_closed_cash_shifts(actor.organization_id, branch_id)
             .await?;
         let mut views = Vec::new();
-        for register in registers {
-            if let Some(shift) = tx
-                .find_open_cash_shift(actor.organization_id, register.id)
-                .await?
-            {
-                let movements = tx
-                    .list_cash_movements(actor.organization_id, shift.id)
-                    .await?;
-                let expected = shift.expected_amount.unwrap_or(shift.opening_amount);
-                let counted = shift.counted_amount.unwrap_or(Money::ZERO);
-                let diff = shift.difference_minor.unwrap_or(0);
-                views.push(self.shift_view(actor, shift, movements, expected, counted, diff));
-            }
+        for shift in closed {
+            let movements = tx
+                .list_cash_movements(actor.organization_id, shift.id)
+                .await?;
+            let expected = shift.expected_amount.unwrap_or(shift.opening_amount);
+            let counted = shift.counted_amount.unwrap_or(Money::ZERO);
+            let diff = shift.difference_minor.unwrap_or(0);
+            views.push(self.shift_view(actor, shift, movements, expected, counted, diff));
         }
         tx.rollback().await?;
         Ok(views)
@@ -1401,6 +1397,26 @@ impl PosService {
         tx.rollback().await?;
         commercial_view(&state, self.clock.now())
     }
+}
+
+fn cash_totals(movements: &[CashMovement]) -> pos_core::DomainResult<(Money, Money)> {
+    let mut entries = Money::ZERO;
+    let mut exits = Money::ZERO;
+    for movement in movements {
+        match movement.kind {
+            CashMovementKind::In => entries = entries.checked_add(movement.amount)?,
+            CashMovementKind::Out => exits = exits.checked_add(movement.amount)?,
+        }
+    }
+    Ok((entries, exits))
+}
+
+fn expected_amount(shift: &CashShift, movements: &[CashMovement]) -> pos_core::DomainResult<Money> {
+    let (entries, exits) = cash_totals(movements)?;
+    shift
+        .opening_amount
+        .checked_add(entries)?
+        .checked_sub(exits)
 }
 
 fn validate_password(password: &str) -> AppResult<()> {

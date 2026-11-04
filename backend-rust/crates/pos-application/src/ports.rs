@@ -113,6 +113,11 @@ pub trait StoreTx: Send {
         organization_id: OrganizationId,
         shift_id: pos_core::ids::CashShiftId,
     ) -> AppResult<Vec<CashMovement>>;
+    async fn list_closed_cash_shifts(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Vec<CashShift>>;
 
     async fn insert_modifier_group(&mut self, group: &ModifierGroup) -> AppResult<()>;
     async fn find_modifier_group(

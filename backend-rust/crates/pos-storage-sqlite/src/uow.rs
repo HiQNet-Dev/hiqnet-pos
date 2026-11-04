@@ -951,6 +951,52 @@ impl StoreTx for SqliteTx {
             .collect()
     }
 
+    async fn list_closed_cash_shifts(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Vec<CashShift>> {
+        let rows = sqlx::query(
+            "SELECT id, organization_id, branch_id, register_id, opened_by, opened_at, opening_amount_minor, status, closed_by, closed_at, expected_amount_minor, counted_amount_minor, difference_minor FROM cash_shift WHERE organization_id = ? AND branch_id = ? AND status = 'closed' ORDER BY closed_at DESC",
+        )
+        .bind(organization_id.to_string())
+        .bind(branch_id.to_string())
+        .fetch_all(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        rows.into_iter()
+            .map(|row| -> AppResult<CashShift> {
+                Ok(CashShift {
+                    id: parse_id(row.get("id"))?,
+                    organization_id: parse_id(row.get("organization_id"))?,
+                    branch_id: parse_id(row.get("branch_id"))?,
+                    register_id: parse_id(row.get("register_id"))?,
+                    opened_by: parse_id(row.get("opened_by"))?,
+                    opened_at: parse_ts(row.get("opened_at"))?,
+                    opening_amount: Money::from_minor_units(row.get("opening_amount_minor"))
+                        .map_err(AppError::Domain)?,
+                    status: CashShiftStatus::Closed,
+                    closed_by: parse_optional_id(row.get("closed_by"))?,
+                    closed_at: row
+                        .get::<Option<String>, _>("closed_at")
+                        .map(parse_ts)
+                        .transpose()?,
+                    expected_amount: row
+                        .get::<Option<i64>, _>("expected_amount_minor")
+                        .map(Money::from_minor_units)
+                        .transpose()
+                        .map_err(AppError::Domain)?,
+                    counted_amount: row
+                        .get::<Option<i64>, _>("counted_amount_minor")
+                        .map(Money::from_minor_units)
+                        .transpose()
+                        .map_err(AppError::Domain)?,
+                    difference_minor: row.get("difference_minor"),
+                })
+            })
+            .collect()
+    }
+
     async fn append_audit(&mut self, event: &AuditEvent) -> AppResult<()> {
         let payload = serde_json::to_string(&event.payload).map_err(|_| AppError::Storage)?;
         sqlx::query(
