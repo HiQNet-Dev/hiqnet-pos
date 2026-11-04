@@ -7,6 +7,8 @@ import {
   bootstrapResultSchema,
   commercialStateSchema,
   categorySchema,
+  cashRegisterSchema,
+  cashShiftSchema,
   ipcErrorSchema,
   inventoryMovementSchema,
   productSchema,
@@ -25,6 +27,12 @@ import {
   type ProductDraft,
   type InventoryMovement,
   type InventoryMovementDraft,
+  type CashCloseShiftDraft,
+  type CashMovementDraft,
+  type CashOpenShiftDraft,
+  type CashRegister,
+  type CashRegisterDraft,
+  type CashShift,
   type Category,
   type CategoryDraft,
   type ModifierConfiguration,
@@ -101,6 +109,31 @@ export const api = {
 
   listProducts: () =>
     call<Product[]>("list_products", undefined, productSchema.array()),
+
+  createCashRegister: (draft: CashRegisterDraft) =>
+    call<CashRegister>("create_cash_register", { draft }, cashRegisterSchema),
+
+  listCashRegisters: () =>
+    call<CashRegister[]>("list_cash_registers", undefined, cashRegisterSchema.array()),
+
+  openCashShift: (draft: CashOpenShiftDraft) =>
+    call<CashShift>("open_cash_shift", { draft }, cashShiftSchema),
+
+  activeCashShift: (registerId: string) =>
+    call<CashShift | null>(
+      "active_cash_shift",
+      { register_id: registerId },
+      cashShiftSchema.nullable(),
+    ),
+
+  registerCashMovement: (draft: CashMovementDraft) =>
+    call<unknown>("register_cash_movement", { draft }, z.unknown()),
+
+  closeCashShift: (draft: CashCloseShiftDraft) =>
+    call<CashShift>("close_cash_shift", { draft }, cashShiftSchema),
+
+  listCashShiftHistory: () =>
+    call<CashShift[]>("list_cash_shift_history", undefined, cashShiftSchema.array()),
 
   assignProductCategory: (productId: string, categoryId: string | null) =>
     call<Product>(

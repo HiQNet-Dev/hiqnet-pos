@@ -7,11 +7,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use pos_application::{
-    AppError, AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, CategoryDraft,
-    CategoryView, CommercialStateView, InventoryMovementDraft, InventoryMovementView, LoginRequest,
-    ModifierConfigurationDraft, ModifierConfigurationView, ModifierGroupDraft, ModifierGroupView,
-    ModifierOptionDraft, ModifierOptionView, PosService, ProductDraft, ProductVariantDraft,
-    ProductVariantView, ProductView, SharedClock, SharedHasher, SharedStore, SystemClock,
+    AppError, AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, CashCloseShiftDraft,
+    CashMovementDraft, CashMovementView, CashOpenShiftDraft, CashRegisterDraft, CashRegisterView,
+    CashShiftView, CategoryDraft, CategoryView, CommercialStateView, InventoryMovementDraft,
+    InventoryMovementView, LoginRequest, ModifierConfigurationDraft, ModifierConfigurationView,
+    ModifierGroupDraft, ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PosService,
+    ProductDraft, ProductVariantDraft, ProductVariantView, ProductView, SharedClock, SharedHasher,
+    SharedStore, SystemClock,
 };
 use pos_core::identity::{Actor, Permission};
 use pos_core::ids::{BranchId, ProductId};
@@ -179,6 +181,68 @@ async fn configure_product(
 ) -> IpcResult<ModifierConfigurationView> {
     let actor = session_actor(&state)?;
     Ok(state.service.configure_product(&actor, draft).await?)
+}
+
+#[tauri::command]
+async fn create_cash_register(
+    state: State<'_, AppState>,
+    draft: CashRegisterDraft,
+) -> IpcResult<CashRegisterView> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.create_cash_register(&actor, draft).await?)
+}
+
+#[tauri::command]
+async fn list_cash_registers(state: State<'_, AppState>) -> IpcResult<Vec<CashRegisterView>> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.list_cash_registers(&actor).await?)
+}
+
+#[tauri::command]
+async fn open_cash_shift(
+    state: State<'_, AppState>,
+    draft: CashOpenShiftDraft,
+) -> IpcResult<CashShiftView> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.open_cash_shift(&actor, draft).await?)
+}
+
+#[tauri::command]
+async fn active_cash_shift(
+    state: State<'_, AppState>,
+    register_id: String,
+) -> IpcResult<Option<CashShiftView>> {
+    let actor = session_actor(&state)?;
+    let register_id: pos_core::ids::CashRegisterId = register_id
+        .parse()
+        .map_err(|_| IpcError::from(AppError::NotFound))?;
+    Ok(state.service.active_cash_shift(&actor, register_id).await?)
+}
+
+#[tauri::command]
+async fn register_cash_movement(
+    state: State<'_, AppState>,
+    draft: CashMovementDraft,
+) -> IpcResult<CashMovementView> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.register_cash_movement(&actor, draft).await?)
+}
+
+#[tauri::command]
+async fn list_cash_shift_history(
+    state: State<'_, AppState>,
+) -> IpcResult<Vec<CashShiftView>> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.list_cash_shift_history(&actor).await?)
+}
+
+#[tauri::command]
+async fn close_cash_shift(
+    state: State<'_, AppState>,
+    draft: CashCloseShiftDraft,
+) -> IpcResult<CashShiftView> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.close_cash_shift(&actor, draft).await?)
 }
 
 #[tauri::command]
@@ -353,6 +417,13 @@ pub fn run() {
             login,
             logout,
             current_session,
+            create_cash_register,
+            list_cash_registers,
+            open_cash_shift,
+            active_cash_shift,
+            register_cash_movement,
+            list_cash_shift_history,
+            close_cash_shift,
             create_product,
             list_products,
             assign_product_category,

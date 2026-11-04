@@ -60,6 +60,9 @@ id_type!(CategoryId, "Identificador de categoría de catálogo.");
 id_type!(ProductVariantId, "Identificador de variante de producto.");
 id_type!(ModifierGroupId, "Identificador de grupo de modificadores.");
 id_type!(ModifierOptionId, "Identificador de opción de modificador.");
+id_type!(CashRegisterId, "Identificador de caja registradora.");
+id_type!(CashShiftId, "Identificador de turno de caja.");
+id_type!(CashMovementId, "Identificador de movimiento de efectivo.");
 id_type!(AuditEventId, "Identificador de evento de auditoría.");
 id_type!(
     InstallationId,

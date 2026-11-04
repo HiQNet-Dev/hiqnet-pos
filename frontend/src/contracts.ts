@@ -100,6 +100,67 @@ export type Product = z.infer<typeof productSchema>;
 export type Category = z.infer<typeof categorySchema>;
 export type CategoryDraft = z.infer<typeof categoryDraftSchema>;
 
+export const cashRegisterSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  code: z.string(),
+  active: z.boolean(),
+});
+
+export const cashRegisterDraftSchema = z.object({
+  name: z.string().min(1, "Escribe el nombre de la caja"),
+  code: z.string().min(2).max(16),
+});
+
+export const cashShiftSchema = z.object({
+  id: z.string(),
+  register_id: z.string(),
+  status: z.string(),
+  opened_by: z.string(),
+  opened_at: z.string(),
+  closed_by: z.string().nullable(),
+  closed_at: z.string().nullable(),
+  opening_amount: z.string(),
+  expected_amount: z.string(),
+  entry_total: z.string(),
+  exit_total: z.string(),
+  counted_amount: z.string().nullable(),
+  difference_minor: z.number().int().nullable(),
+  movements: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.string(),
+      amount: z.string(),
+      reason: z.string(),
+      occurred_at: z.string(),
+    }),
+  ),
+});
+
+export const cashMovementDraftSchema = z.object({
+  shift_id: z.string().min(1),
+  kind: z.enum(["in", "out"]),
+  amount: z.string(),
+  reason: z.string().min(1),
+});
+
+export const cashOpenShiftDraftSchema = z.object({
+  register_id: z.string().min(1),
+  opening_amount: z.string(),
+});
+
+export const cashCloseShiftDraftSchema = z.object({
+  shift_id: z.string().min(1),
+  counted_amount: z.string(),
+});
+
+export type CashRegister = z.infer<typeof cashRegisterSchema>;
+export type CashRegisterDraft = z.infer<typeof cashRegisterDraftSchema>;
+export type CashShift = z.infer<typeof cashShiftSchema>;
+export type CashMovementDraft = z.infer<typeof cashMovementDraftSchema>;
+export type CashOpenShiftDraft = z.infer<typeof cashOpenShiftDraftSchema>;
+export type CashCloseShiftDraft = z.infer<typeof cashCloseShiftDraftSchema>;
+
 export const modifierGroupSchema = z.object({
   id: z.string(),
   name: z.string(),

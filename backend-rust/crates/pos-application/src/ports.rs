@@ -1,11 +1,13 @@
 use crate::error::{AppError, AppResult};
 use async_trait::async_trait;
 use pos_core::audit::AuditEvent;
+use pos_core::cash::{CashMovement, CashRegister, CashShift};
 use pos_core::catalog::{Category, Product, ProductVariant};
 use pos_core::identity::User;
-use pos_core::ids::{BranchId, CategoryId, InstallationId, OrganizationId, ProductId};
+use pos_core::ids::{BranchId, CategoryId, InstallationId, OrganizationId, ProductId, UserId};
 use pos_core::inventory::InventoryMovement;
 use pos_core::modifiers::{ModifierGroup, ModifierOption};
+use pos_core::money::Money;
 use pos_core::organization::{Branch, Organization};
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -74,6 +76,48 @@ pub trait StoreTx: Send {
         organization_id: OrganizationId,
         product_id: ProductId,
     ) -> AppResult<Vec<ProductVariant>>;
+
+    async fn insert_cash_register(&mut self, register: &CashRegister) -> AppResult<()>;
+    async fn list_cash_registers(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Vec<CashRegister>>;
+
+    async fn insert_cash_shift(&mut self, shift: &CashShift) -> AppResult<()>;
+    async fn find_open_cash_shift(
+        &mut self,
+        organization_id: OrganizationId,
+        register_id: pos_core::ids::CashRegisterId,
+    ) -> AppResult<Option<CashShift>>;
+
+    async fn find_cash_shift(
+        &mut self,
+        organization_id: OrganizationId,
+        shift_id: pos_core::ids::CashShiftId,
+    ) -> AppResult<Option<CashShift>>;
+    #[allow(clippy::too_many_arguments)]
+    async fn close_cash_shift(
+        &mut self,
+        organization_id: OrganizationId,
+        shift_id: pos_core::ids::CashShiftId,
+        closed_by: UserId,
+        closed_at: time::OffsetDateTime,
+        expected_amount: Money,
+        counted_amount: Money,
+        difference_minor: i64,
+    ) -> AppResult<()>;
+    async fn insert_cash_movement(&mut self, movement: &CashMovement) -> AppResult<()>;
+    async fn list_cash_movements(
+        &mut self,
+        organization_id: OrganizationId,
+        shift_id: pos_core::ids::CashShiftId,
+    ) -> AppResult<Vec<CashMovement>>;
+    async fn list_closed_cash_shifts(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Vec<CashShift>>;
 
     async fn insert_modifier_group(&mut self, group: &ModifierGroup) -> AppResult<()>;
     async fn find_modifier_group(

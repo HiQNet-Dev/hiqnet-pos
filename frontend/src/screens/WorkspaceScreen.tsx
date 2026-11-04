@@ -8,6 +8,7 @@ import {
   type CommercialState,
   type Product,
 } from "../contracts";
+import { CashPanel } from "./CashPanel";
 import { InventoryPanel } from "./InventoryPanel";
 import { ModifierConfigurator } from "./ModifierConfigurator";
 import { CatalogPanel } from "./CatalogPanel";
@@ -347,6 +348,9 @@ export function WorkspaceScreen({ actor, commercial, productVersion }: Props) {
         )}
         {actor.permissions.includes("inventory.view") && (
           <InventoryPanel actor={actor} products={products} readOnly={readOnly} />
+        )}
+        {actor.permissions.includes("cash.shift.view") && (
+          <CashPanel actor={actor} readOnly={readOnly} />
         )}
         <aside className="workspace-side">
           <section className="panel" aria-labelledby="license-title">

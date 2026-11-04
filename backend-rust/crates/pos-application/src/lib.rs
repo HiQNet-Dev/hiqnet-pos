@@ -13,9 +13,10 @@ pub use ports::{
     SharedStore, Store, StoreTx, SystemClock,
 };
 pub use service::{
-    AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, CategoryDraft, CategoryView,
-    CommercialStateView, InventoryMovementDraft, InventoryMovementView, LoginRequest,
-    ModifierConfigurationDraft, ModifierConfigurationView, ModifierGroupDraft, ModifierGroupView,
-    ModifierOptionDraft, ModifierOptionView, PosService, ProductDraft, ProductVariantDraft,
-    ProductVariantView, ProductView,
+    AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, CashCloseShiftDraft,
+    CashMovementDraft, CashMovementView, CashOpenShiftDraft, CashRegisterDraft, CashRegisterView,
+    CashShiftView, CategoryDraft, CategoryView, CommercialStateView, InventoryMovementDraft,
+    InventoryMovementView, LoginRequest, ModifierConfigurationDraft, ModifierConfigurationView,
+    ModifierGroupDraft, ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PosService,
+    ProductDraft, ProductVariantDraft, ProductVariantView, ProductView,
 };
