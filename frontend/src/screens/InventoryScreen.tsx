@@ -31,6 +31,8 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
   );
   const [quantity, setQuantity] = useState("");
   const [reason, setReason] = useState("");
+  const [wasteQuantity, setWasteQuantity] = useState("");
+  const [wasteReason, setWasteReason] = useState("caducidad");
   const [stock, setStock] = useState<string | null>(null);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [busy, setBusy] = useState(false);
@@ -38,6 +40,7 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const requestRef = useRef(0);
+  const wasteAttemptRef = useRef<{ fingerprint: string; key: string } | null>(null);
 
   const selectedProduct = products.find((product) => product.id === productId) ?? null;
 
@@ -81,6 +84,28 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
         cause instanceof IpcError ? cause.message : "No fue posible consultar el inventario.",
       );
     }
+  }
+
+  async function recordWaste(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!actor.permissions.includes("waste.manage") || readOnly || !productId || !wasteQuantity || !wasteReason.trim()) return;
+    const reason = wasteReason.trim();
+    const fingerprint = [productId, wasteQuantity, reason].join("|");
+    const attempt = wasteAttemptRef.current?.fingerprint === fingerprint
+      ? wasteAttemptRef.current
+      : { fingerprint, key: crypto.randomUUID() };
+    wasteAttemptRef.current = attempt;
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      await api.recordWaste({ product_id: productId, quantity: wasteQuantity, reason, idempotency_key: attempt.key });
+      wasteAttemptRef.current = null;
+      setWasteQuantity(""); setNotice("Merma registrada y existencias actualizadas.");
+      await refreshDetail(); onStockChanged();
+    } catch (cause) {
+      const uncertain = !(cause instanceof IpcError) || cause.code === "storage_error" || cause.code === "unknown_error";
+      setError(uncertain ? "No se pudo confirmar el resultado. Reintenta sin modificar los datos para recuperarlo de forma segura." : cause instanceof IpcError ? cause.message : "No fue posible registrar la merma.");
+      if (!uncertain) wasteAttemptRef.current = null;
+    } finally { setBusy(false); }
   }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -242,6 +267,14 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
                 <button type="submit" className="button button-primary button-block" disabled={busy}>
                   Registrar movimiento
                 </button>
+              </form>
+            )}
+            {actor.permissions.includes("waste.manage") && !readOnly && (
+              <form className="form-grid form-compact movement-form" onSubmit={recordWaste} noValidate>
+                <h3>Registrar merma</h3>
+                <p className="muted">Reduce existencias; no genera gasto ni salida de caja.</p>
+                <div className="field-row"><label className="field field-short"><span>Cantidad</span><input inputMode="decimal" value={wasteQuantity} onChange={(event) => setWasteQuantity(event.target.value)} placeholder="0" required /></label><label className="field"><span>Motivo</span><select value={wasteReason} onChange={(event) => setWasteReason(event.target.value)}><option value="caducidad">Caducidad</option><option value="daño">Daño</option><option value="pérdida">Pérdida</option><option value="otro">Otro</option></select></label></div>
+                <button type="submit" className="button button-quiet" disabled={busy || !wasteQuantity}>Registrar merma</button>
               </form>
             )}
           </section>

@@ -15,6 +15,7 @@ import { AdminScreen } from "../screens/AdminScreen";
 import { CashScreen } from "../screens/CashScreen";
 import { CatalogScreen } from "../screens/CatalogScreen";
 import { InventoryScreen } from "../screens/InventoryScreen";
+import { ExpensesScreen } from "../screens/ExpensesScreen";
 import { PurchasingScreen, type PendingReceiptAttempt } from "../screens/PurchasingScreen";
 import { SalesScreen } from "../screens/SalesScreen";
 import { SideNav } from "./SideNav";
@@ -346,6 +347,10 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
                 pendingReceipt={pendingReceipt}
                 onPendingReceiptChange={updatePendingReceipt}
               />
+            )}
+
+            {activeSection === "expenses" && (
+              <ExpensesScreen actor={actor} readOnly={readOnly} shift={shift} onCashChanged={refreshCash} />
             )}
 
             {activeSection === "cash" && (
