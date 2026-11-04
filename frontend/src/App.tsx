@@ -127,6 +127,7 @@ export default function App() {
   if (actor && status) {
     return (
       <AppShell
+        key={`${actor.organization_id}:${actor.branch_id ?? "sin-sucursal"}:${actor.user_id}`}
         actor={actor}
         commercial={status.commercial}
         productVersion={status.product_version}

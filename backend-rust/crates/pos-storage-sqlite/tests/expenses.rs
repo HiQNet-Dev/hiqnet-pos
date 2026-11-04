@@ -577,6 +577,101 @@ async fn merma_rechaza_stock_insuficiente_y_licencia_vencida() {
 }
 
 #[tokio::test]
+async fn reintento_confirmado_no_duplica_salida_de_caja_ni_ledger_de_merma() {
+    let (_dir, pool, service, actor, product) = setup().await;
+    service
+        .record_inventory_movement(
+            &actor,
+            InventoryMovementDraft {
+                product_id: product.clone(),
+                kind: "inbound".into(),
+                quantity: "5".into(),
+                reason: None,
+            },
+        )
+        .await
+        .unwrap();
+    let register = service
+        .create_cash_register(
+            &actor,
+            CashRegisterDraft {
+                name: "Caja".into(),
+                code: "CJ-03".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let shift = service
+        .open_cash_shift(
+            &actor,
+            CashOpenShiftDraft {
+                register_id: register.id.clone(),
+                opening_amount: "100.00".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let category = service
+        .create_expense_category(
+            &actor,
+            ExpenseCategoryDraft {
+                name: "Operación".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let expense = ExpenseDraft {
+        category_id: category.id,
+        amount: "12.50".into(),
+        concept: "Limpieza".into(),
+        paid_from_cash: true,
+        shift_id: Some(shift.id),
+        idempotency_key: "reintento-caja".into(),
+    };
+    service
+        .record_expense(&actor, expense.clone())
+        .await
+        .unwrap();
+    service.record_expense(&actor, expense).await.unwrap();
+
+    let waste = WasteDraft {
+        product_id: product.clone(),
+        quantity: "2".into(),
+        reason: "caducidad".into(),
+        idempotency_key: "reintento-merma".into(),
+    };
+    service.record_waste(&actor, waste.clone()).await.unwrap();
+    service.record_waste(&actor, waste).await.unwrap();
+
+    let active = service
+        .active_cash_shift(&actor, register.id.parse().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        active.expected_amount, "87.50",
+        "la salida de caja debe ser única"
+    );
+    assert_eq!(
+        service
+            .current_stock(&actor, product.parse().unwrap(), None)
+            .await
+            .unwrap(),
+        "3",
+        "la merma debe descontarse una sola vez"
+    );
+    let row = sqlx::query("SELECT (SELECT COUNT(*) FROM expense) AS expenses, (SELECT COUNT(*) FROM cash_movement WHERE kind = 'out') AS cash, (SELECT COUNT(*) FROM waste_record) AS waste, (SELECT COUNT(*) FROM inventory_movement WHERE kind = 'adjustment_out') AS ledger, (SELECT COUNT(*) FROM audit_event WHERE action IN ('expenses.recorded', 'waste.recorded')) AS audits")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(row.get::<i64, _>("expenses"), 1);
+    assert_eq!(row.get::<i64, _>("cash"), 1);
+    assert_eq!(row.get::<i64, _>("waste"), 1);
+    assert_eq!(row.get::<i64, _>("ledger"), 1);
+    assert_eq!(row.get::<i64, _>("audits"), 2);
+}
+
+#[tokio::test]
 async fn merma_sin_stock_rechaza_y_no_persiste() {
     let (_dir, pool, service, actor, product) = setup().await;
     assert!(

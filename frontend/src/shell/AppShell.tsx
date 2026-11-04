@@ -11,6 +11,13 @@ import type {
   SaleView,
 } from "../contracts";
 import type { CartLine } from "../lib/cart";
+import {
+  loadPendingAttempt,
+  pendingAttemptStorageKey,
+  savePendingAttempt,
+  type PendingExpenseAttempt,
+  type PendingWasteAttempt,
+} from "../lib/pendingAttempt";
 import { AdminScreen } from "../screens/AdminScreen";
 import { CashScreen } from "../screens/CashScreen";
 import { CatalogScreen } from "../screens/CatalogScreen";
@@ -95,6 +102,14 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
   const [pendingReceipt, setPendingReceipt] = useState<PendingReceiptAttempt | null>(() =>
     loadPendingReceipt(receiptAttemptKey),
   );
+  const expenseAttemptKey = pendingAttemptStorageKey("expense", actor);
+  const wasteAttemptKey = pendingAttemptStorageKey("waste", actor);
+  const [pendingExpense, setPendingExpense] = useState<PendingExpenseAttempt | null>(() =>
+    loadPendingAttempt<PendingExpenseAttempt["payload"]>(expenseAttemptKey),
+  );
+  const [pendingWaste, setPendingWaste] = useState<PendingWasteAttempt | null>(() =>
+    loadPendingAttempt<PendingWasteAttempt["payload"]>(wasteAttemptKey),
+  );
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string } | null>(
     null,
@@ -111,6 +126,16 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
       // La recuperación en memoria sigue siendo segura si el almacenamiento local falla.
     }
   }, [receiptAttemptKey]);
+
+  const updatePendingExpense = useCallback((attempt: PendingExpenseAttempt | null) => {
+    setPendingExpense(attempt);
+    savePendingAttempt(expenseAttemptKey, attempt);
+  }, [expenseAttemptKey]);
+
+  const updatePendingWaste = useCallback((attempt: PendingWasteAttempt | null) => {
+    setPendingWaste(attempt);
+    savePendingAttempt(wasteAttemptKey, attempt);
+  }, [wasteAttemptKey]);
 
 
   const availableIds = useMemo(() => sections.map((item) => item.id), [sections]);
@@ -335,6 +360,8 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
                 products={products}
                 loading={catalogLoading}
                 onStockChanged={refreshCatalog}
+                pendingWaste={pendingWaste}
+                onPendingWasteChange={updatePendingWaste}
               />
             )}
 
@@ -350,7 +377,14 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
             )}
 
             {activeSection === "expenses" && (
-              <ExpensesScreen actor={actor} readOnly={readOnly} shift={shift} onCashChanged={refreshCash} />
+              <ExpensesScreen
+                actor={actor}
+                readOnly={readOnly}
+                shift={shift}
+                onCashChanged={refreshCash}
+                pendingAttempt={pendingExpense}
+                onPendingAttemptChange={updatePendingExpense}
+              />
             )}
 
             {activeSection === "cash" && (
