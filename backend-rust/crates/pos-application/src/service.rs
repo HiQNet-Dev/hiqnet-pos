@@ -1,12 +1,15 @@
 use crate::error::{AppError, AppResult};
 use crate::ports::{InstallationState, SharedClock, SharedHasher, SharedStore};
 use pos_core::audit::{AuditAction, AuditEvent};
+use pos_core::cash::{CashMovement, CashMovementKind, CashRegister, CashShift, CashShiftStatus};
 use pos_core::catalog::{Category, Product, ProductVariant};
 use pos_core::entitlements::{
     CommercialState, FeatureKey, LicenseStatus, PlanName, local_features,
 };
 use pos_core::identity::{Actor, Role, User, normalize_username};
-use pos_core::ids::{BranchId, InstallationId, OrganizationId, ProductId, UserId};
+use pos_core::ids::{
+    BranchId, CashRegisterId, CashShiftId, InstallationId, OrganizationId, ProductId, UserId,
+};
 use pos_core::inventory::{InventoryMovement, MovementKind};
 use pos_core::modifiers::{ModifierConfiguration, ModifierGroup, ModifierOption, OptionKind};
 use pos_core::money::Money;
@@ -264,6 +267,86 @@ pub struct ModifierConfigurationDraft {
     pub product_id: String,
     pub variant_id: Option<String>,
     pub selected_option_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CashRegisterDraft {
+    pub name: String,
+    pub code: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CashRegisterView {
+    pub id: String,
+    pub name: String,
+    pub code: String,
+    pub active: bool,
+}
+
+impl From<&CashRegister> for CashRegisterView {
+    fn from(register: &CashRegister) -> Self {
+        Self {
+            id: register.id.to_string(),
+            name: register.name.clone(),
+            code: register.code.clone(),
+            active: register.active,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CashMovementView {
+    pub id: String,
+    pub kind: String,
+    pub amount: String,
+    pub reason: String,
+    pub occurred_at: time::OffsetDateTime,
+}
+
+impl From<&CashMovement> for CashMovementView {
+    fn from(movement: &CashMovement) -> Self {
+        Self {
+            id: movement.id.to_string(),
+            kind: movement.kind.as_str().to_owned(),
+            amount: movement.amount.to_string(),
+            reason: movement.reason.clone(),
+            occurred_at: movement.occurred_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CashShiftView {
+    pub id: String,
+    pub register_id: String,
+    pub status: String,
+    pub opening_amount: String,
+    pub expected_amount: String,
+    pub entry_total: String,
+    pub exit_total: String,
+    pub counted_amount: Option<String>,
+    pub difference_minor: Option<i64>,
+    pub movements: Vec<CashMovementView>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CashMovementDraft {
+    pub shift_id: String,
+    pub kind: String,
+    pub amount: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CashOpenShiftDraft {
+    pub register_id: String,
+    pub opening_amount: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CashCloseShiftDraft {
+    pub shift_id: String,
+    pub counted_amount: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -958,6 +1041,358 @@ impl PosService {
         .await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    pub async fn create_cash_register(
+        &self,
+        actor: &Actor,
+        draft: CashRegisterDraft,
+    ) -> AppResult<CashRegisterView> {
+        actor.require(pos_core::identity::Permission::ManageCashRegisters)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        commercial.require_feature(FeatureKey::Sales, self.clock.now())?;
+        let register = CashRegister::new(actor.organization_id, branch_id, draft.name, draft.code)?;
+        tx.insert_cash_register(&register).await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            Some(branch_id),
+            Some(actor.user_id),
+            AuditAction::CashRegisterCreated,
+            "cash_register",
+            register.id.to_string(),
+            serde_json::json!({ "name": register.name, "code": register.code }),
+        ))
+        .await?;
+        tx.commit().await?;
+        Ok(CashRegisterView::from(&register))
+    }
+
+    pub async fn list_cash_registers(&self, actor: &Actor) -> AppResult<Vec<CashRegisterView>> {
+        actor.require(pos_core::identity::Permission::ViewCashShift)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let mut tx = self.store.begin().await?;
+        let registers = tx
+            .list_cash_registers(actor.organization_id, branch_id)
+            .await?;
+        tx.rollback().await?;
+        Ok(registers.iter().map(CashRegisterView::from).collect())
+    }
+
+    pub async fn open_cash_shift(
+        &self,
+        actor: &Actor,
+        draft: CashOpenShiftDraft,
+    ) -> AppResult<CashShiftView> {
+        actor.require(pos_core::identity::Permission::OpenCashShift)?;
+        let register_id: CashRegisterId =
+            draft.register_id.parse().map_err(|_| AppError::NotFound)?;
+        let opening: Money = draft.opening_amount.parse()?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        commercial.require_feature(FeatureKey::Sales, self.clock.now())?;
+        let registers = tx
+            .list_cash_registers(actor.organization_id, branch_id)
+            .await?;
+        let register = registers
+            .iter()
+            .find(|item| item.id == register_id && item.active)
+            .ok_or(pos_core::DomainError::ProductNotFound)?;
+        if tx
+            .find_open_cash_shift(actor.organization_id, register_id)
+            .await?
+            .is_some()
+        {
+            return Err(AppError::Conflict);
+        }
+        let shift = CashShift::new(
+            actor.organization_id,
+            branch_id,
+            register.id,
+            actor.user_id,
+            opening,
+        );
+        tx.insert_cash_shift(&shift).await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            Some(branch_id),
+            Some(actor.user_id),
+            AuditAction::CashShiftOpened,
+            "cash_shift",
+            shift.id.to_string(),
+            serde_json::json!({ "register_id": register_id.to_string(), "opening_amount": opening.to_string() }),
+        ))
+        .await?;
+        tx.commit().await?;
+        let expected = shift.opening_amount;
+        Ok(self.shift_view(actor, shift, Vec::new(), expected, Money::ZERO, 0))
+    }
+
+    pub async fn active_cash_shift(
+        &self,
+        actor: &Actor,
+        register_id: CashRegisterId,
+    ) -> AppResult<Option<CashShiftView>> {
+        actor.require(pos_core::identity::Permission::ViewCashShift)?;
+        let mut tx = self.store.begin().await?;
+        let Some(shift) = tx
+            .find_open_cash_shift(actor.organization_id, register_id)
+            .await?
+        else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+        let movements = tx
+            .list_cash_movements(actor.organization_id, shift.id)
+            .await?;
+        tx.rollback().await?;
+        let expected = shift.expected_amount.unwrap_or(shift.opening_amount);
+        let counted = shift.counted_amount.unwrap_or(Money::ZERO);
+        let diff = shift.difference_minor.unwrap_or(0);
+        Ok(Some(self.shift_view(
+            actor, shift, movements, expected, counted, diff,
+        )))
+    }
+
+    pub async fn register_cash_movement(
+        &self,
+        actor: &Actor,
+        draft: CashMovementDraft,
+    ) -> AppResult<CashMovementView> {
+        actor.require(pos_core::identity::Permission::RecordCashMovement)?;
+        let shift_id: CashShiftId = draft.shift_id.parse().map_err(|_| AppError::NotFound)?;
+        let kind = CashMovementKind::from_key(&draft.kind).ok_or(AppError::NotFound)?;
+        let amount: Money = draft.amount.parse()?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        let open_shift = tx
+            .find_cash_shift(actor.organization_id, shift_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        if open_shift.status != CashShiftStatus::Open || open_shift.branch_id != branch_id {
+            return Err(AppError::NotFound);
+        }
+        if kind == CashMovementKind::Out {
+            let movements = tx
+                .list_cash_movements(actor.organization_id, open_shift.id)
+                .await?;
+            let entry_total: i64 = movements
+                .iter()
+                .filter(|m| m.kind == CashMovementKind::In)
+                .map(|m| m.amount.minor_units())
+                .sum();
+            let exit_total: i64 = movements
+                .iter()
+                .filter(|m| m.kind == CashMovementKind::Out)
+                .map(|m| m.amount.minor_units())
+                .sum();
+            let expected = open_shift.opening_amount.minor_units() + entry_total - exit_total;
+            if expected - amount.minor_units() < 0 {
+                return Err(AppError::Conflict);
+            }
+        }
+        let movement = CashMovement::new(
+            actor.organization_id,
+            branch_id,
+            open_shift.register_id,
+            open_shift.id,
+            kind,
+            amount,
+            draft.reason,
+            Some(actor.user_id),
+        )?;
+        tx.insert_cash_movement(&movement).await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            Some(branch_id),
+            Some(actor.user_id),
+            AuditAction::CashMovementRegistered,
+            "cash_movement",
+            movement.id.to_string(),
+            serde_json::json!({ "shift_id": shift_id.to_string(), "kind": kind.as_str(), "amount": amount.to_string() }),
+        ))
+        .await?;
+        tx.commit().await?;
+        Ok(CashMovementView::from(&movement))
+    }
+
+    pub async fn close_cash_shift(
+        &self,
+        actor: &Actor,
+        draft: CashCloseShiftDraft,
+    ) -> AppResult<CashShiftView> {
+        actor.require(pos_core::identity::Permission::CloseCashShift)?;
+        let shift_id: CashShiftId = draft.shift_id.parse().map_err(|_| AppError::NotFound)?;
+        let counted: Money = draft.counted_amount.parse()?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let mut tx = self.store.begin().await?;
+        let commercial = require_commercial(tx.as_mut()).await?;
+        commercial.require_writes_allowed(self.clock.now())?;
+        let open_shift = tx
+            .find_cash_shift(actor.organization_id, shift_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        if open_shift.status != CashShiftStatus::Open || open_shift.branch_id != branch_id {
+            return Err(pos_core::DomainError::AccessDenied {
+                required: "cash.shift.view",
+            }
+            .into());
+        }
+        let movements = tx
+            .list_cash_movements(actor.organization_id, open_shift.id)
+            .await?;
+        let entry_total: Money = movements
+            .iter()
+            .filter(|movement| movement.kind == CashMovementKind::In)
+            .fold(Money::ZERO, |acc, movement| {
+                acc.checked_add(movement.amount).unwrap()
+            });
+        let exit_total: Money = movements
+            .iter()
+            .filter(|movement| movement.kind == CashMovementKind::Out)
+            .fold(Money::ZERO, |acc, movement| {
+                acc.checked_add(movement.amount).unwrap()
+            });
+        let expected = open_shift
+            .opening_amount
+            .checked_add(entry_total)?
+            .checked_sub(exit_total)?;
+        let difference_minor = counted.minor_units() - expected.minor_units();
+        tx.close_cash_shift(
+            actor.organization_id,
+            open_shift.id,
+            actor.user_id,
+            OffsetDateTime::now_utc(),
+            expected,
+            counted,
+            difference_minor,
+        )
+        .await?;
+        tx.append_audit(&AuditEvent::new(
+            actor.organization_id,
+            Some(branch_id),
+            Some(actor.user_id),
+            AuditAction::CashShiftClosed,
+            "cash_shift",
+            open_shift.id.to_string(),
+            serde_json::json!({ "counted": counted.to_string(), "expected": expected.to_string(), "difference_minor": difference_minor }),
+        ))
+        .await?;
+        tx.commit().await?;
+        let expected_string = expected.to_string();
+        let counted_string = counted.to_string();
+        Ok(CashShiftView {
+            id: open_shift.id.to_string(),
+            register_id: open_shift.register_id.to_string(),
+            status: "closed".into(),
+            opening_amount: open_shift.opening_amount.to_string(),
+            expected_amount: expected_string,
+            entry_total: entry_total.to_string(),
+            exit_total: exit_total.to_string(),
+            counted_amount: Some(counted_string),
+            difference_minor: Some(difference_minor),
+            movements: movements.iter().map(CashMovementView::from).collect(),
+        })
+    }
+
+    pub async fn cash_shift_summary(
+        &self,
+        actor: &Actor,
+        shift_id: CashShiftId,
+    ) -> AppResult<CashShiftView> {
+        actor.require(pos_core::identity::Permission::ViewCashShift)?;
+        let mut tx = self.store.begin().await?;
+        let shift = tx
+            .find_cash_shift(actor.organization_id, shift_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        let movements = tx
+            .list_cash_movements(actor.organization_id, shift.id)
+            .await?;
+        tx.rollback().await?;
+        let expected = shift.expected_amount.unwrap_or(Money::ZERO);
+        let counted = shift.counted_amount.unwrap_or(Money::ZERO);
+        let diff = shift.difference_minor.unwrap_or(0);
+        let view = self.shift_view(actor, shift, movements, expected, counted, diff);
+        Ok(view)
+    }
+
+    pub async fn list_cash_shift_history(&self, actor: &Actor) -> AppResult<Vec<CashShiftView>> {
+        // Minimal history: open shift if any; closed shifts are not queried in this slice.
+        actor.require(pos_core::identity::Permission::ViewCashShift)?;
+        let mut tx = self.store.begin().await?;
+        let registers = tx
+            .list_cash_registers(
+                actor.organization_id,
+                actor.branch_id.ok_or(AppError::NotFound)?,
+            )
+            .await?;
+        let mut views = Vec::new();
+        for register in registers {
+            if let Some(shift) = tx
+                .find_open_cash_shift(actor.organization_id, register.id)
+                .await?
+            {
+                let movements = tx
+                    .list_cash_movements(actor.organization_id, shift.id)
+                    .await?;
+                let expected = shift.expected_amount.unwrap_or(shift.opening_amount);
+                let counted = shift.counted_amount.unwrap_or(Money::ZERO);
+                let diff = shift.difference_minor.unwrap_or(0);
+                views.push(self.shift_view(actor, shift, movements, expected, counted, diff));
+            }
+        }
+        tx.rollback().await?;
+        Ok(views)
+    }
+
+    fn shift_view(
+        &self,
+        _actor: &Actor,
+        shift: CashShift,
+        movements: Vec<CashMovement>,
+        expected: Money,
+        counted: Money,
+        difference_minor: i64,
+    ) -> CashShiftView {
+        let entry_total_minor: i64 = movements
+            .iter()
+            .filter(|m| m.kind == CashMovementKind::In)
+            .map(|m| m.amount.minor_units())
+            .sum();
+        let exit_total_minor: i64 = movements
+            .iter()
+            .filter(|m| m.kind == CashMovementKind::Out)
+            .map(|m| m.amount.minor_units())
+            .sum();
+        CashShiftView {
+            id: shift.id.to_string(),
+            register_id: shift.register_id.to_string(),
+            status: shift.status.as_str().to_owned(),
+            opening_amount: shift.opening_amount.to_string(),
+            expected_amount: expected.to_string(),
+            entry_total: Money::from_minor_units(entry_total_minor)
+                .unwrap_or(Money::ZERO)
+                .to_string(),
+            exit_total: Money::from_minor_units(exit_total_minor)
+                .unwrap_or(Money::ZERO)
+                .to_string(),
+            counted_amount: shift.counted_amount.map(|m| m.to_string()).or_else(|| {
+                if shift.status == CashShiftStatus::Closed {
+                    Some(counted.to_string())
+                } else {
+                    None
+                }
+            }),
+            difference_minor: shift.difference_minor.or(Some(difference_minor)),
+            movements: movements.iter().map(CashMovementView::from).collect(),
+        }
     }
 
     pub async fn commercial_state(&self) -> AppResult<CommercialStateView> {

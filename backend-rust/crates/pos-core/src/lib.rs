@@ -4,6 +4,7 @@
 //! Contiene entidades, value objects, invariantes y políticas puras.
 
 pub mod audit;
+pub mod cash;
 pub mod catalog;
 pub mod entitlements;
 pub mod error;
