@@ -48,6 +48,11 @@ describe("PurchasingScreen", () => {
     expect(await screen.findByText(/no se confirmó el resultado/i)).toBeVisible();
     const first = api.receivePurchaseOrder.mock.calls[0]?.[0];
     expect(screen.getByLabelText("Recibir")).toBeDisabled();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: /recibir oc-1/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/recepción pendiente/i);
+    await user.click(screen.getByRole("button", { name: "Recibir" }));
+    expect(screen.getByLabelText("Recibir")).toBeDisabled();
     await user.click(screen.getByRole("button", { name: /reintentar recepción/i }));
     await waitFor(() => expect(api.receivePurchaseOrder).toHaveBeenCalledTimes(2));
     expect(api.receivePurchaseOrder.mock.calls[1]?.[0]).toEqual(first);

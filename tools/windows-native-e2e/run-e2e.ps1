@@ -112,7 +112,7 @@ function Stop-RunProcesses {
     # creados como descendientes verificables del driver de esta ejecución.
     $owned = @(Get-RunDescendantProcessIds -RootPid $driver.Id)
     [array]::Reverse($owned)
-    foreach ($pid in $owned) { try { Stop-Process -Id $pid -Force -ErrorAction Stop } catch { } }
+    foreach ($ownedProcessId in $owned) { try { Stop-Process -Id $ownedProcessId -Force -ErrorAction Stop } catch { } }
     if (-not $driver.HasExited) {
         try { Stop-Process -Id $driver.Id -Force -ErrorAction Stop } catch { }
     }
