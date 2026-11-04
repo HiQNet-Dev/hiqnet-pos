@@ -41,6 +41,11 @@ pub trait StoreTx: Send {
 
     async fn insert_organization(&mut self, organization: &Organization) -> AppResult<()>;
     async fn insert_branch(&mut self, branch: &Branch) -> AppResult<()>;
+    async fn find_branch(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Option<Branch>>;
 
     async fn insert_user(&mut self, user: &User) -> AppResult<()>;
     async fn find_user_by_username(&mut self, username: &str) -> AppResult<Option<User>>;
@@ -175,6 +180,13 @@ pub trait StoreTx: Send {
         branch_id: BranchId,
         product_id: ProductId,
     ) -> AppResult<pos_core::quantity::Quantity>;
+    /// Existencias por producto de la sucursal, para presentar disponibilidad
+    /// sin una consulta por producto.
+    async fn stock_levels(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Vec<(ProductId, pos_core::quantity::Quantity)>>;
     async fn list_inventory_movements(
         &mut self,
         organization_id: OrganizationId,

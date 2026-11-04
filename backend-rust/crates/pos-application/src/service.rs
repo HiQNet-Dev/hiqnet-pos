@@ -279,6 +279,20 @@ pub struct CashRegisterDraft {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct StockLevelView {
+    pub product_id: String,
+    pub quantity: String,
+}
+
+/// Identidad legible de la sucursal del actor autenticado.
+#[derive(Debug, Clone, Serialize)]
+pub struct BranchView {
+    pub id: String,
+    pub name: String,
+    pub code: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct CashRegisterView {
     pub id: String,
     pub name: String,
@@ -1060,6 +1074,23 @@ impl PosService {
         Ok(stock.to_string())
     }
 
+    /// Existencias de todos los productos de la sucursal del actor. Permite
+    /// mostrar disponibilidad en la pantalla de venta sin N consultas.
+    pub async fn list_stock_levels(&self, actor: &Actor) -> AppResult<Vec<StockLevelView>> {
+        actor.require(pos_core::identity::Permission::Sell)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let mut tx = self.store.begin().await?;
+        let levels = tx.stock_levels(actor.organization_id, branch_id).await?;
+        tx.rollback().await?;
+        Ok(levels
+            .into_iter()
+            .map(|(product_id, quantity)| StockLevelView {
+                product_id: product_id.to_string(),
+                quantity: quantity.to_string(),
+            })
+            .collect())
+    }
+
     pub async fn list_inventory_movements(
         &self,
         actor: &Actor,
@@ -1130,6 +1161,23 @@ impl PosService {
         .await?;
         tx.commit().await?;
         Ok(CashRegisterView::from(&register))
+    }
+
+    /// Devuelve nombre y código de la sucursal del actor. Solo lectura y sin
+    /// datos de otras sucursales u organizaciones.
+    pub async fn branch_summary(&self, actor: &Actor) -> AppResult<BranchView> {
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let mut tx = self.store.begin().await?;
+        let branch = tx
+            .find_branch(actor.organization_id, branch_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        tx.rollback().await?;
+        Ok(BranchView {
+            id: branch.id.to_string(),
+            name: branch.name,
+            code: branch.code,
+        })
     }
 
     pub async fn list_cash_registers(&self, actor: &Actor) -> AppResult<Vec<CashRegisterView>> {

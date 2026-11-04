@@ -7,13 +7,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use pos_application::{
-    AppError, AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, CashCloseShiftDraft,
-    CashMovementDraft, CashMovementView, CashOpenShiftDraft, CashRegisterDraft, CashRegisterView,
-    CashShiftView, CategoryDraft, CategoryView, CheckoutDraft, CommercialStateView,
-    InventoryMovementDraft, InventoryMovementView, LoginRequest, ModifierConfigurationDraft,
-    ModifierConfigurationView, ModifierGroupDraft, ModifierGroupView, ModifierOptionDraft,
-    ModifierOptionView, PosService, ProductDraft, ProductVariantDraft, ProductVariantView,
-    ProductView, SaleView, SharedClock, SharedHasher, SharedStore, SystemClock,
+    AppError, AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, BranchView,
+    CashCloseShiftDraft, CashMovementDraft, CashMovementView, CashOpenShiftDraft,
+    CashRegisterDraft, CashRegisterView, CashShiftView, CategoryDraft, CategoryView, CheckoutDraft,
+    CommercialStateView, InventoryMovementDraft, InventoryMovementView, LoginRequest,
+    ModifierConfigurationDraft, ModifierConfigurationView, ModifierGroupDraft, ModifierGroupView,
+    ModifierOptionDraft, ModifierOptionView, PosService, ProductDraft, ProductVariantDraft,
+    ProductVariantView, ProductView, SaleView, SharedClock, SharedHasher, SharedStore,
+    StockLevelView, SystemClock,
 };
 use pos_core::identity::{Actor, Permission};
 use pos_core::ids::{BranchId, ProductId};
@@ -203,6 +204,12 @@ async fn get_sale(state: State<'_, AppState>, sale_id: String) -> IpcResult<Sale
 }
 
 #[tauri::command(rename_all = "snake_case")]
+async fn branch_summary(state: State<'_, AppState>) -> IpcResult<BranchView> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.branch_summary(&actor).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
 async fn create_cash_register(
     state: State<'_, AppState>,
     draft: CashRegisterDraft,
@@ -325,6 +332,12 @@ async fn current_stock(
 }
 
 #[tauri::command(rename_all = "snake_case")]
+async fn list_stock_levels(state: State<'_, AppState>) -> IpcResult<Vec<StockLevelView>> {
+    let actor = session_actor(&state)?;
+    Ok(state.service.list_stock_levels(&actor).await?)
+}
+
+#[tauri::command(rename_all = "snake_case")]
 async fn record_inventory_movement(
     state: State<'_, AppState>,
     draft: InventoryMovementDraft,
@@ -436,6 +449,7 @@ pub fn run() {
             current_session,
             checkout_sale,
             get_sale,
+            branch_summary,
             create_cash_register,
             list_cash_registers,
             open_cash_shift,
@@ -456,6 +470,7 @@ pub fn run() {
             create_product_variant,
             list_product_variants,
             current_stock,
+            list_stock_levels,
             record_inventory_movement,
             list_inventory_movements,
             list_audit_events,

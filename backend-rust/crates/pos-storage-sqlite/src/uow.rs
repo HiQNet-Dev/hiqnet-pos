@@ -145,6 +145,32 @@ impl StoreTx for SqliteTx {
         Ok(())
     }
 
+    async fn find_branch(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Option<Branch>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, name, code, created_at FROM branch \
+             WHERE organization_id = ? AND id = ?",
+        )
+        .bind(organization_id.to_string())
+        .bind(branch_id.to_string())
+        .fetch_optional(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        row.map(|row| -> AppResult<Branch> {
+            Ok(Branch {
+                id: parse_id(row.get("id"))?,
+                organization_id: parse_id(row.get("organization_id"))?,
+                name: row.get("name"),
+                code: row.get("code"),
+                created_at: parse_ts(row.get("created_at"))?,
+            })
+        })
+        .transpose()
+    }
+
     async fn insert_user(&mut self, user: &User) -> AppResult<()> {
         sqlx::query(
             "INSERT INTO app_user \
@@ -475,6 +501,32 @@ impl StoreTx for SqliteTx {
         .map_err(map_sqlx)?;
         let stock: i64 = row.get("stock");
         Quantity::from_milli_units(stock).map_err(AppError::Domain)
+    }
+
+    async fn stock_levels(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Vec<(ProductId, Quantity)>> {
+        let rows = sqlx::query(
+            "SELECT product_id, COALESCE(SUM(CASE kind WHEN 'outbound' THEN -quantity_milli WHEN 'adjustment_out' THEN -quantity_milli ELSE quantity_milli END), 0) AS stock \
+             FROM inventory_movement WHERE organization_id = ? AND branch_id = ? GROUP BY product_id",
+        )
+        .bind(organization_id.to_string())
+        .bind(branch_id.to_string())
+        .fetch_all(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+        rows.into_iter()
+            .map(|row| -> AppResult<(ProductId, Quantity)> {
+                let product_id: ProductId = parse_id(row.get("product_id"))?;
+                let stock: i64 = row.get("stock");
+                Ok((
+                    product_id,
+                    Quantity::from_milli_units(stock).map_err(AppError::Domain)?,
+                ))
+            })
+            .collect()
     }
 
     async fn list_inventory_movements(
