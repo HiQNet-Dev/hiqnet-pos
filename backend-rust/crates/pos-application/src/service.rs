@@ -39,6 +39,7 @@ pub struct BootstrapResponse {
     pub organization_id: OrganizationId,
     pub branch_id: BranchId,
     pub user_id: UserId,
+    #[serde(with = "time::serde::rfc3339")]
     pub trial_ends_at: OffsetDateTime,
 }
 
@@ -302,6 +303,7 @@ pub struct CashMovementView {
     pub kind: String,
     pub amount: String,
     pub reason: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub occurred_at: time::OffsetDateTime,
 }
 
@@ -323,8 +325,10 @@ pub struct CashShiftView {
     pub register_id: String,
     pub status: String,
     pub opened_by: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub opened_at: time::OffsetDateTime,
     pub closed_by: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub closed_at: Option<time::OffsetDateTime>,
     pub opening_amount: String,
     pub expected_amount: String,
@@ -419,6 +423,7 @@ pub struct InventoryMovementView {
     pub kind: String,
     pub quantity: String,
     pub reason: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
     pub occurred_at: OffsetDateTime,
 }
 
@@ -442,6 +447,7 @@ pub struct AuditEventView {
     pub entity_type: String,
     pub entity_id: String,
     pub actor_user_id: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
     pub occurred_at: OffsetDateTime,
 }
 
@@ -462,6 +468,7 @@ impl From<&AuditEvent> for AuditEventView {
 pub struct CommercialStateView {
     pub plan: &'static str,
     pub status: &'static str,
+    #[serde(with = "time::serde::rfc3339")]
     pub valid_until: OffsetDateTime,
     pub features: Vec<&'static str>,
     pub read_only: bool,
@@ -1883,5 +1890,21 @@ mod tests {
         let expired = commercial_view(&state, start + time::Duration::days(31)).unwrap();
         assert!(expired.read_only);
         assert_eq!(expired.status, "read_only");
+    }
+
+    #[test]
+    fn las_fechas_del_contrato_ipc_son_texto_rfc3339() {
+        let movement = CashMovementView {
+            id: "m-1".into(),
+            kind: "in".into(),
+            amount: "1.00".into(),
+            reason: "prueba".into(),
+            occurred_at: OffsetDateTime::now_utc(),
+        };
+        let value = serde_json::to_value(movement).unwrap();
+        assert!(
+            value["occurred_at"].is_string(),
+            "el contrato IPC debe serializar fechas como texto: {value}"
+        );
     }
 }

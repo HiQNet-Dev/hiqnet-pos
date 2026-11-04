@@ -238,11 +238,12 @@ pub fn configure(
     }
 
     let tax_rate_bp = product.tax_rate_bp;
+    // Política provisional: precios netos e impuesto sumado por separado, con
+    // redondeo half-up a centavos por unidad. Variantes y modificadores usan la
+    // tasa del producto padre (ADR-003 y ADR-006).
     let tax = tax_amount(base_price, tax_rate_bp)?
         .checked_add(tax_amount(modifiers_total, tax_rate_bp)?)?;
     let total = base_price.checked_add(modifiers_total)?.checked_add(tax)?;
-    // tax should not be added separately if prices already include tax? Existing convention:
-    // unit_price is net and tax is added. We follow product.unit_tax convention.
 
     Ok(ModifierConfiguration {
         product_id: product.id,

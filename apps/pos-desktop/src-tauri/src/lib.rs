@@ -61,12 +61,16 @@ fn session_actor(state: &AppState) -> IpcResult<Actor> {
         .ok_or(AppError::Unauthenticated.into())
 }
 
-#[tauri::command]
+// Todos los comandos declaran `rename_all = "snake_case"` para que los
+// argumentos conserven los nombres publicados en `docs/03-contracts/ipc.md`
+// (`product_id`, `register_id`, `shift_id`, ...). Tauri 2 los renombraría a
+// camelCase por defecto y el frontend dejaría de poder invocarlos.
+#[tauri::command(rename_all = "snake_case")]
 async fn app_status(state: State<'_, AppState>) -> IpcResult<AppStatus> {
     Ok(state.service.status().await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn bootstrap(
     state: State<'_, AppState>,
     request: BootstrapRequest,
@@ -74,7 +78,7 @@ async fn bootstrap(
     Ok(state.service.bootstrap(request).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn login(state: State<'_, AppState>, request: LoginRequest) -> IpcResult<Actor> {
     let actor = state.service.login(request).await?;
     *state.session.write().map_err(|_| IpcError {
@@ -84,7 +88,7 @@ async fn login(state: State<'_, AppState>, request: LoginRequest) -> IpcResult<A
     Ok(actor)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn logout(state: State<'_, AppState>) -> IpcResult<()> {
     *state.session.write().map_err(|_| IpcError {
         code: "storage_error",
@@ -93,24 +97,24 @@ fn logout(state: State<'_, AppState>) -> IpcResult<()> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn current_session(state: State<'_, AppState>) -> IpcResult<Option<Actor>> {
     Ok(state.session.read().map_err(|_| AppError::Storage)?.clone())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn create_product(state: State<'_, AppState>, draft: ProductDraft) -> IpcResult<ProductView> {
     let actor = session_actor(&state)?;
     Ok(state.service.create_product(&actor, draft).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn list_products(state: State<'_, AppState>) -> IpcResult<Vec<ProductView>> {
     let actor = session_actor(&state)?;
     Ok(state.service.list_products(&actor).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn assign_product_category(
     state: State<'_, AppState>,
     product_id: String,
@@ -126,7 +130,7 @@ async fn assign_product_category(
         .await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn create_modifier_group(
     state: State<'_, AppState>,
     draft: ModifierGroupDraft,
@@ -135,7 +139,7 @@ async fn create_modifier_group(
     Ok(state.service.create_modifier_group(&actor, draft).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn list_modifier_groups(
     state: State<'_, AppState>,
     product_id: String,
@@ -150,7 +154,7 @@ async fn list_modifier_groups(
         .await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn create_modifier_option(
     state: State<'_, AppState>,
     draft: ModifierOptionDraft,
@@ -159,7 +163,7 @@ async fn create_modifier_option(
     Ok(state.service.create_modifier_option(&actor, draft).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn list_modifier_options(
     state: State<'_, AppState>,
     group_id: String,
@@ -174,7 +178,7 @@ async fn list_modifier_options(
         .await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn configure_product(
     state: State<'_, AppState>,
     draft: ModifierConfigurationDraft,
@@ -183,13 +187,13 @@ async fn configure_product(
     Ok(state.service.configure_product(&actor, draft).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn checkout_sale(state: State<'_, AppState>, draft: CheckoutDraft) -> IpcResult<SaleView> {
     let actor = session_actor(&state)?;
     Ok(state.service.checkout_sale(&actor, draft).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn get_sale(state: State<'_, AppState>, sale_id: String) -> IpcResult<SaleView> {
     let actor = session_actor(&state)?;
     let sale_id: pos_core::ids::SaleId = sale_id
@@ -198,7 +202,7 @@ async fn get_sale(state: State<'_, AppState>, sale_id: String) -> IpcResult<Sale
     Ok(state.service.get_sale(&actor, sale_id).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn create_cash_register(
     state: State<'_, AppState>,
     draft: CashRegisterDraft,
@@ -207,13 +211,13 @@ async fn create_cash_register(
     Ok(state.service.create_cash_register(&actor, draft).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn list_cash_registers(state: State<'_, AppState>) -> IpcResult<Vec<CashRegisterView>> {
     let actor = session_actor(&state)?;
     Ok(state.service.list_cash_registers(&actor).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn open_cash_shift(
     state: State<'_, AppState>,
     draft: CashOpenShiftDraft,
@@ -222,7 +226,7 @@ async fn open_cash_shift(
     Ok(state.service.open_cash_shift(&actor, draft).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn active_cash_shift(
     state: State<'_, AppState>,
     register_id: String,
@@ -234,7 +238,7 @@ async fn active_cash_shift(
     Ok(state.service.active_cash_shift(&actor, register_id).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn register_cash_movement(
     state: State<'_, AppState>,
     draft: CashMovementDraft,
@@ -243,13 +247,13 @@ async fn register_cash_movement(
     Ok(state.service.register_cash_movement(&actor, draft).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn list_cash_shift_history(state: State<'_, AppState>) -> IpcResult<Vec<CashShiftView>> {
     let actor = session_actor(&state)?;
     Ok(state.service.list_cash_shift_history(&actor).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn close_cash_shift(
     state: State<'_, AppState>,
     draft: CashCloseShiftDraft,
@@ -258,7 +262,7 @@ async fn close_cash_shift(
     Ok(state.service.close_cash_shift(&actor, draft).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn create_category(
     state: State<'_, AppState>,
     draft: CategoryDraft,
@@ -267,13 +271,13 @@ async fn create_category(
     Ok(state.service.create_category(&actor, draft).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn list_categories(state: State<'_, AppState>) -> IpcResult<Vec<CategoryView>> {
     let actor = session_actor(&state)?;
     Ok(state.service.list_categories(&actor).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn create_product_variant(
     state: State<'_, AppState>,
     draft: ProductVariantDraft,
@@ -282,7 +286,7 @@ async fn create_product_variant(
     Ok(state.service.create_product_variant(&actor, draft).await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn list_product_variants(
     state: State<'_, AppState>,
     product_id: String,
@@ -297,7 +301,7 @@ async fn list_product_variants(
         .await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn current_stock(
     state: State<'_, AppState>,
     product_id: String,
@@ -320,7 +324,7 @@ async fn current_stock(
         .await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn record_inventory_movement(
     state: State<'_, AppState>,
     draft: InventoryMovementDraft,
@@ -332,7 +336,7 @@ async fn record_inventory_movement(
         .await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn list_inventory_movements(
     state: State<'_, AppState>,
     product_id: Option<String>,
@@ -352,7 +356,7 @@ async fn list_inventory_movements(
         .await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn list_audit_events(
     state: State<'_, AppState>,
     limit: Option<u32>,
@@ -364,13 +368,13 @@ async fn list_audit_events(
         .await?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn commercial_state(state: State<'_, AppState>) -> IpcResult<CommercialStateView> {
     Ok(state.service.commercial_state().await?)
 }
 
 /// Crea un respaldo consistente de la base local y lo registra en auditoría.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn backup_database(state: State<'_, AppState>) -> IpcResult<String> {
     let actor = session_actor(&state)?;
     actor.require(Permission::ManageBackups)?;
