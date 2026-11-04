@@ -47,3 +47,7 @@ Thumbs.db
 
 # Contexto agéntico local (privado)
 .devkit/
+
+# --- Herramientas de diseÃ±o instaladas localmente ---
+.github/skills/impeccable/
+.github/agents/impeccable-*.agent.md

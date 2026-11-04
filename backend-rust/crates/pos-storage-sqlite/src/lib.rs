@@ -57,12 +57,18 @@ pub async fn open(path: impl AsRef<Path>) -> Result<SqlitePool, StorageError> {
         .max_connections(1)
         .connect_with(options)
         .await
-        .map_err(|_| StorageError::Open)?;
+        .map_err(|error| {
+            tracing::error!(error = %error, "no fue posible abrir la base de datos local");
+            StorageError::Open
+        })?;
 
     sqlx::migrate!("../../migrations/local")
         .run(&pool)
         .await
-        .map_err(|_| StorageError::Migrate)?;
+        .map_err(|error| {
+            tracing::error!(error = %error, "no fue posible aplicar las migraciones");
+            StorageError::Migrate
+        })?;
 
     Ok(pool)
 }
