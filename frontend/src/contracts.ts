@@ -368,6 +368,67 @@ export type BootstrapRequest = z.infer<typeof bootstrapRequestSchema>;
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 export type ProductDraft = z.infer<typeof productDraftSchema>;
 
+export const supplierSchema = z.object({
+  id: z.string(),
+  code: z.string().nullable(),
+  name: z.string(),
+  contact: z.string().nullable(),
+  rfc: z.string().nullable(),
+  active: z.boolean(),
+});
+
+export const supplierDraftSchema = z.object({
+  code: z.string().max(32).optional(),
+  name: z.string().min(1, "El nombre del proveedor es obligatorio"),
+  contact: z.string().max(120).optional(),
+  rfc: z.string().max(16).optional(),
+});
+
+export const purchaseOrderLineSchema = z.object({
+  id: z.string(),
+  product_id: z.string(),
+  quantity: z.string(),
+  received_quantity: z.string(),
+  unit_cost: z.string(),
+});
+
+export const purchaseOrderSchema = z.object({
+  id: z.string(),
+  supplier_id: z.string(),
+  folio: z.string(),
+  status: z.enum(["draft", "ordered", "partially_received", "received"]),
+  created_at: z.string(),
+  lines: z.array(purchaseOrderLineSchema),
+});
+
+export const purchaseOrderLineDraftSchema = z.object({
+  product_id: z.string().min(1, "Selecciona un producto"),
+  quantity: z.string().regex(/^\d+(\.\d{1,3})?$/, "Usa una cantidad con hasta 3 decimales"),
+  unit_cost: z.string().regex(/^\d+(\.\d{1,2})?$/, "Usa un costo con hasta dos decimales"),
+});
+
+export const purchaseOrderDraftSchema = z.object({
+  supplier_id: z.string().min(1, "Selecciona un proveedor"),
+  lines: z.array(purchaseOrderLineDraftSchema).min(1, "Agrega al menos un producto"),
+});
+
+export const purchaseReceiptLineDraftSchema = z.object({
+  order_line_id: z.string().min(1),
+  quantity: z.string().regex(/^\d+(\.\d{1,3})?$/, "Usa una cantidad con hasta 3 decimales"),
+});
+
+export const purchaseReceiptDraftSchema = z.object({
+  order_id: z.string().min(1),
+  idempotency_key: z.string().min(1),
+  lines: z.array(purchaseReceiptLineDraftSchema).min(1),
+});
+
+export type Supplier = z.infer<typeof supplierSchema>;
+export type SupplierDraft = z.infer<typeof supplierDraftSchema>;
+export type PurchaseOrder = z.infer<typeof purchaseOrderSchema>;
+export type PurchaseOrderDraft = z.infer<typeof purchaseOrderDraftSchema>;
+export type PurchaseReceiptDraft = z.infer<typeof purchaseReceiptDraftSchema>;
+
 export const inventoryMovementSchema = z.object({
   id: z.string(),
   product_id: z.string(),

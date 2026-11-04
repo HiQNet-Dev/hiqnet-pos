@@ -18,6 +18,8 @@ pub enum Permission {
     ManageInventory,
     #[serde(rename = "inventory.view")]
     ViewInventory,
+    #[serde(rename = "purchasing.manage")]
+    ManagePurchasing,
     #[serde(rename = "cash.register.manage")]
     ManageCashRegisters,
     #[serde(rename = "cash.shift.view")]
@@ -46,6 +48,7 @@ impl Permission {
             Permission::ManageCatalog => "catalog.manage",
             Permission::ManageInventory => "inventory.manage",
             Permission::ViewInventory => "inventory.view",
+            Permission::ManagePurchasing => "purchasing.manage",
             Permission::ManageCashRegisters => "cash.register.manage",
             Permission::ViewCashShift => "cash.shift.view",
             Permission::OpenCashShift => "cash.shift.open",
@@ -83,6 +86,7 @@ impl Role {
                 Permission::ManageCatalog,
                 Permission::ManageInventory,
                 Permission::ViewInventory,
+                Permission::ManagePurchasing,
                 Permission::ManageCashRegisters,
                 Permission::ViewCashShift,
                 Permission::OpenCashShift,

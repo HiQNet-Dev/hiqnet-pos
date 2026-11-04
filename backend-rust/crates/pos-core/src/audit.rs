@@ -28,6 +28,10 @@ pub enum AuditAction {
     UserReactivated,
     UserPasswordReset,
     UserPasswordChanged,
+    SupplierCreated,
+    PurchaseOrderCreated,
+    PurchaseOrderConfirmed,
+    PurchaseReceived,
 }
 
 impl AuditAction {
@@ -54,6 +58,10 @@ impl AuditAction {
             "users.reactivated" => Some(AuditAction::UserReactivated),
             "users.password_reset" => Some(AuditAction::UserPasswordReset),
             "users.password_changed" => Some(AuditAction::UserPasswordChanged),
+            "purchasing.supplier_created" => Some(AuditAction::SupplierCreated),
+            "purchasing.order_created" => Some(AuditAction::PurchaseOrderCreated),
+            "purchasing.order_confirmed" => Some(AuditAction::PurchaseOrderConfirmed),
+            "purchasing.received" => Some(AuditAction::PurchaseReceived),
             _ => None,
         }
     }
@@ -81,6 +89,10 @@ impl AuditAction {
             AuditAction::UserReactivated => "users.reactivated",
             AuditAction::UserPasswordReset => "users.password_reset",
             AuditAction::UserPasswordChanged => "users.password_changed",
+            AuditAction::SupplierCreated => "purchasing.supplier_created",
+            AuditAction::PurchaseOrderCreated => "purchasing.order_created",
+            AuditAction::PurchaseOrderConfirmed => "purchasing.order_confirmed",
+            AuditAction::PurchaseReceived => "purchasing.received",
         }
     }
 }

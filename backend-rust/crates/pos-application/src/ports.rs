@@ -9,6 +9,7 @@ use pos_core::inventory::InventoryMovement;
 use pos_core::modifiers::{ModifierGroup, ModifierOption};
 use pos_core::money::Money;
 use pos_core::organization::{Branch, Organization};
+use pos_core::purchasing::{PurchaseOrder, PurchaseOrderLine, PurchaseReceipt, Supplier};
 use pos_core::sales::{Sale, SaleItem, SalePayment};
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -197,6 +198,60 @@ pub trait StoreTx: Send {
         organization_id: OrganizationId,
         group_id: pos_core::ids::ModifierGroupId,
     ) -> AppResult<Vec<ModifierOption>>;
+
+    async fn insert_supplier(&mut self, supplier: &Supplier) -> AppResult<()>;
+    async fn list_suppliers(&mut self, organization_id: OrganizationId)
+    -> AppResult<Vec<Supplier>>;
+    async fn find_supplier(
+        &mut self,
+        organization_id: OrganizationId,
+        supplier_id: pos_core::ids::SupplierId,
+    ) -> AppResult<Option<Supplier>>;
+    async fn insert_purchase_order(&mut self, order: &PurchaseOrder) -> AppResult<()>;
+    async fn insert_purchase_order_line(&mut self, line: &PurchaseOrderLine) -> AppResult<()>;
+    async fn find_purchase_order(
+        &mut self,
+        organization_id: OrganizationId,
+        order_id: pos_core::ids::PurchaseOrderId,
+    ) -> AppResult<Option<PurchaseOrder>>;
+    async fn list_purchase_orders(
+        &mut self,
+        organization_id: OrganizationId,
+        branch_id: BranchId,
+    ) -> AppResult<Vec<PurchaseOrder>>;
+    async fn list_purchase_order_lines(
+        &mut self,
+        organization_id: OrganizationId,
+        order_id: pos_core::ids::PurchaseOrderId,
+    ) -> AppResult<Vec<PurchaseOrderLine>>;
+    async fn confirm_purchase_order(
+        &mut self,
+        organization_id: OrganizationId,
+        order_id: pos_core::ids::PurchaseOrderId,
+    ) -> AppResult<()>;
+    async fn find_purchase_receipt_by_idempotency(
+        &mut self,
+        organization_id: OrganizationId,
+        idempotency_key: &str,
+    ) -> AppResult<Option<PurchaseReceipt>>;
+    /// Inserta la clave idempotente; `false` indica que ya existía y se debe recuperar.
+    async fn insert_purchase_receipt(&mut self, receipt: &PurchaseReceipt) -> AppResult<bool>;
+    async fn insert_purchase_receipt_line(
+        &mut self,
+        receipt_id: pos_core::ids::PurchaseReceiptId,
+        order_line_id: pos_core::ids::PurchaseOrderLineId,
+        quantity: pos_core::quantity::Quantity,
+    ) -> AppResult<()>;
+    async fn apply_purchase_receipt(
+        &mut self,
+        organization_id: OrganizationId,
+        order_id: pos_core::ids::PurchaseOrderId,
+        updates: &[(
+            pos_core::ids::PurchaseOrderLineId,
+            pos_core::quantity::Quantity,
+        )],
+        status: pos_core::purchasing::PurchaseOrderStatus,
+    ) -> AppResult<()>;
 
     async fn insert_inventory_movement(&mut self, movement: &InventoryMovement) -> AppResult<()>;
     async fn current_stock(

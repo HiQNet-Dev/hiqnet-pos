@@ -160,6 +160,33 @@ Entrada: `{ "draft": { "product_id": "...", "name": "Grande", "sku": "CAF-001-G"
 El SKU es opcional y único por organización. `list_product_variants` requiere
 `sales.sell` y recibe `{ "product_id": "..." }`.
 
+## Compras y recepción
+
+Los comandos de compras requieren `purchasing.manage`, entitlement `purchasing` y
+una licencia que permita escrituras. La organización y sucursal se obtienen del
+`Actor` revalidado, nunca de la petición.
+
+| Comando | Entrada | Salida |
+| --- | --- | --- |
+| `create_supplier` | `{ "draft": { "code?", "name", "contact?", "rfc?" } }` | proveedor activo |
+| `list_suppliers` | ninguna | proveedores de la organización |
+| `create_purchase_order` | `{ "draft": { "supplier_id", "lines": [{ "product_id", "quantity", "unit_cost" }] } }` | orden `draft` |
+| `list_purchase_orders` | ninguna | órdenes de la sucursal del actor |
+| `get_purchase_order` | `{ "order_id": "..." }` | orden y partidas |
+| `confirm_purchase_order` | `{ "order_id": "..." }` | orden `ordered` |
+| `receive_purchase_order` | `{ "draft": { "order_id", "idempotency_key", "lines": [{ "order_line_id", "quantity" }] } }` | orden actualizada |
+
+- Crear o confirmar una orden **no modifica inventario**.
+- Solo se recibe una orden `ordered` o `partially_received`. Cada cantidad debe ser
+  positiva y no superar lo pendiente; la última recepción cambia el estado a
+  `received`.
+- La recepción, las entradas `inbound` del ledger, las cantidades acumuladas y la
+  auditoría se confirman dentro de una única transacción.
+- `idempotency_key` repetida con el mismo contenido devuelve el resultado ya
+  confirmado; con contenido diferente devuelve `conflict`, sin duplicar stock.
+- Las operaciones se auditan como `purchasing.supplier_created`,
+  `purchasing.order_created`, `purchasing.order_confirmed` y `purchasing.received`.
+
 ## Caja y turnos
 
 Comandos: `create_cash_register`, `list_cash_registers`, `open_cash_shift`,

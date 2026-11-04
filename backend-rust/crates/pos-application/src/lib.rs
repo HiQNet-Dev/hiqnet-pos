@@ -19,7 +19,8 @@ pub use service::{
     ChangeOwnPasswordDraft, CheckoutDraft, CommercialStateView, InventoryMovementDraft,
     InventoryMovementView, LoginRequest, ModifierConfigurationDraft, ModifierConfigurationView,
     ModifierGroupDraft, ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PosService,
-    ProductDraft, ProductVariantDraft, ProductVariantView, ProductView, ResetUserPasswordDraft,
-    SaleItemDraft, SaleItemView, SalePaymentView, SaleView, SetUserActiveDraft, StockLevelView,
-    UserDraft, UserView,
+    ProductDraft, ProductVariantDraft, ProductVariantView, ProductView, PurchaseOrderDraft,
+    PurchaseOrderLineDraft, PurchaseOrderLineView, PurchaseOrderView, PurchaseReceiptDraft,
+    PurchaseReceiptLineDraft, ResetUserPasswordDraft, SaleItemDraft, SaleItemView, SalePaymentView,
+    SaleView, SetUserActiveDraft, StockLevelView, SupplierDraft, SupplierView, UserDraft, UserView,
 };

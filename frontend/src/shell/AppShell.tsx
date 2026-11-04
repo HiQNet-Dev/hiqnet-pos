@@ -15,6 +15,7 @@ import { AdminScreen } from "../screens/AdminScreen";
 import { CashScreen } from "../screens/CashScreen";
 import { CatalogScreen } from "../screens/CatalogScreen";
 import { InventoryScreen } from "../screens/InventoryScreen";
+import { PurchasingScreen } from "../screens/PurchasingScreen";
 import { SalesScreen } from "../screens/SalesScreen";
 import { SideNav } from "./SideNav";
 import { TopBar } from "./TopBar";
@@ -297,6 +298,15 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
                 products={products}
                 loading={catalogLoading}
                 onStockChanged={refreshCatalog}
+              />
+            )}
+
+            {activeSection === "purchasing" && (
+              <PurchasingScreen
+                actor={actor}
+                readOnly={readOnly}
+                products={products}
+                onInventoryChanged={refreshCatalog}
               />
             )}
 

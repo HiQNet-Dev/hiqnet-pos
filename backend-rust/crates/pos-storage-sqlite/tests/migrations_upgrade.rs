@@ -121,10 +121,10 @@ async fn actualiza_una_base_0003_sin_perder_datos() {
             .expect("contar migraciones nuevas")
             .get("total");
     assert_eq!(
-        aplicadas, 7,
-        "deben quedar las siete migraciones registradas"
+        aplicadas, 8,
+        "deben quedar las ocho migraciones registradas"
     );
-    assert_eq!(esperadas, 4, "0004–0007 deben aplicarse al actualizar");
+    assert_eq!(esperadas, 5, "0004–0008 deben aplicarse al actualizar");
 
     let producto: (String, i64) = {
         let row =
@@ -163,7 +163,17 @@ async fn actualiza_una_base_0003_sin_perder_datos() {
         "la actualización no debe dejar referencias rotas"
     );
 
-    for tabla in ["category", "product_variant", "modifier_group", "sale"] {
+    for tabla in [
+        "category",
+        "product_variant",
+        "modifier_group",
+        "sale",
+        "supplier",
+        "purchase_order",
+        "purchase_order_line",
+        "purchase_receipt",
+        "purchase_receipt_line",
+    ] {
         let existe: i64 = sqlx::query(
             "SELECT COUNT(*) AS total FROM sqlite_master WHERE type = 'table' AND name = ?",
         )
