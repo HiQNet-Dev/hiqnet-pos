@@ -1,137 +1,123 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-    Empaqueta la APK ARM64 de HiQNet POS sin elevación ni enlaces simbólicos.
+    Genera la APK ARM64 de HiQNet POS con el flujo oficial de Tauri.
 
 .DESCRIPTION
-    El CLI de Tauri crea un symlink de la biblioteca Rust dentro de jniLibs, lo
-    que falla en Windows sin privilegios. Este script compila con Cargo, copia
-    la biblioteca real y ejecuta Gradle excluyendo solo la tarea que recrea el
-    enlace. Requiere el NDK y el SDK ya instalados.
+    Delega en `cargo tauri android build`, que es la única etapa que genera los
+    fuentes Kotlin nativos (TauriActivity, WryActivity, RustWebView…) y crea el
+    enlace de la biblioteca Rust dentro de jniLibs. No recrea archivos a mano ni
+    depende de un `gen/android` previo.
+
+    Requiere Windows con Developer Mode activo (symlinks sin elevación), el SDK
+    de Android, el NDK indicado y el CLI de Tauri 2.
 
 .PARAMETER Profile
     debug (por defecto) o release.
 
-.PARAMETER Keystore
-    Ruta opcional al keystore para firmar la APK release. Las contraseñas se
-    leen de variables de entorno; nunca se escriben en el repositorio.
+.PARAMETER Clean
+    Elimina únicamente las salidas de build de Gradle antes de compilar.
 #>
 param(
     [ValidateSet("debug", "release")]
-    [string]$Profile = "debug"
+    [string]$Profile = "debug",
+    [switch]$Clean
 )
 
 $ErrorActionPreference = "Stop"
+
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $srcTauri = Join-Path $root "apps/pos-desktop/src-tauri"
 $android = Join-Path $srcTauri "gen/android"
-$ndk = Join-Path $env:LOCALAPPDATA "Android/Sdk/ndk/30.0.16248370/toolchains/llvm/prebuilt/windows-x86_64/bin"
+$sdk = Join-Path $env:LOCALAPPDATA "Android/Sdk"
+$ndk = Join-Path $sdk "ndk/30.0.16248370"
+$toolchain = Join-Path $ndk "toolchains/llvm/prebuilt/windows-x86_64/bin"
 
-$env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA "Android/Sdk"
-$env:CC_aarch64_linux_android = Join-Path $ndk "aarch64-linux-android21-clang.cmd"
-$env:AR_aarch64_linux_android = Join-Path $ndk "llvm-ar.exe"
+$env:ANDROID_HOME = $sdk
+$env:NDK_HOME = $ndk
+$env:CC_aarch64_linux_android = Join-Path $toolchain "aarch64-linux-android21-clang.cmd"
+$env:AR_aarch64_linux_android = Join-Path $toolchain "llvm-ar.exe"
 $env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = $env:CC_aarch64_linux_android
 
-Push-Location (Join-Path $root "frontend")
-try {
-    pnpm run build
-    if ($LASTEXITCODE -ne 0) { throw "Falló la compilación del frontend." }
-} finally {
-    Pop-Location
-}
+# --- 1. Toolchain ----------------------------------------------------------
+if (-not (Test-Path -LiteralPath $toolchain)) { throw "No se encontró el NDK esperado en $ndk" }
+if (-not (Test-Path -LiteralPath (Join-Path $sdk "platforms"))) { throw "No se encontró el SDK de Android en $sdk" }
 
 Push-Location $srcTauri
 try {
-    $cargoArgs = @("build", "--features", "tauri/custom-protocol", "--target", "aarch64-linux-android")
-    if ($Profile -eq "release") { $cargoArgs += "--release" }
-    cargo @cargoArgs
-    if ($LASTEXITCODE -ne 0) { throw "Falló la compilación Rust para ARM64." }
+    $cliVersion = (cargo tauri --version 2>&1) -join " "
+    if ($LASTEXITCODE -ne 0) { throw "El CLI de Tauri no está disponible." }
+    Write-Output "CLI: $cliVersion"
+    Write-Output "NDK: $ndk"
 } finally {
     Pop-Location
 }
 
-$built = Join-Path $srcTauri "target/aarch64-linux-android/$Profile/libpos_desktop_lib.so"
+$rustTargets = (rustup target list --installed) -join " "
+if ($rustTargets -notmatch "aarch64-linux-android") {
+    throw "Falta el target Rust aarch64-linux-android (rustup target add aarch64-linux-android)."
+}
 
-# Un checkout limpio no trae gen/android: se inicializa aquí para que el script
-# sea reproducible sin pasos manuales ocultos.
+# --- 2. Limpieza opcional de salidas desechables ---------------------------
+if ($Clean -and (Test-Path -LiteralPath $android)) {
+    foreach ($relative in @("app/build", "build", ".gradle", ".kotlin")) {
+        $target = Join-Path $android $relative
+        if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+    }
+    Write-Output "Salidas de build eliminadas."
+}
+
+# --- 3. Inicialización (solo la primera vez) -------------------------------
+# `android build` exige gen/android. Los fuentes Kotlin nativos (TauriActivity,
+# WryActivity…) NO se generan aquí: los produce la etapa de build.
 if (-not (Test-Path -LiteralPath $android)) {
     Write-Output "Inicializando proyecto Android (gen/android)..."
     Push-Location $srcTauri
     try {
         cargo tauri android init --ci --skip-targets-install
-        if ($LASTEXITCODE -ne 0) { throw "Falló la inicialización del proyecto Android." }
+        if ($LASTEXITCODE -ne 0) { throw "Falló 'cargo tauri android init'." }
     } finally {
         Pop-Location
     }
 }
 
-$jniDir = Join-Path $android "app/src/main/jniLibs/arm64-v8a"
-New-Item -ItemType Directory -Force -Path $jniDir | Out-Null
-$destination = Join-Path $jniDir "libpos_desktop_lib.so"
-
-# Gradle incluye el módulo tauri-android mediante este archivo, que el CLI
-# escribe al empaquetar. Se genera desde cargo metadata para no depender de
-# rutas absolutas del equipo ni de una ejecución previa del CLI.
-$settingsPath = Join-Path $android "tauri.settings.gradle"
-if (-not (Test-Path -LiteralPath $settingsPath)) {
-    Push-Location $srcTauri
-    try {
-        $metadata = cargo metadata --format-version 1 --manifest-path (Join-Path $srcTauri "Cargo.toml") | ConvertFrom-Json
-        $tauriPackage = $metadata.packages | Where-Object { $_.name -eq "tauri" } | Select-Object -First 1
-        if (-not $tauriPackage) { throw "No se encontró el paquete tauri en cargo metadata." }
-        $tauriAndroid = Join-Path (Split-Path $tauriPackage.manifest_path -Parent) "mobile/android"
-        if (-not (Test-Path -LiteralPath $tauriAndroid)) { throw "No existe el proyecto Android de tauri: $tauriAndroid" }
-    } finally {
-        Pop-Location
-    }
-    $groovyPath = $tauriAndroid.Replace('\', '\\')
-    @(
-        "// THIS IS AN AUTOGENERATED FILE. DO NOT EDIT THIS FILE DIRECTLY.",
-        "include ':tauri-android'",
-        "project(':tauri-android').projectDir = new File(`"$groovyPath`")"
-    ) | Set-Content -LiteralPath $settingsPath -Encoding ASCII
-    Write-Output "Generado tauri.settings.gradle para $tauriAndroid"
-}
-
-# El CLI también escribe este archivo al empaquetar; se reproduce aquí para
-# permitir un empaquetado estable sin depender de una ejecución previa.
-$appBuildScript = Join-Path $android "app/tauri.build.gradle.kts"
-if (-not (Test-Path -LiteralPath $appBuildScript)) {
-    @(
-        "// THIS IS AN AUTOGENERATED FILE. DO NOT EDIT THIS FILE DIRECTLY.",
-        "val implementation by configurations",
-        "dependencies {",
-        '  implementation("androidx.lifecycle:lifecycle-process:2.10.0")',
-        '  implementation(project(":tauri-android"))',
-        "}"
-    ) | Set-Content -LiteralPath $appBuildScript -Encoding UTF8
-    Write-Output "Generado app/tauri.build.gradle.kts"
-}
-if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Force }
-Copy-Item -LiteralPath $built -Destination $destination
-
-Push-Location $android
+# --- 3. Compilación con el flujo oficial -----------------------------------
+$started = Get-Date
+Push-Location $srcTauri
 try {
-    ./gradlew.bat :app:clean --quiet
-    if ($Profile -eq "release") {
-        ./gradlew.bat :app:assembleArm64Release -x :app:rustBuildArm64Release --quiet
-        $apk = "app/build/outputs/apk/arm64/release/app-arm64-release-unsigned.apk"
-    } else {
-        ./gradlew.bat :app:assembleArm64Debug -x :app:rustBuildArm64Debug --quiet
-        $apk = "app/build/outputs/apk/arm64/debug/app-arm64-debug.apk"
+    $arguments = @("tauri", "android", "build", "--target", "aarch64")
+    if ($Profile -eq "debug") { $arguments += "--debug" }
+    cargo @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falló 'cargo tauri android build'. Si el error menciona enlaces simbólicos, activa Developer Mode de Windows."
     }
-    if ($LASTEXITCODE -ne 0) { throw "Falló el empaquetado de Gradle." }
 } finally {
     Pop-Location
 }
 
-$apkPath = Join-Path $android $apk
-$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $apkPath).Hash
-$size = (Get-Item -LiteralPath $apkPath).Length
-Write-Output "APK: $apkPath"
-Write-Output "Bytes: $size"
-Write-Output "SHA256: $hash"
+# --- 4. Verificación del artefacto ----------------------------------------
+$apkRoot = Join-Path $android "app/build/outputs/apk"
+$apk = Get-ChildItem -LiteralPath $apkRoot -Recurse -Filter "*.apk" -File |
+    Where-Object { $_.LastWriteTime -ge $started } |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
 
-if ($Profile -eq "release" -and $Keystore) {
-    Write-Output "Firma pendiente: use apksigner con el keystore fuera del repositorio."
+if (-not $apk) { throw "No se generó ninguna APK en $apkRoot" }
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [System.IO.Compression.ZipFile]::OpenRead($apk.FullName)
+try {
+    $native = $archive.Entries | Where-Object { $_.FullName -like "lib/*" } |
+        ForEach-Object { "{0} ({1} bytes)" -f $_.FullName, $_.Length }
+    if ($native -notmatch "lib/arm64-v8a/libpos_desktop_lib\.so") {
+        throw "La APK no contiene la biblioteca ARM64 esperada."
+    }
+} finally {
+    $archive.Dispose()
 }
+
+$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $apk.FullName).Hash
+Write-Output "APK: $($apk.FullName)"
+Write-Output "Bytes: $($apk.Length)"
+Write-Output "SHA256: $hash"
+Write-Output "Nativo: $($native -join '; ')"
