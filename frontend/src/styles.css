@@ -62,7 +62,13 @@ body {
   font-size: var(--text-md);
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+  /* `hidden` sigue siendo un contenedor desplazable: el foco, `scrollIntoView`
+     o el anclaje de scroll pueden moverlo y el diseño se "va" hacia una esquina
+     sin forma de volver. `clip` elimina el desplazamiento por completo; el
+     primer valor queda como respaldo en motores antiguos. */
   overflow: hidden;
+  overflow: clip;
+  overscroll-behavior: none;
 }
 
 h1,
@@ -115,6 +121,7 @@ select {
   display: grid;
   grid-template-rows: var(--topbar-height) 1fr;
   overflow: hidden;
+  overflow: clip;
 }
 
 .skip-link {
@@ -252,6 +259,7 @@ select {
   grid-template-columns: var(--sidenav-width) minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
+  overflow: clip;
 }
 
 .app-body[data-collapsed="true"] {
@@ -370,6 +378,7 @@ select {
   min-width: 0;
   padding: var(--space-4);
   overflow: hidden;
+  overflow: clip;
 }
 
 .screen-host {
@@ -1005,6 +1014,7 @@ select {
   grid-template-columns: minmax(0, 1fr) clamp(340px, 25vw, 430px);
   gap: var(--space-3);
   overflow: hidden;
+  overflow: clip;
 }
 
 .sales-catalog {

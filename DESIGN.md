@@ -160,6 +160,12 @@ Reglas:
   estructural, no tipográfico.
 - No hay scroll global: el `body` no scrollea; cada pantalla gestiona su propio
   desbordamiento.
+- Los contenedores del shell (`.app`, `.app-body`, `.app-content`) y el `body`
+  usan `overflow: clip`, no `hidden`: `hidden` sigue siendo un contenedor
+  desplazable y el foco, `scrollIntoView` o el anclaje de scroll podían moverlo,
+  desplazando el diseño hacia una esquina y dejando el resto de la ventana vacío.
+  Los diálogos no alternan `body.style.overflow` por la misma razón, y devuelven
+  el foco con `preventScroll`. Lo vigila `tools/windows-native-e2e/e2e_layout_drift.py`.
 
 ## Elevation & Depth
 

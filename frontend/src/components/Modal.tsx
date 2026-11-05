@@ -56,12 +56,14 @@ export function Modal({ title, subtitle, onClose, children, footer, size = "md" 
     }
 
     document.addEventListener("keydown", handleKey, true);
-    const { overflow } = document.body.style;
-    document.body.style.overflow = "hidden";
+    // No se toca `document.body.style.overflow`: el shell ya recorta el documento
+    // (ver `styles.css`). Cambiarlo aquí convertía la raíz en un contenedor
+    // desplazable mientras el diálogo estaba abierto, y el foco podía desplazar
+    // la interfaz completa al abrir y cerrar diálogos repetidamente.
     return () => {
       document.removeEventListener("keydown", handleKey, true);
-      document.body.style.overflow = overflow;
-      previous?.focus?.();
+      // Devolver el foco sin arrastrar la pantalla de fondo.
+      previous?.focus?.({ preventScroll: true });
     };
   }, []);
 

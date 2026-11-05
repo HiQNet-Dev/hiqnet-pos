@@ -5,12 +5,15 @@ import { LoginScreen } from "./screens/LoginScreen";
 import { OnboardingScreen } from "./screens/OnboardingScreen";
 import { AppShell } from "./shell/AppShell";
 import { loadInitialStatus } from "./lib/startup";
+import { installViewportGuard } from "./lib/viewportGuard";
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [actor, setActor] = useState<Actor | null>(null);
   const [loading, setLoading] = useState(true);
   const [fatal, setFatal] = useState<string | null>(null);
+
+  useEffect(() => installViewportGuard(), []);
 
   const refreshStatus = useCallback(async () => {
     try {
