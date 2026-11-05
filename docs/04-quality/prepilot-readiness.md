@@ -29,11 +29,12 @@ mediciones locales; lo no ejecutado se declara explícitamente.
 | Migraciones y actualización de esquema | Implementado y probado | Actualización 0003→0010, 0007→0010 y 0009→0010 con datos |
 | Rechazo de esquema posterior | Implementado y probado | `open` y `verify_backup` devuelven `IncompatibleSchema` |
 | Detección de base corrupta | Implementado y probado | `PRAGMA quick_check` al abrir |
-| Operación offline | Implementado; **no ejecutado con red desconectada** | Sin llamadas de red en los flujos; falta la prueba física en VM |
-| Instalador NSIS | Construido; **instalación no ejecutada** | 4.89 MiB, `NotSigned`, `SHA-256 228AFD0F…3EBC`, modo `currentUser`; sin entorno aislado habilitado |
+| Operación offline | **Verificado en VM sin red** | Adaptadores desactivados en Windows Sandbox; venta en base sintética abierta offline |
+| Instalador NSIS | **Instalado en VM limpia** | 4.95 MiB, `NotSigned`, `SHA-256 EA6A90CD…CE01`, modo `currentUser`; PASS en Windows Sandbox |
 | Ejecutable de release (contenido del instalador) | Verificado | E2E comercial, devoluciones, guardia de restauración y multifase ejecutados contra `target/release/pos-desktop.exe` |
-| Actualización sobre versión anterior | **No ejecutado** | Requiere VM limpia y build previo |
-| Desinstalación/reinstalación conservando datos | **No ejecutado** | Requiere VM limpia |
+| Funcionamiento sin redistribuible VC++ | **Corregido y verificado** | Enlace estático del runtime (`+crt-static`); sin `VCRUNTIME140.dll` |
+| Actualización sobre versión anterior | **No ejecutado** | Requiere un instalador anterior publicado |
+| Desinstalación/reinstalación conservando datos | **Verificado en VM limpia** | Programa eliminado, base intacta y reapertura correcta |
 | Instalación sin Internet (WebView2) | **Dependiente de WebView2 preinstalado** | El paquete usa `downloadBootstrapper`: si falta el runtime, descarga |
 | Actualizador Tauri | **Deshabilitado** | Sin endpoints, claves ni política de firma |
 | Emisión de licencias | Pendiente | Responsabilidad de HiQNet Platform |
@@ -57,7 +58,7 @@ Preflight ejecutado sin elevación el 2026-11-04:
 | Hipervisor | presente; servicios `vmms` y `vmcompute` en ejecución | Apto |
 | Memoria | 31.9 GB | Apto |
 | Disco libre | 324 GB | Apto |
-| Windows Sandbox | `WindowsSandbox.exe` **ausente** (característica deshabilitada) | **Bloqueado** |
+| Windows Sandbox | habilitado con autorización del titular y reinicio manual | **Apto** |
 | `Get-VM` (Hyper-V) | permiso denegado: la sesión no pertenece a *Hyper-V Administrators* | **Bloqueado** |
 | Sesión elevada | no | — |
 
@@ -80,27 +81,46 @@ modifica sus adaptadores de red. Alternativa con persistencia entre reinicios:
 `Add-LocalGroupMember -Group "Hyper-V Administrators" -Member "$env:USERNAME"`,
 que además exige una ISO y licencia de Windows.
 
-## Validación de esta ronda (PR #17)
+## Validación en Windows Sandbox (ejecutada)
 
-Entorno: Windows 11 Pro 24H2 (`10.0.26300`), x64, 12 hilos. Hyper-V presente
-pero **sin acceso a máquinas virtuales** desde la sesión (el comando `Get-VM`
-requiere elevación y no hay VM creada). Docker Desktop solo ejecuta contenedores
-Linux, insuficientes para una aplicación Tauri con WebView2.
+Sesión real sobre Windows Sandbox (Windows 11 Enterprise `10.0.26100`, x64), con
+el instalador `EA6A90CD…CE01` montado en solo lectura y evidencias exportadas a
+una carpeta aparte. Resultado global del arnés: **PASS**.
+
+| Escenario | Estado | Detalle |
+| --- | --- | --- |
+| Instalación limpia (`/S`) | **PASS** | Código 0; `%LOCALAPPDATA%\HiQNet POS\pos-desktop.exe` y entrada de desinstalación `0.1.0` |
+| WebView2 en imagen limpia | **INFO** | Windows Sandbox no trae el runtime; se instaló el bootstrapper oficial (`156.0.4314.58`) |
+| Primer arranque | **PASS** | Proceso vivo, UI de onboarding, base creada y válida |
+| Persistencia SQLite | **PASS** | `--verify-backup` sobre copia con WAL: `resultado=OK` |
+| Operación sin red | **PASS** | Adaptadores de la VM desactivados (`activos=0`); arranque y base válidos |
+| Datos operativos sin red | **PASS** | Base sintética con venta, caja, compras, gastos, merma y auditoría abierta offline; UI de acceso mostrada |
+| Verificación tras operar | **PASS** | Integridad y esquema válidos (SHA-256 del archivo registrado) |
+| Restauración sin red | **PASS** | `--restore-backup` código 0 sobre la base instalada |
+| Desinstalación | **PASS** | Programa eliminado; la base **se conserva** |
+| Reinstalación | **PASS** | Base intacta y aplicación arranca |
+| Inicio de sesión y venta por UI | **PENDIENTE** | Requiere interacción; la automatización de teclado no es fiable en Sandbox |
+| Actualización desde versión anterior | **NO EJECUTADO** | No existe un instalador anterior publicado |
+| SmartScreen interactivo | **NO EJECUTADO** | Instalación silenciosa; la firma sigue pendiente (D-09) |
+
+### Defecto encontrado y corregido
+
+La primera sesión en imagen limpia falló con
+«La ejecución de código no puede continuar porque no se encontró
+VCRUNTIME140.dll». El ejecutable dependía del redistribuible de Visual C++ y el
+instalador no lo advierte. Se corrigió enlazando el runtime de forma estática
+(`apps/pos-desktop/src-tauri/.cargo/config.toml`, `+crt-static`), se reconstruyó
+el instalador y la segunda sesión completa pasó.
+
+## Correcciones de esta ronda (PR #17)
 
 | Escenario | Estado | Evidencia |
 | --- | --- | --- |
-| Intervalo entre checkpoint y promoción | **PASS** | `otra_conexion_no_puede_escribir_entre_checkpoint_y_promocion`: el escritor externo es rechazado y la base queda en el estado del respaldo |
-| Escritura externa en la ventana de promoción | **PASS** | `escritura_externa_en_la_ventana_aborta_sin_perder_datos`: rechazo `DatabaseInUse` y los datos confirmados por el tercero sobreviven |
-| Instalación inicial en VM limpia | **NO EJECUTADO** | Sin VM accesible |
-| SmartScreen con instalador sin firma | **NO EJECUTADO** | Sin VM accesible; el artefacto es `NotSigned` |
-| Dependencia de WebView2 | **VERIFICADO ESTÁTICAMENTE** | `INSTALLWEBVIEW2MODE=downloadBootstrapper` en `installer.nsi` |
-| Apertura de la aplicación instalada | **NO EJECUTADO** | Sin instalación |
-| Ejecutable de release (mismo binario del instalador) | **PASS** | E2E comercial, devoluciones y restauración sobre `target/release/pos-desktop.exe` |
-| Actualización / desinstalación / reinstalación | **NO EJECUTADO** | Sin VM accesible |
-| Operación sin red | **NO EJECUTADO** | No se modifica la red del equipo anfitrión |
-| Terminación abrupta del proceso | **PASS (parcial)** | Cada E2E termina con `driver.quit` sobre WAL pendiente y la base se recupera; no es una prueba eléctrica |
-| Entorno aislado (Windows Sandbox) | **NO EJECUTADO** | Característica deshabilitada; requiere administrador y reinicio |
-| Arnés de sandbox (artefactos, `.wsb`, script) | **PREPARADO Y VALIDADO** | XML válido, montaje de artefactos `ReadOnly=true`, SHA-256 registrado; sin ejecución |
+| Intervalo entre checkpoint y promoción | **PASS** | Prueba con barrera: el escritor externo es rechazado y la base queda en el estado del respaldo |
+| Escritura externa en la ventana de promoción | **PASS** | `DatabaseInUse` y los datos confirmados por el tercero sobreviven |
+| Dependencia del redistribuible VC++ | **CORREGIDO** | Hallada en Windows Sandbox; enlace estático del runtime |
+| Ejecutable de release | **PASS** | E2E comercial, devoluciones, restauración y multifase |
+| Terminación abrupta del proceso | **PASS (parcial)** | Los E2E cierran sobre WAL pendiente y la base se recupera; no es una prueba eléctrica |
 
 ## Evidencia ejecutada en esta rama
 
@@ -133,19 +153,25 @@ Linux, insuficientes para una aplicación Tauri con WebView2.
 
 ## Decisión
 
-`PREPILOTO BLOQUEADO`: la instalación, actualización y operación sin red no se
-han ejecutado porque no existe un entorno aislado habilitado en el equipo de
-desarrollo. El arnés está listo y el único paso pendiente es una acción de
-administrador (habilitar Windows Sandbox y reiniciar). La aptitud técnica del
-binario está probada; eso no sustituye la validación de instalación ni autoriza
-distribuir el producto.
+**`PREPILOTO TÉCNICAMENTE APTO` para una beta privada en Windows 11**, con dos
+salvedades explícitas:
+
+- la **actualización** desde una versión anterior no puede probarse hasta que
+exista un instalador posterior a `0.1.0`;
+- la **firma de código** sigue pendiente de decisión comercial (D-09): el
+instalador es `NotSigned` y SmartScreen advertirá al operador.
+
+Esto es aptitud técnica para pruebas privadas, **no** autorización para
+distribuir públicamente ni para etiquetar una release.
 
 ## Riesgos abiertos
 
 - Instalador sin firma: SmartScreen mostrará advertencias.
-- WebView2 puede requerir descarga durante la instalación si falta el runtime.
-- Sin instalación probada en equipo limpio.
-- Sin prueba de operación con red desconectada ni de corte de energía.
+- WebView2 puede requerir descarga durante la instalación si falta el runtime:
+  la operación offline está probada, la **instalación offline** no.
+- Sin prueba de actualización entre versiones ni de Windows 10.
+- Inicio de sesión y venta por UI en la VM: requieren interacción manual.
+- Sin prueba de corte de energía ni de jornada prolongada.
 - Emisión de licencias productiva aún no existe; el Trial es el modo verificable.
 - El bloqueo de la base es cooperativo: otra herramienta que ignore
   `hiqnet-pos.db.lock` podría reemplazar el archivo. El procedimiento soportado

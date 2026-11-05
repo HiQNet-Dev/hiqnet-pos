@@ -51,6 +51,30 @@ Add-LocalGroupMember -Group "Hyper-V Administrators" -Member "$env:USERNAME"
 Esta alternativa exige además una ISO de Windows y una licencia; Windows Sandbox
 es más simple para una instalación limpia.
 
+## Resultados de la ejecución (2026-11-04)
+
+Sesión real sobre Windows Sandbox (Windows 11 Enterprise `10.0.26100`).
+Resultado global: **PASS**, con dos entradas informativas y un paso manual.
+
+| Comprobación | Resultado |
+| --- | --- |
+| Instalación silenciosa | PASS |
+| Binario y registro de desinstalación | PASS |
+| WebView2 en imagen limpia | INFO (ausente; se preinstala el bootstrapper oficial) |
+| Primer arranque y base válida | PASS |
+| Operación sin red | PASS |
+| Datos operativos sin red | PASS |
+| Restauración sin red | PASS |
+| Desinstalación conservando la base | PASS |
+| Reinstalación | PASS |
+| Inicio de sesión y venta por UI | PENDIENTE (manual) |
+
+### Hallazgo corregido
+
+La primera sesión falló porque el ejecutable dependía de `VCRUNTIME140.dll`, que
+no existe en imágenes limpias. Se corrigió con enlace estático del runtime
+(`apps/pos-desktop/src-tauri/.cargo/config.toml`, `+crt-static`).
+
 ## Preparar artefactos
 
 El repositorio **no** se monta en la VM. Solo se expone una carpeta con el

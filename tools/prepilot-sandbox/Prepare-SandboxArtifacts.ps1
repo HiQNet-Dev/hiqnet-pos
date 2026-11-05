@@ -21,6 +21,7 @@
 param(
     [string]$Installer = "",
     [string]$PreviousInstaller = "",
+    [string]$SeedDatabase = "",
     [string]$OutputRoot = (Join-Path $env:USERPROFILE "HiQNet-Prepilot")
 )
 
@@ -42,11 +43,30 @@ New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
 New-Item -ItemType Directory -Path $evidence -Force | Out-Null
 
 # Limpieza de artefactos anteriores: nunca se copian bases ni secretos.
-Get-ChildItem -LiteralPath $artifacts -File | Remove-Item -Force
+# Se conserva el bootstrapper de WebView2, que no es sensible.
+Get-ChildItem -LiteralPath $artifacts -File |
+    Where-Object { $_.Name -ne "MicrosoftEdgeWebview2Setup.exe" } |
+    Remove-Item -Force
 
 $target = Join-Path $artifacts (Split-Path -Leaf $Installer)
 Copy-Item -LiteralPath $Installer -Destination $target -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "sandbox-verify.ps1") -Destination $artifacts -Force
+
+# Windows Sandbox no incluye WebView2. Se descarga el bootstrapper oficial en el
+# anfitrion para que la VM no dependa de la red durante la instalacion.
+$webviewBootstrapper = Join-Path $artifacts "MicrosoftEdgeWebview2Setup.exe"
+if (-not (Test-Path -LiteralPath $webviewBootstrapper)) {
+    try {
+        Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" `
+            -OutFile $webviewBootstrapper -UseBasicParsing -TimeoutSec 120
+    }
+    catch {
+        Write-Output "aviso=no_se_pudo_descargar_webview2 $($_.Exception.Message)"
+    }
+}
+if (Test-Path -LiteralPath $webviewBootstrapper) {
+    Write-Output "webview2_bootstrapper=$((Get-Item -LiteralPath $webviewBootstrapper).Length) bytes"
+}
 
 $previous = $null
 if ($PreviousInstaller) {
@@ -61,6 +81,19 @@ if ($PreviousInstaller) {
 
 $candidateHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $target).Hash
 $previousHash = if ($previous) { (Get-FileHash -Algorithm SHA256 -LiteralPath $previous).Hash } else { $null }
+
+# Base sintética con datos operativos de todas las fases (sin datos personales).
+# Permite comprobar que la aplicación instalada opera sin red sobre datos reales.
+$seedHash = $null
+if ($SeedDatabase) {
+    if (-not (Test-Path -LiteralPath $SeedDatabase -PathType Leaf)) {
+        throw "No existe la base semilla: $SeedDatabase"
+    }
+    $seed = Join-Path $artifacts "seed.db"
+    Copy-Item -LiteralPath $SeedDatabase -Destination $seed -Force
+    Copy-Item -LiteralPath $SeedDatabase -Destination (Join-Path $artifacts "seed-backup.db") -Force
+    $seedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $seed).Hash
+}
 $manifest = [ordered]@{
     preparado = (Get-Date).ToString("o")
     candidato = [ordered]@{
@@ -75,6 +108,7 @@ $manifest = [ordered]@{
             sha256  = $previousHash
         }
     } else { $null }
+    semilla = if ($seedHash) { [ordered]@{ sha256 = $seedHash } } else { $null }
     host = [ordered]@{
         edicion = (Get-CimInstance Win32_OperatingSystem).Caption
         version = (Get-CimInstance Win32_OperatingSystem).Version

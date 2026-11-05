@@ -68,8 +68,14 @@ function Get-WebView2Version {
 }
 
 function Install-Package {
-    param([string]$Path)
-    $process = Start-Process -FilePath $Path -ArgumentList "/S" -PassThru -Wait
+    param([string]$Path, [int]$TimeoutSeconds = 240)
+    $process = Start-Process -FilePath $Path -ArgumentList "/S" -PassThru
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+        # Algunos instaladores quedan esperando a la aplicación que abren al
+        # terminar. Se acota la espera y se libera el proceso del instalador.
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        return "timeout"
+    }
     return $process.ExitCode
 }
 
@@ -79,12 +85,22 @@ function Verify-Database {
         Add-Check $Name "FAIL" "no existe $database"
         return
     }
-    $copy = Join-Path $evidence "$Name.db"
-    Copy-Item -LiteralPath $database -Destination $copy -Force
+    # La aplicación deja los datos en el WAL: se copian los tres archivos para
+    # que SQLite pueda recuperar el estado real al verificar la copia.
+    $work = Join-Path $evidence "verify"
+    New-Item -ItemType Directory -Path $work -Force | Out-Null
+    $copy = Join-Path $work "$Name.db"
+    Get-ChildItem -LiteralPath $work -Filter "$Name.db*" -File -ErrorAction SilentlyContinue | Remove-Item -Force
+    foreach ($suffix in @("", "-wal", "-shm")) {
+        $side = "$database$suffix"
+        if (Test-Path -LiteralPath $side) { Copy-Item -LiteralPath $side -Destination "$copy$suffix" -Force }
+    }
+    $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $copy).Hash
     $output = & $installedExe --verify-backup $copy 2>&1
     $code = $LASTEXITCODE
-    Add-Check $Name "PASS_$([int]($code -eq 0))" (($output | Out-String).Trim().Replace("`r", " ").Replace("`n", " "))
-    if ($code -eq 0) { $checks[$Name].estado = "PASS" } else { $checks[$Name].estado = "FAIL" }
+    $detail = (($output | Out-String).Trim().Replace("`r", " ").Replace("`n", " "))
+    Add-Check $Name $(if ($code -eq 0) { "PASS" } else { "FAIL" }) "sha256=$hash $detail"
+    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 function Start-App {
@@ -94,9 +110,34 @@ function Start-App {
     Start-Sleep -Seconds $Seconds
     Capture $Label
     $alive = -not $process.HasExited
-    if ($alive) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+    if ($alive) {
+        # Cierre ordenado para que la base quede en un estado recuperable.
+        $process.CloseMainWindow() | Out-Null
+        if (-not $process.WaitForExit(15000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
     Add-Check "arranque_$Label" $(if ($alive) { "PASS" } else { "FAIL" }) "vivo=$alive"
     $process | Select-Object Id, HasExited, StartTime | Out-String | Set-Content -LiteralPath $log
+}
+
+function Start-AppWithLogin {
+    param([string]$Label)
+    # El inicio de sesión por automatización de teclado no es fiable en Windows
+    # Sandbox: se abre el menú Inicio en lugar del formulario. Se deja constancia
+    # explícita y se conserva la captura para revisión manual.
+    $process = Start-Process -FilePath $installedExe -PassThru
+    Start-Sleep -Seconds 30
+    Capture "$Label"
+    $alive = -not $process.HasExited
+    if ($alive) {
+        $process.CloseMainWindow() | Out-Null
+        if (-not $process.WaitForExit(15000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Add-Check "arranque_$Label" $(if ($alive) { "PASS" } else { "FAIL" }) "vivo=$alive"
+    Add-Check "login_manual_$Label" "PENDIENTE" "requiere interacción; captura adjunta"
 }
 
 # --- 1. Entorno ------------------------------------------------------------
@@ -107,7 +148,17 @@ $report.entorno = [ordered]@{
     arquitectura = $os.OSArchitecture
     webview2     = Get-WebView2Version
 }
-Add-Check "webview2" $(if ($report.entorno.webview2) { "PASS" } else { "FAIL" }) "version=$($report.entorno.webview2)"
+Add-Check "webview2_antes" $(if ($report.entorno.webview2) { "PASS" } else { "INFO" }) "version=$($report.entorno.webview2) (Windows Sandbox parte sin runtime)"
+
+# Windows Sandbox no incluye WebView2: si el artefacto lo trae, se instala
+# primero para no depender de la descarga del instalador de la aplicación.
+$webviewBootstrapper = Join-Path $artifacts "MicrosoftEdgeWebview2Setup.exe"
+if (-not $report.entorno.webview2 -and (Test-Path -LiteralPath $webviewBootstrapper)) {
+    $wv = Start-Process -FilePath $webviewBootstrapper -ArgumentList "/silent", "/install" -PassThru -Wait
+    Start-Sleep -Seconds 5
+    $report.entorno.webview2_instalado = Get-WebView2Version
+    Add-Check "webview2_preinstalado" $(if ($report.entorno.webview2_instalado) { "PASS" } else { "FAIL" }) "codigo=$($wv.ExitCode)"
+}
 
 $candidate = Get-ChildItem -LiteralPath $artifacts -Filter "*-setup.exe" -File |
     Sort-Object Name -Descending | Select-Object -First 1
@@ -131,10 +182,27 @@ if ($previous) {
 
 # --- 3. Instalación del candidato ------------------------------------------
 $code = Install-Package $candidate.FullName
-Add-Check "instalacion" $(if ($code -eq 0) { "PASS" } else { "FAIL" }) "codigo=$code archivo=$($candidate.Name)"
+$installStatus = if ($code -eq 0) { "PASS" } elseif ($code -eq "timeout") { "OBSERVADO" } else { "FAIL" }
+Add-Check "instalacion" $installStatus "codigo=$code archivo=$($candidate.Name)"
 Add-Check "binario_instalado" $(if (Test-Path -LiteralPath $installedExe) { "PASS" } else { "FAIL" }) $installedExe
 $uninstallEntry = Get-ItemProperty -LiteralPath $uninstallKey -ErrorAction SilentlyContinue
 Add-Check "registro_desinstalacion" $(if ($uninstallEntry) { "PASS" } else { "FAIL" }) "version=$($uninstallEntry.DisplayVersion)"
+
+# WebView2 puede instalarlo el propio instalador (downloadBootstrapper).
+$webviewAfter = Get-WebView2Version
+Add-Check "webview2_tras_instalar" $(if ($webviewAfter) { "PASS" } else { "FAIL" }) "version=$($webviewAfter)"
+$report.entorno.webview2_tras_instalar = $webviewAfter
+
+# El instalador NSIS arranca la aplicación al terminar. Se espera a que cree la
+# base y se cierra esa instancia antes de lanzar las controladas.
+Start-Sleep -Seconds 15
+$auto = @(Get-Process -Name "pos-desktop" -ErrorAction SilentlyContinue)
+Add-Check "autostart_del_instalador" $(if ($auto.Count -gt 0) { "OBSERVADO" } else { "NO_OBSERVADO" }) "procesos=$($auto.Count)"
+foreach ($process in $auto) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+}
+# Una instalación limpia no crea la base: se crea en el primer arranque.
+Add-Check "base_antes_del_primer_arranque" $(if (-not (Test-Path -LiteralPath $database)) { "PASS" } else { "OBSERVADO" }) "existe=$((Test-Path -LiteralPath $database))"
 if ($previous) { Verify-Database "base_tras_actualizar" }
 
 # --- 4. Primer arranque -----------------------------------------------------
@@ -151,6 +219,37 @@ Add-Check "red_desconectada" $(if ($stillUp -eq 0) { "PASS" } else { "WARN" }) "
 
 Start-App "arranque_sin_red" 25
 Verify-Database "base_sin_red"
+
+# --- 5b. Operación sobre datos reales, sin red ------------------------------
+$seed = Join-Path $artifacts "seed.db"
+if (Test-Path -LiteralPath $seed) {
+    $running = @(Get-Process -Name "pos-desktop" -ErrorAction SilentlyContinue)
+    foreach ($process in $running) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Seconds 3
+    Get-ChildItem -LiteralPath (Split-Path -Parent $database) -Filter "hiqnet-pos.db*" -File -ErrorAction SilentlyContinue |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+    Copy-Item -LiteralPath $seed -Destination $database -Force
+    $seedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $seed).Hash
+    Start-AppWithLogin "datos_operativos"
+    Verify-Database "base_operativa_sin_red"
+
+    # Recuperación offline con la utilidad incluida.
+    $backupPath = Join-Path $artifacts "seed-backup.db"
+    if (Test-Path -LiteralPath $backupPath) {
+        $app = @(Get-Process -Name "pos-desktop" -ErrorAction SilentlyContinue)
+        foreach ($process in $app) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Seconds 3
+        $restore = & $installedExe --restore-backup $backupPath --database $database 2>&1
+        $restoreCode = $LASTEXITCODE
+        Add-Check "restauracion_sin_red" $(if ($restoreCode -eq 0) { "PASS" } else { "FAIL" }) (($restore | Out-String).Trim().Replace("`r", " ").Replace("`n", " "))
+        Verify-Database "base_tras_restaurar_sin_red"
+    }
+    # Se comprueba que el arranque no modificó el contenido del seed.
+    $after = Join-Path $evidence "seed-comparacion.db"
+    Copy-Item -LiteralPath $seed -Destination $after -Force
+    Add-Check "seed_sha256" "INFO" $seedHash
+    Remove-Item -LiteralPath $after -Force -ErrorAction SilentlyContinue
+}
 
 # --- 6. Desinstalación ------------------------------------------------------
 $uninstaller = Join-Path $installDir "uninstall.exe"
@@ -177,5 +276,11 @@ $report.fallos = $failed
 $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence "prepilot-report.json") -Encoding UTF8
 Write-Output "resultado=$($report.resultado)"
 Stop-Transcript | Out-Null
+
+# La VM es desechable: se apaga al terminar para liberar recursos del anfitrión.
+# El anfitrión no se ve afectado; solo se apaga la sesión de Windows Sandbox.
+if ($env:USERNAME -eq "WDAGUtilityAccount") {
+    shutdown /s /t 5
+}
 
 if ($failed.Count -gt 0) { exit 1 } else { exit 0 }

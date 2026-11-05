@@ -15,8 +15,8 @@ distribuirse como versión comercial.
 | Formato | NSIS |
 | Modo de instalación | `currentUser` (sin privilegios administrativos) |
 | Firma Authenticode | **NotSigned** |
-| Tamaño | 5 124 009 bytes (4.89 MiB) |
-| SHA-256 | `228AFD0F34D24C6F29FE9D78E9DAC0B0486151A8F90C30AAFE77919411FC3EBC` |
+| Tamaño | 5 189 857 bytes (4.95 MiB) |
+| SHA-256 | `EA6A90CDE5A93985278B6D35897672219466300C902DDE5AE92E5C35C9CE01` |
 
 Se construye desde la raíz del repositorio con:
 
@@ -32,6 +32,11 @@ El resultado queda en `target/release/bundle/nsis/`.
 - Windows 10/11 x64.
 - Microsoft Edge WebView2 Runtime.
 - Espacio libre en el perfil del usuario.
+
+**No requiere el redistribuible de Visual C++.** El ejecutable enlaza el runtime
+de C/C++ de forma estática (`.cargo/config.toml` con `+crt-static`). Sin esto,
+una imagen limpia falla al arrancar con «no se encontró VCRUNTIME140.dll»;
+comprobado en Windows Sandbox antes de la corrección.
 
 ### WebView2 y el mito del instalador offline
 

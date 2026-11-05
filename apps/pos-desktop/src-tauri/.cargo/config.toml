@@ -1,0 +1,8 @@
+# Enlaza el runtime de C/C++ de forma estática en Windows MSVC.
+#
+# Sin esto, `pos-desktop.exe` depende de `VCRUNTIME140.dll`, que no está
+# presente en imágenes limpias como Windows Sandbox: la aplicación no arranca y
+# el instalador no lo advierte. Con `+crt-static` el ejecutable es autónomo y no
+# exige el redistribuible de Visual C++.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
