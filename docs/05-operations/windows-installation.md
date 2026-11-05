@@ -61,7 +61,8 @@ Rutas habituales:
 
 | Dato | Ruta |
 | --- | --- |
-| Programa | `%LOCALAPPDATA%\Programs\HiQNet POS\` |
+| Programa | `%LOCALAPPDATA%\HiQNet POS\` (`pos-desktop.exe`, `uninstall.exe`) |
+| Datos de WebView2 | `%LOCALAPPDATA%\com.hiqnet.pos\` |
 | Base de datos | `%LOCALAPPDATA%\HiQNet\POS\data\hiqnet-pos.db` |
 | Respaldos | `%LOCALAPPDATA%\HiQNet\POS\data\backups\` |
 | Bloqueo de base | `%LOCALAPPDATA%\HiQNet\POS\data\hiqnet-pos.db.lock` |
@@ -99,8 +100,10 @@ Para reinstalar conservando datos, deja
 
 ## Estado de verificación
 
-La instalación real en una VM Windows limpia **no se ha ejecutado** en el
-entorno de desarrollo actual: no hay VM accesible y la sesión no dispone de
-privilegios para crearla. Consulta
+La instalación real en una VM Windows limpia **no se ha ejecutado**: Windows
+Sandbox no está habilitado en el equipo de desarrollo y la sesión no tiene
+privilegios para habilitarlo. El arnés está preparado en
+[`tools/prepilot-sandbox/`](../../tools/prepilot-sandbox/README.md), con el
+comando exacto de habilitación. Consulta
 [`docs/04-quality/prepilot-readiness.md`](../04-quality/prepilot-readiness.md)
 para la tabla de PASS/FAIL/NO EJECUTADO.

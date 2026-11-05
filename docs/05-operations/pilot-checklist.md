@@ -8,6 +8,9 @@ Uso interno. Completar y archivar junto con el equipo entregado.
 - [ ] Versión coherente en `backend-rust/Cargo.toml`, Tauri, `package.json` y
       `tauri.conf.json`.
 - [ ] Instalador NSIS generado desde el commit aprobado.
+- [ ] Instalación limpia validada en Windows Sandbox o VM desechable con
+      [`tools/prepilot-sandbox/`](../../tools/prepilot-sandbox/README.md) y
+      evidencia en `evidence\prepilot-report.json`.
 - [ ] Instalador identificado como **sin firma / prueba interna**; no distribuido
       como versión comercial.
 - [ ] Actualizador deshabilitado (endpoints vacíos).

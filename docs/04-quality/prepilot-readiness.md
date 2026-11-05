@@ -47,6 +47,39 @@ mediciones locales; lo no ejecutado se declara explícitamente.
 | Corte de energía | **No ejecutado** | La durabilidad depende de WAL y transacciones; no se probó hardware |
 | Revisión de accesibilidad completa | Parcial | Capturas 1366×768/1024×768/768×1024; sin auditoría formal de lectores de pantalla |
 
+## Entorno aislado disponible
+
+Preflight ejecutado sin elevación el 2026-11-04:
+
+| Requisito | Valor | Estado |
+| --- | --- | --- |
+| Edición | Windows 11 Pro `10.0.26300` x64 | Apto |
+| Hipervisor | presente; servicios `vmms` y `vmcompute` en ejecución | Apto |
+| Memoria | 31.9 GB | Apto |
+| Disco libre | 324 GB | Apto |
+| Windows Sandbox | `WindowsSandbox.exe` **ausente** (característica deshabilitada) | **Bloqueado** |
+| `Get-VM` (Hyper-V) | permiso denegado: la sesión no pertenece a *Hyper-V Administrators* | **Bloqueado** |
+| Sesión elevada | no | — |
+
+La instalación real no se ejecutó porque **no existe un entorno aislado
+habilitado**. El arnés está preparado y validado en
+[`tools/prepilot-sandbox/`](../../tools/prepilot-sandbox/README.md): monta solo
+una carpeta de artefactos en modo **solo lectura**, deja una carpeta de
+evidencias aparte y ejecuta `sandbox-verify.ps1` al iniciar la VM.
+
+### Habilitación (requiere aprobación del titular)
+
+```powershell
+Enable-WindowsOptionalFeature -Online -FeatureName "Containers-DisposableClientVM" -All -NoRestart
+shutdown /r /t 0
+```
+
+Efecto: habilita *Windows Sandbox* (usa Hyper-V), añade `WindowsSandbox.exe` y
+requiere reiniciar. No instala ni desinstala aplicaciones del anfitrión y no
+modifica sus adaptadores de red. Alternativa con persistencia entre reinicios:
+`Add-LocalGroupMember -Group "Hyper-V Administrators" -Member "$env:USERNAME"`,
+que además exige una ISO y licencia de Windows.
+
 ## Validación de esta ronda (PR #17)
 
 Entorno: Windows 11 Pro 24H2 (`10.0.26300`), x64, 12 hilos. Hyper-V presente
@@ -66,6 +99,8 @@ Linux, insuficientes para una aplicación Tauri con WebView2.
 | Actualización / desinstalación / reinstalación | **NO EJECUTADO** | Sin VM accesible |
 | Operación sin red | **NO EJECUTADO** | No se modifica la red del equipo anfitrión |
 | Terminación abrupta del proceso | **PASS (parcial)** | Cada E2E termina con `driver.quit` sobre WAL pendiente y la base se recupera; no es una prueba eléctrica |
+| Entorno aislado (Windows Sandbox) | **NO EJECUTADO** | Característica deshabilitada; requiere administrador y reinicio |
+| Arnés de sandbox (artefactos, `.wsb`, script) | **PREPARADO Y VALIDADO** | XML válido, montaje de artefactos `ReadOnly=true`, SHA-256 registrado; sin ejecución |
 
 ## Evidencia ejecutada en esta rama
 
@@ -99,10 +134,11 @@ Linux, insuficientes para una aplicación Tauri con WebView2.
 ## Decisión
 
 `PREPILOTO BLOQUEADO`: la instalación, actualización y operación sin red no se
-han ejecutado por falta de una VM Windows accesible. La aptitud técnica del
-binario está probada (E2E sobre el release, restauración segura y conservación
-de datos verificada por hash), pero eso no sustituye la validación de instalación
-ni autoriza distribuir el producto.
+han ejecutado porque no existe un entorno aislado habilitado en el equipo de
+desarrollo. El arnés está listo y el único paso pendiente es una acción de
+administrador (habilitar Windows Sandbox y reiniciar). La aptitud técnica del
+binario está probada; eso no sustituye la validación de instalación ni autoriza
+distribuir el producto.
 
 ## Riesgos abiertos
 

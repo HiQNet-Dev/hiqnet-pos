@@ -1,0 +1,28 @@
+<Configuration>
+  <!--
+    Windows Sandbox para validar el instalador de HiQNet POS.
+    - artifacts: solo lectura (instalador + script). No se monta el repositorio.
+    - evidence: escritura, para el informe y las capturas.
+    La red se habilita para la instalación y el propio script la desactiva
+    DENTRO de la VM para la fase offline. Nunca toca el anfitrión.
+  -->
+  <VGpu>Disable</VGpu>
+  <Networking>Enable</Networking>
+  <ClipboardRedirection>Disable</ClipboardRedirection>
+  <MemoryInMB>8192</MemoryInMB>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>__ARTIFACTS__</HostFolder>
+      <SandboxFolder>C:\HiQNetArtifacts</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+    <MappedFolder>
+      <HostFolder>__EVIDENCE__</HostFolder>
+      <SandboxFolder>C:\Evidence</SandboxFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\HiQNetArtifacts\sandbox-verify.ps1</Command>
+  </LogonCommand>
+</Configuration>
