@@ -4,6 +4,7 @@ import type { Actor, AppStatus } from "./contracts";
 import { LoginScreen } from "./screens/LoginScreen";
 import { OnboardingScreen } from "./screens/OnboardingScreen";
 import { AppShell } from "./shell/AppShell";
+import { loadInitialStatus } from "./lib/startup";
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
@@ -28,7 +29,7 @@ export default function App() {
 
     async function load() {
       try {
-        const current = await api.status();
+        const current = await loadInitialStatus();
         if (cancelled) return;
         setStatus(current);
         if (current.initialized) {

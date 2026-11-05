@@ -63,6 +63,7 @@ type IpcResult<T> = Result<T, IpcError>;
 
 /// El driver WebView no propaga las variables de entorno al binario de la app.
 /// Esta ruta solo se acepta desde el proceso que Tauri marcó para automatización.
+#[cfg(not(target_os = "android"))]
 fn automation_database_path() -> Option<PathBuf> {
     if std::env::var_os("TAURI_WEBVIEW_AUTOMATION")?.as_os_str() != "true" {
         return None;
@@ -647,6 +648,7 @@ async fn backup_database(state: State<'_, AppState>) -> IpcResult<String> {
     Ok(target.to_string_lossy().to_string())
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
@@ -654,9 +656,25 @@ pub fn run() {
         )
         .try_init();
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_updater::Builder::new().build())
+    #[cfg(target_os = "android")]
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .ok();
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build());
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let builder = tauri::Builder::default();
+
+    builder
         .setup(|app| {
+            #[cfg(target_os = "android")]
+            let db_path = app
+                .path()
+                .app_data_dir()
+                .map(|directory| directory.join("data").join("hiqnet-pos.db"))?;
+
+            #[cfg(not(target_os = "android"))]
             let db_path = automation_database_path()
                 .or_else(|| std::env::var_os("HIQNET_POS_DB_PATH").map(PathBuf::from))
                 .unwrap_or_else(pos_storage_sqlite::default_database_path);
