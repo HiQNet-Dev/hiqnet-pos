@@ -64,7 +64,12 @@ async fn respaldo_verificado_y_restauracion_con_copia_de_recuperacion() {
         .unwrap()
         .filter_map(Result::ok)
         .map(|entry| entry.path())
-        .find(|path| path.to_string_lossy().contains(".pre-restore-"))
+        .find(|path| {
+            let name = path.to_string_lossy().to_string();
+            name.contains(".pre-restore-")
+                && !name.contains(".wal.pre-restore-")
+                && !name.contains(".shm.pre-restore-")
+        })
         .expect("debe existir copia de recuperación");
     let recovery_pool = open(&recovery).await.unwrap();
     let recovered: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM product")
@@ -295,10 +300,11 @@ async fn restauraciones_sucesivas_conservan_cada_copia_de_recuperacion() {
         .unwrap()
         .filter_map(Result::ok)
         .filter(|entry| {
-            entry
-                .file_name()
-                .to_string_lossy()
-                .contains(".pre-restore-")
+            let name = entry.file_name().to_string_lossy().to_string();
+            // Los sidecars apartados no son copias de recuperación.
+            name.contains(".pre-restore-")
+                && !name.contains(".wal.pre-restore-")
+                && !name.contains(".shm.pre-restore-")
         })
         .count();
     assert_eq!(recovery_copies, 2, "ninguna copia se sobrescribe");

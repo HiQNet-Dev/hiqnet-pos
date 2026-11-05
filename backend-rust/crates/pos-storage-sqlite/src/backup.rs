@@ -954,7 +954,14 @@ mod failure_tests {
             std::fs::read_dir(dir.path())
                 .unwrap()
                 .filter_map(Result::ok)
-                .filter(|entry| entry.file_name().to_string_lossy().contains("pre-restore"))
+                .filter(|entry| {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    // Los sidecars apartados (`.wal.pre-restore-`, `.shm.pre-restore-`)
+                    // no son copias de recuperación.
+                    name.contains(".pre-restore-")
+                        && !name.contains(".wal.pre-restore-")
+                        && !name.contains(".shm.pre-restore-")
+                })
                 .count(),
             1,
             "una sola copia de recuperación"
