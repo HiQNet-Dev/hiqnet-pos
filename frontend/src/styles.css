@@ -2112,21 +2112,28 @@ select {
 }
 
 @media (max-width: 1080px) {
+  /* Barra lateral compacta de 88 px: "Devoluciones" cabe en una o dos líneas. */
   .app-body,
-  .app-body[data-collapsed="false"] {
-    grid-template-columns: 72px minmax(0, 1fr);
+  .app-body[data-collapsed="false"],
+  .app-body[data-collapsed="true"] {
+    grid-template-columns: 88px minmax(0, 1fr);
   }
 
   .nav-label {
     display: none;
   }
 
+  /* Etiquetas completas: se permite el salto entre palabras, nunca dentro de
+     una palabra. */
   .nav-label-short {
     display: block;
     font-size: var(--text-xs);
     line-height: 1.15;
     text-align: center;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: none;
   }
 
   .sidenav-version {
@@ -2301,32 +2308,5 @@ select {
 
   .ticket-line {
     padding-block: 12px;
-  }
-}
-
-/* La barra estrecha mantiene nombres completos y sin recortes. */
-@media (max-width: 1080px) {
-  .nav-label-short {
-    white-space: normal;
-    overflow-wrap: anywhere;
-    line-height: 1.1;
-    font-size: var(--text-xs);
-  }
-}
-
-/* Barra estrecha: 88 px permite nombres completos en una o dos líneas. */
-@media (max-width: 1080px) {
-  .app-body,
-  .app-body[data-collapsed="false"],
-  .app-body[data-collapsed="true"] {
-    grid-template-columns: 88px minmax(0, 1fr);
-  }
-
-  .nav-label-short {
-    white-space: normal;
-    overflow-wrap: normal;
-    word-break: normal;
-    hyphens: none;
-    line-height: 1.15;
   }
 }
