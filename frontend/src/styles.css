@@ -733,11 +733,17 @@ select {
 
 .chips {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
   padding-bottom: 2px;
   flex: 1;
   min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.chip {
+  flex: none;
 }
 
 .badge {
@@ -1309,8 +1315,8 @@ select {
 }
 
 .stepper-button {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border: 0;
   background: transparent;
   color: var(--color-text);
@@ -1330,8 +1336,14 @@ select {
 }
 
 .stepper-small .stepper-button {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
+}
+
+/* Objetivo de puntero cómodo sin cambiar el icono visible. */
+.ticket-line .icon-button {
+  width: 36px;
+  height: 36px;
 }
 
 .stepper-value {
@@ -1363,6 +1375,11 @@ select {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-2);
   animation: modal-in 140ms ease;
+}
+
+.modal .icon-button {
+  width: 40px;
+  height: 40px;
 }
 
 .modal-lg {
@@ -2140,8 +2157,8 @@ select {
   }
 
   .chips {
-    flex-wrap: wrap;
-    overflow-x: visible;
+    flex-wrap: nowrap;
+    overflow-x: auto;
   }
 }
 
