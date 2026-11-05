@@ -24,14 +24,17 @@ mediciones locales; lo no ejecutado se declara explícitamente.
 | Restauración con la app abierta | Implementado y probado | `e2e_restore_guard.py` sobre el ejecutable: código 2 y base intacta |
 | Restauración con conexión SQLite externa | Implementado y probado | `wal_checkpoint(TRUNCATE)` detecta lectores en WAL; probado por unidad y con lector python real |
 | Fallos de reemplazo inyectados | Implementado y probado | 9 escenarios en `backup.rs`: copia, validación, promoción, verificación final y reversión |
+| Intervalo checkpoint → promoción | Implementado y probado | Bloqueo exclusivo sostenido durante copia y validación; dos pruebas con barrera y conexión externa (rechazo y aborto sin pérdida de datos) |
 | Rechazo de doble instancia | Implementado y probado | La app toma `hiqnet-pos.db.lock` al arrancar y avisa si ya está abierta |
 | Migraciones y actualización de esquema | Implementado y probado | Actualización 0003→0010, 0007→0010 y 0009→0010 con datos |
 | Rechazo de esquema posterior | Implementado y probado | `open` y `verify_backup` devuelven `IncompatibleSchema` |
 | Detección de base corrupta | Implementado y probado | `PRAGMA quick_check` al abrir |
-| Operación offline | Implementado; validación por diseño | No hay llamadas de red en los flujos; E2E sin dependencias externas |
-| Instalador NSIS | Implementado; **validación incompleta** | Artefacto construido y sin firma; **no se instaló en VM limpia** |
+| Operación offline | Implementado; **no ejecutado con red desconectada** | Sin llamadas de red en los flujos; falta la prueba física en VM |
+| Instalador NSIS | Construido; **instalación no ejecutada** | 4.89 MiB, `NotSigned`, `SHA-256 B3D31ADB…AACD06`, modo `currentUser`; sin VM disponible |
+| Ejecutable de release (contenido del instalador) | Verificado | E2E comercial, devoluciones, guardia de restauración y multifase ejecutados contra `target/release/pos-desktop.exe` |
 | Actualización sobre versión anterior | **No ejecutado** | Requiere VM limpia y build previo |
 | Desinstalación/reinstalación conservando datos | **No ejecutado** | Requiere VM limpia |
+| Instalación sin Internet (WebView2) | **Dependiente de WebView2 preinstalado** | El paquete usa `downloadBootstrapper`: si falta el runtime, descarga |
 | Actualizador Tauri | **Deshabilitado** | Sin endpoints, claves ni política de firma |
 | Emisión de licencias | Pendiente | Responsabilidad de HiQNet Platform |
 | Firma del instalador | **Bloqueado por decisión comercial** | D-09 sin resolver |
@@ -43,6 +46,26 @@ mediciones locales; lo no ejecutado se declara explícitamente.
 | Rendimiento en jornada de 8 h | **No ejecutado** | Medición puntual: arranque 1.13–1.17 s, checkout 8.66 ms, reportes 10.6 ms con 200 ventas |
 | Corte de energía | **No ejecutado** | La durabilidad depende de WAL y transacciones; no se probó hardware |
 | Revisión de accesibilidad completa | Parcial | Capturas 1366×768/1024×768/768×1024; sin auditoría formal de lectores de pantalla |
+
+## Validación de esta ronda (PR #17)
+
+Entorno: Windows 11 Pro 24H2 (`10.0.26300`), x64, 12 hilos. Hyper-V presente
+pero **sin acceso a máquinas virtuales** desde la sesión (el comando `Get-VM`
+requiere elevación y no hay VM creada). Docker Desktop solo ejecuta contenedores
+Linux, insuficientes para una aplicación Tauri con WebView2.
+
+| Escenario | Estado | Evidencia |
+| --- | --- | --- |
+| Intervalo entre checkpoint y promoción | **PASS** | `otra_conexion_no_puede_escribir_entre_checkpoint_y_promocion`: el escritor externo es rechazado y la base queda en el estado del respaldo |
+| Escritura externa en la ventana de promoción | **PASS** | `escritura_externa_en_la_ventana_aborta_sin_perder_datos`: rechazo `DatabaseInUse` y los datos confirmados por el tercero sobreviven |
+| Instalación inicial en VM limpia | **NO EJECUTADO** | Sin VM accesible |
+| SmartScreen con instalador sin firma | **NO EJECUTADO** | Sin VM accesible; el artefacto es `NotSigned` |
+| Dependencia de WebView2 | **VERIFICADO ESTÁTICAMENTE** | `INSTALLWEBVIEW2MODE=downloadBootstrapper` en `installer.nsi` |
+| Apertura de la aplicación instalada | **NO EJECUTADO** | Sin instalación |
+| Ejecutable de release (mismo binario del instalador) | **PASS** | E2E comercial, devoluciones y restauración sobre `target/release/pos-desktop.exe` |
+| Actualización / desinstalación / reinstalación | **NO EJECUTADO** | Sin VM accesible |
+| Operación sin red | **NO EJECUTADO** | No se modifica la red del equipo anfitrión |
+| Terminación abrupta del proceso | **PASS (parcial)** | Cada E2E termina con `driver.quit` sobre WAL pendiente y la base se recupera; no es una prueba eléctrica |
 
 ## Evidencia ejecutada en esta rama
 
@@ -60,6 +83,9 @@ mediciones locales; lo no ejecutado se declara explícitamente.
   residuos `-wal`/`-shm`.
 - `perf_smoke.py` con 200 ventas.
 - Utilidad offline: verificación, restauración y rechazo de archivo corrupto.
+- Instalador NSIS `0.1.0` (4.89 MiB, sin firma) con SHA-256 registrado en
+  [`docs/05-operations/windows-installation.md`](../05-operations/windows-installation.md).
+- Batería completa repetida contra el **ejecutable de release**.
 
 ## Criterios para declarar el piloto apto
 
@@ -70,15 +96,28 @@ mediciones locales; lo no ejecutado se declara explícitamente.
 5. Decisión documentada sobre firma y actualizador (aunque sea "deshabilitado").
 6. Procedimiento de soporte y recuperación entregado al operador.
 
+## Decisión
+
+`PREPILOTO BLOQUEADO`: la instalación, actualización y operación sin red no se
+han ejecutado por falta de una VM Windows accesible. La aptitud técnica del
+binario está probada (E2E sobre el release, restauración segura y conservación
+de datos verificada por hash), pero eso no sustituye la validación de instalación
+ni autoriza distribuir el producto.
+
 ## Riesgos abiertos
 
-- Sin firma de código: los avisos de SmartScreen pueden confundir al operador.
-- Sin instalación probada en equipo limpio; WebView2 puede faltar en Windows 10
-  sin actualizaciones.
+- Instalador sin firma: SmartScreen mostrará advertencias.
+- WebView2 puede requerir descarga durante la instalación si falta el runtime.
+- Sin instalación probada en equipo limpio.
+- Sin prueba de operación con red desconectada ni de corte de energía.
 - Emisión de licencias productiva aún no existe; el Trial es el modo verificable.
-- Sin prueba de corte de energía ni de jornada prolongada.
 - El bloqueo de la base es cooperativo: otra herramienta que ignore
   `hiqnet-pos.db.lock` podría reemplazar el archivo. El procedimiento soportado
   es cerrar HiQNet POS y usar la utilidad incluida.
 - El respaldo no sustituye a una copia externa: si el disco falla, respaldo y
   base se pierden juntos.
+- En Windows no es posible reemplazar un archivo que otra conexión mantiene
+  abierto. La guardia exclusiva cubre la copia y la validación; el reemplazo deja
+  una ventana de milisegundos en la que una herramienta externa podría escribir.
+  Esa escritura se detecta (WAL con datos) y aborta la restauración conservando
+  los datos confirmados, pero no puede impedirse por completo.

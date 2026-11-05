@@ -237,12 +237,26 @@ pub async fn restore_from_backup(
 
     let _process_lock = try_lock(database_path)?;
 
-    // 1. Estado previo: checkpoint seguro y copia de recuperación.
-    let recovery = prepare_destination(database_path).await?;
+    // 1. Estado previo: checkpoint seguro, copia de recuperación y bloqueo
+    //    exclusivo que se mantiene hasta después del reemplazo.
+    let mut prepared = prepare_destination(database_path).await?;
+    let recovery = prepared.recovery.clone();
 
     // 2. Promoción desde el respaldo verificado.
     let mut staged = StagedFile::new(staged_path(database_path));
-    match promote_and_verify(database_path, backup_path, &staged, true).await {
+    let outcome = promote_and_verify(
+        database_path,
+        backup_path,
+        &staged,
+        true,
+        &mut prepared.guard,
+    )
+    .await;
+    if let Some(connection) = prepared.guard.take() {
+        let _ = connection.close().await;
+    }
+
+    match outcome {
         Ok(()) => Ok(RestoreReport {
             recovery_copy: recovery,
         }),
@@ -292,11 +306,24 @@ struct PromotionFailure {
     destination_touched: bool,
 }
 
+/// Estado previo de la base destino.
+struct PreparedDestination {
+    /// Conexión que mantiene el bloqueo exclusivo hasta la promoción.
+    guard: Option<sqlx::SqliteConnection>,
+    recovery: Option<PathBuf>,
+}
+
 /// Prepara el destino: bloqueo exclusivo real, volcado del WAL y copia de
 /// recuperación verificada. Si algo falla, el destino no se modifica.
-async fn prepare_destination(database_path: &Path) -> Result<Option<PathBuf>, StorageError> {
+///
+/// La conexión de guardia **no se cierra aquí**: se conserva para que ninguna
+/// conexión externa pueda escribir entre el checkpoint y el reemplazo.
+async fn prepare_destination(database_path: &Path) -> Result<PreparedDestination, StorageError> {
     if !database_path.is_file() {
-        return Ok(None);
+        return Ok(PreparedDestination {
+            guard: None,
+            recovery: None,
+        });
     }
 
     let mut guard = SqliteConnectOptions::new()
@@ -345,20 +372,24 @@ async fn prepare_destination(database_path: &Path) -> Result<Option<PathBuf>, St
         let _ = std::fs::remove_file(&path);
     }
 
-    // Cierre limpio: `wal_checkpoint(TRUNCATE)` ya dejó el WAL sin datos. Si
-    // tras cerrar la última conexión el WAL conserva tamaño, otra conexión lo
-    // mantiene abierto y no se continúa.
-    guard.close().await.map_err(|_| StorageError::Restore)?;
     if wal_has_data(database_path) {
+        let _ = guard.close().await;
         let _ = std::fs::remove_file(&path);
         return Err(StorageError::DatabaseInUse);
     }
 
     if let Err(error) = verify_snapshot(&path).await {
+        let _ = guard.close().await;
         let _ = std::fs::remove_file(&path);
         return Err(error);
     }
-    Ok(Some(path))
+
+    // El bloqueo exclusivo sigue tomado: el WAL está vacío y nadie más puede
+    // escribir hasta que se cierre esta conexión.
+    Ok(PreparedDestination {
+        guard: Some(guard),
+        recovery: Some(path),
+    })
 }
 
 /// Distingue una base dañada de una base en uso cuando el checkpoint falla.
@@ -396,8 +427,13 @@ fn wal_has_data(database_path: &Path) -> bool {
 
 /// Aparta `-wal` y `-shm` en lugar de borrarlos: conserva cualquier residuo
 /// para análisis y evita que el archivo recién promovido herede páginas del
-/// anterior. Un WAL vacío o un `-shm` obsoleto no bloquean el reemplazo.
-fn quarantine_sidecars(database_path: &Path) -> Result<(), StorageError> {
+/// anterior.
+///
+/// `allow_data` distingue los dos momentos: antes de reemplazar, un WAL con
+/// páginas pendientes obliga a abortar (`false`); después de reemplazar, ese
+/// WAL pertenece a la base anterior y debe apartarse para que nunca quede junto
+/// al archivo nuevo (`true`).
+fn quarantine_sidecars(database_path: &Path, allow_data: bool) -> Result<(), StorageError> {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|value| value.as_millis())
@@ -414,7 +450,7 @@ fn quarantine_sidecars(database_path: &Path) -> Result<(), StorageError> {
         if !path.exists() {
             continue;
         }
-        if suffix == "-wal" {
+        if suffix == "-wal" && !allow_data {
             let size = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
             if size > 0 {
                 return Err(StorageError::DatabaseInUse);
@@ -427,11 +463,16 @@ fn quarantine_sidecars(database_path: &Path) -> Result<(), StorageError> {
 }
 
 /// Copia el origen al temporal, lo sincroniza, lo valida y lo promueve.
+///
+/// `guard` mantiene el bloqueo exclusivo de SQLite: se conserva hasta después
+/// del reemplazo para que ninguna conexión externa pueda escribir entre el
+/// checkpoint y la promoción.
 async fn promote_and_verify(
     database_path: &Path,
     source: &Path,
     staged: &StagedFile,
     strict: bool,
+    guard: &mut Option<sqlx::SqliteConnection>,
 ) -> Result<(), PromotionFailure> {
     let fail = |error: StorageError, destination_touched: bool| PromotionFailure {
         error,
@@ -458,17 +499,49 @@ async fn promote_and_verify(
         let _ = std::fs::remove_file(staged.path());
     }
 
-    // Aparta los sidecars obsoletos antes de reemplazar el archivo principal.
-    quarantine_sidecars(database_path).map_err(|error| fail(error, false))?;
+    // Un WAL con páginas pendientes jamás debe separarse del archivo principal.
+    if wal_has_data(database_path) {
+        return Err(fail(StorageError::DatabaseInUse, false));
+    }
+
+    #[cfg(test)]
+    race::hit(race::Point::BeforePromotion);
 
     // Reemplazo de la entrada de directorio. En Unix es atómico frente a otros
     // procesos; en Windows es `MoveFileEx` con `REPLACE_EXISTING`, que tampoco
     // es una transacción del sistema de archivos.
-    std::fs::rename(staged.path(), database_path).map_err(|_| {
-        // El fallo de renombrado no altera el destino en condiciones normales,
-        // pero puede haberlo hecho; la reversión comprueba el resultado.
-        fail(StorageError::Restore, database_path.is_file())
-    })?;
+    //
+    // Se intenta con el bloqueo exclusivo tomado. Si el sistema de archivos no
+    // permite reemplazar un archivo abierto, se cierra la guardia y se apartan
+    // los sidecars antes de reintentar; esa ventana queda documentada y es la
+    // única en la que otra conexión podría incorporarse.
+    let mut promoted = std::fs::rename(staged.path(), database_path).is_ok();
+    if !promoted {
+        // Windows deniega reemplazar un archivo con un handle abierto, incluso
+        // con `FILE_SHARE_DELETE`. Hay que soltar el bloqueo y aceptar una
+        // ventana mínima, protegida por las comprobaciones inmediatas.
+        if let Some(connection) = guard.take() {
+            let _ = connection.close().await;
+        }
+        #[cfg(test)]
+        race::hit(race::Point::BeforePromotionUnlocked);
+        // Si en la ventana apareció un WAL con datos, pertenece a una escritura
+        // externa: la base principal está intacta y se aborta sin tocar nada.
+        quarantine_sidecars(database_path, false).map_err(|error| fail(error, false))?;
+        promoted = std::fs::rename(staged.path(), database_path).is_ok();
+        if !promoted {
+            return Err(fail(StorageError::Restore, false));
+        }
+    }
+
+    if let Some(connection) = guard.take() {
+        let _ = connection.close().await;
+    }
+    // Cualquier sidecar que haya aparecido durante la promoción pertenece a la
+    // base anterior: se aparta siempre, aunque contenga datos, para que nunca
+    // quede un WAL separado del archivo principal al que corresponde.
+    quarantine_sidecars(database_path, true)
+        .map_err(|error| fail(error, database_path.is_file()))?;
     sync_parent(database_path);
 
     if fault(RestoreStep::FinalVerification) {
@@ -489,7 +562,8 @@ async fn rollback_to(database_path: &Path, recovery: &Path) -> Result<(), Storag
         return Err(StorageError::Restore);
     }
     let staged = StagedFile::new(staged_path(database_path));
-    promote_and_verify(database_path, recovery, &staged, false)
+    let mut guard = None;
+    promote_and_verify(database_path, recovery, &staged, false, &mut guard)
         .await
         .map_err(|failure| failure.error)?;
     verify_snapshot(database_path).await
@@ -660,6 +734,43 @@ mod faults {
                 Ok(_) => return true,
                 Err(observed) => current = observed,
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod race {
+    //! Gancho exclusivo de pruebas para inspeccionar el intervalo entre el
+    //! checkpoint y la promoción. No existe en compilaciones normales.
+    use std::sync::Mutex;
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    pub enum Point {
+        /// Con el bloqueo exclusivo todavía tomado.
+        BeforePromotion,
+        /// Después de soltar la guardia y apartar sidecars, justo antes de
+        /// reemplazar el archivo: la ventana mínima del procedimiento.
+        BeforePromotionUnlocked,
+    }
+
+    type Hook = Box<dyn FnOnce() + Send>;
+
+    static HOOK: Mutex<Option<(Point, Hook)>> = Mutex::new(None);
+
+    pub fn arm(point: Point, hook: Hook) {
+        *HOOK.lock().unwrap_or_else(|poison| poison.into_inner()) = Some((point, hook));
+    }
+
+    pub fn hit(point: Point) {
+        let hook = {
+            let mut slot = HOOK.lock().unwrap_or_else(|poison| poison.into_inner());
+            match slot.as_ref() {
+                Some((armed, _)) if *armed == point => slot.take().map(|(_, hook)| hook),
+                _ => None,
+            }
+        };
+        if let Some(hook) = hook {
+            hook();
         }
     }
 }
@@ -906,6 +1017,139 @@ mod failure_tests {
                 );
             }
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn otra_conexion_no_puede_escribir_entre_checkpoint_y_promocion() {
+        let _serial = serial();
+        let (_dir, database, backup) = scenario().await;
+
+        let (arrived_tx, arrived_rx) = std::sync::mpsc::channel();
+        let (go_tx, go_rx) = std::sync::mpsc::channel();
+        race::arm(
+            race::Point::BeforePromotion,
+            Box::new(move || {
+                let _ = arrived_tx.send(());
+                let _ = go_rx.recv_timeout(Duration::from_secs(10));
+            }),
+        );
+
+        let writer_database = database.clone();
+        let writer = std::thread::spawn(move || {
+            // Espera a que la utilidad esté a punto de promover.
+            let _ = arrived_rx.recv_timeout(Duration::from_secs(10));
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let outcome = runtime.block_on(async move {
+                let mut connection = SqliteConnectOptions::new()
+                    .filename(&writer_database)
+                    .busy_timeout(Duration::from_millis(500))
+                    .connect()
+                    .await
+                    .map_err(|_| "conexion rechazada")?;
+                let result = sqlx::query(
+                    "INSERT INTO product (id, organization_id, sku, name, unit_price_minor, tax_rate_bp, active, created_at)                      VALUES ('intruso', 'org-1', 'INT', 'Intruso', 100, 0, 1, '2026-01-01T00:00:00Z')",
+                )
+                .execute(&mut connection)
+                .await
+                .map_err(|_| "escritura rechazada");
+                let _ = connection.close().await;
+                result.map(|_| ())
+            });
+            let _ = go_tx.send(());
+            outcome
+        });
+
+        let report = restore_from_backup(&database, &backup).await;
+        let intento = writer.join().expect("hilo del intruso");
+
+        // La conexión externa no puede escribir mientras se sostiene el bloqueo
+        // exclusivo durante la copia y la validación.
+        assert!(
+            intento.is_err(),
+            "una conexión externa escribió entre el checkpoint y la promoción"
+        );
+        match report {
+            Ok(_) => {}
+            Err(error) => assert!(
+                matches!(error, StorageError::DatabaseInUse | StorageError::Restore),
+                "error inesperado: {error:?}"
+            ),
+        }
+
+        verify_backup(&database).await.unwrap();
+        assert_eq!(
+            pending_count(&database).await,
+            2,
+            "estado del respaldo íntegro"
+        );
+        assert!(
+            !wal_has_data(&database),
+            "quedó un WAL con datos junto a la base promovida"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn escritura_externa_en_la_ventana_aborta_sin_perder_datos() {
+        let _serial = serial();
+        let (_dir, database, backup) = scenario().await;
+
+        // En la ventana la guardia ya se soltó: una conexión externa sí puede
+        // entrar. La promoción debe abortar y sus datos confirmados sobrevivir.
+        let (written_tx, written_rx) = std::sync::mpsc::channel();
+        race::arm(
+            race::Point::BeforePromotionUnlocked,
+            Box::new(move || {
+                let _ = written_rx.recv_timeout(Duration::from_secs(10));
+            }),
+        );
+
+        let writer_database = database.clone();
+        let (hold_tx, hold_rx) = std::sync::mpsc::channel::<()>();
+        let writer = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async move {
+                let mut connection = SqliteConnectOptions::new()
+                    .filename(&writer_database)
+                    .busy_timeout(Duration::from_secs(2))
+                    .connect()
+                    .await
+                    .expect("conexión externa");
+                sqlx::query(
+                    "INSERT INTO product (id, organization_id, sku, name, unit_price_minor, tax_rate_bp, active, created_at)                      VALUES ('intruso', 'org-1', 'INT', 'Intruso', 100, 0, 1, '2026-01-01T00:00:00Z')",
+                )
+                .execute(&mut connection)
+                .await
+                .expect("escritura externa confirmada");
+                let _ = written_tx.send(());
+                // Mantiene el WAL presente mientras la utilidad intenta promover.
+                let _ = hold_rx.recv_timeout(Duration::from_secs(10));
+                let _ = connection.close().await;
+            });
+        });
+
+        let report = restore_from_backup(&database, &backup).await;
+        let _ = hold_tx.send(());
+        writer.join().expect("hilo del escritor externo");
+
+        // El WAL con datos externos impide la promoción: la base original queda
+        // intacta y la escritura confirmada no se pierde.
+        assert!(
+            matches!(report, Err(StorageError::DatabaseInUse)),
+            "se esperaba rechazo por base en uso, obtenido {report:?}"
+        );
+        verify_backup(&database).await.unwrap();
+        assert_eq!(
+            pending_count(&database).await,
+            4,
+            "la escritura externa confirmada se conserva"
+        );
+        assert!(!wal_has_data(&database), "el WAL se integró al cerrar");
     }
 
     #[tokio::test]

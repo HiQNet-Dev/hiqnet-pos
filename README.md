@@ -117,7 +117,9 @@ pnpm dlx @tauri-apps/cli@2 build --debug
 
 El instalador generado **no está firmado** y no debe distribuirse públicamente.
 El actualizador permanece deshabilitado. Consulta la lista de comprobación en
-[`docs/05-operations/pilot-checklist.md`](docs/05-operations/pilot-checklist.md).
+[`docs/05-operations/pilot-checklist.md`](docs/05-operations/pilot-checklist.md) y
+la guía de instalación, rutas y actualización en
+[`docs/05-operations/windows-installation.md`](docs/05-operations/windows-installation.md).
 
 ## Respaldo y restauración offline
 
@@ -131,8 +133,10 @@ pos-desktop.exe --restore-backup <respaldo.db> --database "%LOCALAPPDATA%\HiQNet
 ```
 
 La restauración verifica integridad, esquema y claves foráneas, rechaza bases de
-una versión posterior, exige que no haya escrituras activas y crea una copia de
-recuperación `*.pre-restore-<epoch>.db` antes de reemplazar. Ver
+una versión posterior y cualquier conexión abierta (aplicación o herramienta
+externa), y crea una copia de recuperación `*.pre-restore-<epoch>.db` antes de
+reemplazar. Si la promoción o su verificación fallan, revierte a esa copia; si la
+reversión también falla, informa un error crítico conservando los artefactos. Ver
 [`docs/05-operations/backup-and-restore.md`](docs/05-operations/backup-and-restore.md).
 
 La operación es **local y offline**: no se realiza ninguna petición de red para

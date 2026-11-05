@@ -98,13 +98,35 @@ La utilidad:
 | Datos pendientes en WAL | Se vuelcan antes de copiar y reemplazar |
 | Fallo antes de la promoción | Base original intacta; temporal eliminado |
 | Fallo al promover o al verificar | Reversión automática a la copia previa, verificada |
-| Fallo de la reversión | `RestoreCritical` con rutas conservadas; no hay recuperación automática |
+| Fallo de la reversión | `RestoreCritical`, artefactos conservados, sin recuperación automática |
+| Conexión externa durante la copia y validación | Rechazada: la guardia exclusiva sigue tomada |
+| Conexión externa en la ventana de reemplazo | Detectada por WAL con datos: aborta y conserva la escritura confirmada |
 | Corte eléctrico durante la promoción | **Sin garantía de transacción de sistema de archivos.** Puede quedar la base en el estado restaurado sin confirmar; la copia `pre-restore` permite volver atrás |
 | Windows vs. Unix | `fs::rename` es `MoveFileEx(REPLACE_EXISTING)` en Windows y `rename(2)` en Unix: ambos reemplazan la entrada de directorio, ninguno es un `fsync` transaccional |
 
 El bloqueo cooperativo protege frente a otras instancias de HiQNet POS y frente a
 utilidades que respeten el archivo; la exclusividad frente a otras conexiones
 SQLite la aporta el checkpoint, no el bloqueo.
+
+### Intervalo entre el checkpoint y la promoción
+
+La conexión de guardia en modo exclusivo se mantiene abierta durante la copia y
+la validación del respaldo, de modo que ninguna conexión externa puede escribir
+durante esa fase, que es la larga.
+
+En Windows no es posible reemplazar un archivo que está abierto —incluso con
+`FILE_SHARE_DELETE`, `MoveFileEx` devuelve `ERROR_ACCESS_DENIED`—, por lo que el
+reemplazo obliga a cerrar la guardia. Queda una ventana de milisegundos
+protegida por dos comprobaciones:
+
+- antes del reemplazo, si apareció un WAL con datos se aborta y la base original
+  queda intacta;
+- después del reemplazo, cualquier sidecar se aparta siempre, para que nunca
+  quede un WAL separado del archivo principal al que pertenece.
+
+Ambos casos están cubiertos por pruebas con barrera y conexión externa real
+(`otra_conexion_no_puede_escribir_entre_checkpoint_y_promocion` y
+`escritura_externa_en_la_ventana_aborta_sin_perder_datos`).
 
 Al arrancar, la aplicación toma ese mismo bloqueo. Si ya está abierto en el
 equipo, muestra `HiQNet POS ya está abierto en este equipo` en lugar de trabajar
@@ -174,6 +196,8 @@ SQLite real y fallos inyectados):
 | Reversión | Inyectado | `RestoreCritical` con base, copia y temporal conservados |
 | Lector externo activo | Real (conexión SQLite con lectura abierta) | `DatabaseInUse`, base intacta |
 | Residuos `-wal`/`-shm` de un lector previo | Real | Restauración correcta y residuos apartados |
+| Conexión externa con la guardia tomada | **Real** (barrera + conexión en otro hilo) | Escritura rechazada; base en el estado del respaldo |
+| Escritura externa en la ventana de reemplazo | **Real** (barrera + conexión en otro hilo) | `DatabaseInUse`; los datos confirmados por el tercero sobreviven |
 
 Los fallos "inyectados" usan puntos de fallo compilados solo en pruebas
 (`#[cfg(test)]`); no existen en el binario de producción.
