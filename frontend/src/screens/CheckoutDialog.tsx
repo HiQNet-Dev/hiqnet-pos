@@ -1,76 +1,103 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { api, IpcError } from "../api";
-import type { CashShift, SaleView } from "../contracts";
+import type { CashShift, CheckoutDraft, SaleView } from "../contracts";
 import { cartTotals, estimatedChange, lineTotalMinor, type CartLine } from "../lib/cart";
+import type { PendingSaleAttempt } from "../lib/pendingAttempt";
 import { displayMoney, formatMinor } from "../lib/money";
 import { Modal } from "../components/Modal";
 
 interface Props {
   cart: CartLine[];
-  shift: CashShift;
+  shift: CashShift | null;
   readOnly: boolean;
+  pendingAttempt: PendingSaleAttempt | null;
+  onPendingAttemptChange: (attempt: PendingSaleAttempt | null) => void;
   onClose: () => void;
   onCompleted: (sale: SaleView) => void;
 }
 
-interface Attempt {
-  key: string;
-  payload: string;
+function ipcErrorOf(cause: unknown): IpcError | null {
+  return cause && typeof cause === "object" && typeof (cause as IpcError).code === "string"
+    ? (cause as IpcError)
+    : null;
+}
+
+function isUncertain(cause: unknown): boolean {
+  const code = ipcErrorOf(cause)?.code;
+  return code === undefined || ["storage_error", "unknown_error", "contract_mismatch"].includes(code);
 }
 
 /**
  * Cobro en efectivo. Los importes definitivos los confirma Rust; lo mostrado
  * antes de confirmar es una estimación de la misma aritmética entera.
  */
-export function CheckoutDialog({ cart, shift, readOnly, onClose, onCompleted }: Props) {
+export function CheckoutDialog({
+  cart,
+  shift,
+  readOnly,
+  pendingAttempt,
+  onPendingAttemptChange,
+  onClose,
+  onCompleted,
+}: Props) {
   const totals = cartTotals(cart);
   const [cashReceived, setCashReceived] = useState(totals.total);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sale, setSale] = useState<SaleView | null>(null);
-  const attempt = useRef<Attempt | null>(null);
+  const recovering = pendingAttempt !== null;
 
   const change = estimatedChange(cashReceived, totals.totalMinor);
   const insufficient = change !== null && change < 0;
-  const canConfirm = !busy && !readOnly && cart.length > 0 && change !== null && change >= 0;
+  const canConfirm =
+    !busy &&
+    !readOnly &&
+    (recovering || (shift !== null && cart.length > 0 && change !== null && change >= 0));
 
-  function keyFor(payload: string): string {
-    if (attempt.current?.payload === payload) return attempt.current.key;
-    const key = crypto.randomUUID();
-    attempt.current = { key, payload };
-    return key;
+  function newAttempt(): PendingSaleAttempt | null {
+    if (!shift) return null;
+    const payload: CheckoutDraft = {
+      shift_id: shift.id,
+      idempotency_key: crypto.randomUUID(),
+      items: cart.map((line) => ({
+        product_id: line.productId,
+        variant_id: line.variantId,
+        quantity: String(line.quantity),
+        selected_option_ids: line.selectedOptionIds,
+      })),
+      cash_received: cashReceived,
+    };
+    return { fingerprint: JSON.stringify(payload), payload };
   }
 
-  async function confirm() {
-    if (busy || readOnly) return;
+  /** Persiste primero y sólo libera un borrador ante una respuesta concluyente. */
+  async function send(attempt: PendingSaleAttempt) {
     setBusy(true);
     setError(null);
-    const payload = JSON.stringify({
-      shift: shift.id,
-      cash: cashReceived,
-      items: cart.map((line) => [line.productId, line.variantId, line.quantity, line.selectedOptionIds]),
-    });
+    onPendingAttemptChange(attempt);
     try {
-      const result = await api.checkoutSale({
-        shift_id: shift.id,
-        idempotency_key: keyFor(payload),
-        items: cart.map((line) => ({
-          product_id: line.productId,
-          variant_id: line.variantId,
-          quantity: String(line.quantity),
-          selected_option_ids: line.selectedOptionIds,
-        })),
-        cash_received: cashReceived,
-      });
+      const result = await api.checkoutSale(attempt.payload);
+      onPendingAttemptChange(null);
       setSale(result);
       onCompleted(result);
     } catch (cause) {
-      setError(
-        cause instanceof IpcError ? cause.message : "No fue posible confirmar la venta.",
-      );
+      if (isUncertain(cause)) {
+        setError(
+          "No se pudo confirmar el resultado. Recupera este mismo cobro sin modificar los datos; no se creará una segunda venta.",
+        );
+      } else {
+        onPendingAttemptChange(null);
+        setError(ipcErrorOf(cause)?.message ?? "No fue posible confirmar la venta.");
+      }
     } finally {
       setBusy(false);
     }
+  }
+
+  async function confirm() {
+    if (!canConfirm) return;
+    const attempt = pendingAttempt ?? newAttempt();
+    if (attempt) await send(attempt);
   }
 
   if (sale) {
@@ -102,6 +129,57 @@ export function CheckoutDialog({ cart, shift, readOnly, onClose, onCompleted }: 
         <p className="muted">
           El inventario y el efectivo de la caja ya quedaron actualizados.
         </p>
+      </Modal>
+    );
+  }
+
+  if (recovering) {
+    const draft = pendingAttempt.payload;
+    return (
+      <Modal
+        title="Cobro pendiente de confirmar"
+        subtitle="El resultado del cobro anterior no llegó a la aplicación"
+        size="lg"
+        onClose={onClose}
+        footer={
+          <>
+            <button type="button" className="button" onClick={onClose} disabled={busy}>
+              Cerrar
+            </button>
+            <button
+              type="button"
+              className="button button-primary"
+              onClick={() => void confirm()}
+              disabled={!canConfirm}
+            >
+              {busy ? "Recuperando…" : "Recuperar cobro"}
+            </button>
+          </>
+        }
+      >
+        <p className="alert alert-warning" role="status">
+          Reintentaremos exactamente el mismo cobro. No prepares ni confirmes otra venta hasta
+          recibir el resultado.
+        </p>
+        <dl className="receipt">
+          <div>
+            <dt>Partidas</dt>
+            <dd>{draft.items.length}</dd>
+          </div>
+          <div>
+            <dt>Unidades</dt>
+            <dd>{draft.items.reduce((total, item) => total + Number(item.quantity), 0)}</dd>
+          </div>
+          <div>
+            <dt>Efectivo recibido</dt>
+            <dd>${draft.cash_received}</dd>
+          </div>
+        </dl>
+        {error && (
+          <p className="alert alert-error" role="alert">
+            {error}
+          </p>
+        )}
       </Modal>
     );
   }

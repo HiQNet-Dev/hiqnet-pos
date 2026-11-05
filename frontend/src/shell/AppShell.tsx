@@ -17,6 +17,7 @@ import {
   savePendingAttempt,
   type PendingExpenseAttempt,
   type PendingReturnAttempt,
+  type PendingSaleAttempt,
   type PendingWasteAttempt,
 } from "../lib/pendingAttempt";
 import { AdminScreen } from "../screens/AdminScreen";
@@ -101,6 +102,10 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
   const shiftRequest = useRef(0);
 
   const [cart, setCart] = useState<CartLine[]>([]);
+  const saleAttemptKey = pendingAttemptStorageKey("sale", actor);
+  const [pendingSale, setPendingSale] = useState<PendingSaleAttempt | null>(() =>
+    loadPendingAttempt<PendingSaleAttempt["payload"]>(saleAttemptKey),
+  );
   const receiptAttemptKey = receiptAttemptStorageKey(actor);
   const [pendingReceipt, setPendingReceipt] = useState<PendingReceiptAttempt | null>(() =>
     loadPendingReceipt(receiptAttemptKey),
@@ -133,6 +138,11 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
       // La recuperación en memoria sigue siendo segura si el almacenamiento local falla.
     }
   }, [receiptAttemptKey]);
+
+  const updatePendingSale = useCallback((attempt: PendingSaleAttempt | null) => {
+    setPendingSale(attempt);
+    savePendingAttempt(saleAttemptKey, attempt);
+  }, [saleAttemptKey]);
 
   const updatePendingExpense = useCallback((attempt: PendingExpenseAttempt | null) => {
     setPendingExpense(attempt);
@@ -349,6 +359,8 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
                 cart={cart}
                 onCartChange={setCart}
                 onSaleCompleted={handleSaleCompleted}
+                pendingAttempt={pendingSale}
+                onPendingAttemptChange={updatePendingSale}
                 onOpenCatalog={() => showSection("catalog")}
                 loading={catalogLoading}
               />

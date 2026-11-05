@@ -8,6 +8,7 @@ use pos_core::ids::BranchId;
 use pos_core::ids::ProductId;
 use pos_security::Argon2idHasher;
 use pos_storage_sqlite::{SqliteStore, open};
+use sqlx::Row;
 use std::sync::Arc;
 use time::OffsetDateTime;
 
@@ -163,6 +164,22 @@ async fn venta_en_efectivo_actualiza_inventario_y_caja() {
             .unwrap(),
         "8"
     );
+    let counts = sqlx::query(
+        "SELECT \
+         (SELECT COUNT(*) FROM sale WHERE idempotency_key = 'checkout-1') AS sales, \
+         (SELECT COUNT(*) FROM sale_payment) AS payments, \
+         (SELECT COUNT(*) FROM cash_movement WHERE reason LIKE 'venta %') AS cash_movements, \
+         (SELECT COUNT(*) FROM inventory_movement WHERE reason LIKE 'venta %') AS inventory_movements, \
+         (SELECT COUNT(*) FROM audit_event WHERE action = 'sales.completed') AS audits",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(counts.get::<i64, _>("sales"), 1);
+    assert_eq!(counts.get::<i64, _>("payments"), 1);
+    assert_eq!(counts.get::<i64, _>("cash_movements"), 1);
+    assert_eq!(counts.get::<i64, _>("inventory_movements"), 1);
+    assert_eq!(counts.get::<i64, _>("audits"), 1);
 }
 
 #[tokio::test]

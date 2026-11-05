@@ -16,6 +16,7 @@ import {
   mergeLine,
   type CartLine,
 } from "../lib/cart";
+import type { PendingSaleAttempt } from "../lib/pendingAttempt";
 import { formatMinor, formatQuantity } from "../lib/money";
 import { Modal } from "../components/Modal";
 import { CheckoutDialog } from "./CheckoutDialog";
@@ -36,6 +37,8 @@ interface Props {
   cart: CartLine[];
   onCartChange: (cart: CartLine[]) => void;
   onSaleCompleted: (sale: SaleView) => void;
+  pendingAttempt: PendingSaleAttempt | null;
+  onPendingAttemptChange: (attempt: PendingSaleAttempt | null) => void;
   onOpenCatalog: () => void;
   loading: boolean;
 }
@@ -61,6 +64,8 @@ export function SalesScreen({
   cart,
   onCartChange,
   onSaleCompleted,
+  pendingAttempt,
+  onPendingAttemptChange,
   onOpenCatalog,
   loading,
 }: Props) {
@@ -75,6 +80,7 @@ export function SalesScreen({
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"catalog" | "ticket">("catalog");
   const requestRef = useRef(0);
+  const checkoutLocked = pendingAttempt !== null;
 
   const totals = cartTotals(cart);
 
@@ -97,7 +103,7 @@ export function SalesScreen({
   }
 
   async function handleProduct(product: Product) {
-    if (readOnly) return;
+    if (readOnly || checkoutLocked) return;
     const request = ++requestRef.current;
     setSelectingId(product.id);
     setError(null);
@@ -139,6 +145,7 @@ export function SalesScreen({
   }
 
   function updateQuantity(key: string, delta: number) {
+    if (checkoutLocked) return;
     onCartChange(
       cart
         .map((line) =>
@@ -151,6 +158,7 @@ export function SalesScreen({
   }
 
   function removeLine(key: string) {
+    if (checkoutLocked) return;
     onCartChange(cart.filter((line) => line.key !== key));
   }
 
@@ -177,7 +185,7 @@ export function SalesScreen({
               <select
                 value={registerId}
                 onChange={(event) => onRegisterChange(event.target.value)}
-                disabled={registers.length === 0}
+                disabled={registers.length === 0 || checkoutLocked}
               >
                 {registers.length === 0 && <option value="">Sin cajas</option>}
                 {registers.map((register) => (
@@ -189,6 +197,14 @@ export function SalesScreen({
             </label>
           </div>
         </header>
+
+        {pendingAttempt && (
+          <div className="screen-inline-alert" role="status">
+            <p className="alert alert-warning">
+              Hay un cobro pendiente de confirmar. Recupéralo antes de preparar una venta nueva.
+            </p>
+          </div>
+        )}
 
         <div className="catalog-toolbar">
           <label className="search-field">
@@ -261,7 +277,7 @@ export function SalesScreen({
                     type="button"
                     className="product-card"
                     onClick={() => void handleProduct(product)}
-                    disabled={readOnly || soldOut || selectingId === product.id}
+                    disabled={readOnly || checkoutLocked || soldOut || selectingId === product.id}
                     aria-label={`${product.name}, ${product.sku}`}
                   >
                     <span className="product-card-name">{product.name}</span>
@@ -304,6 +320,7 @@ export function SalesScreen({
               type="button"
               className="button button-quiet"
               onClick={() => setClearOpen(true)}
+              disabled={checkoutLocked}
             >
               Vaciar
             </button>
@@ -335,7 +352,7 @@ export function SalesScreen({
                         type="button"
                         className="stepper-button"
                         onClick={() => updateQuantity(line.key, -1)}
-                        disabled={line.quantity <= 1}
+                        disabled={checkoutLocked || line.quantity <= 1}
                         aria-label={`Disminuir ${line.name}`}
                       >
                         <MinusIcon size={14} />
@@ -345,6 +362,7 @@ export function SalesScreen({
                         type="button"
                         className="stepper-button"
                         onClick={() => updateQuantity(line.key, 1)}
+                        disabled={checkoutLocked}
                         aria-label={`Aumentar ${line.name}`}
                       >
                         <PlusIcon size={14} />
@@ -357,6 +375,7 @@ export function SalesScreen({
                       type="button"
                       className="icon-button icon-button-danger"
                       onClick={() => removeLine(line.key)}
+                      disabled={checkoutLocked}
                       aria-label={`Quitar ${line.name}`}
                     >
                       <TrashIcon size={15} />
@@ -397,9 +416,9 @@ export function SalesScreen({
             type="button"
             className="button button-primary button-lg"
             onClick={() => setCheckoutOpen(true)}
-            disabled={cart.length === 0 || !shift || readOnly}
+            disabled={pendingAttempt ? readOnly : cart.length === 0 || !shift || readOnly}
           >
-            Cobrar ${totals.total}
+            {pendingAttempt ? "Recuperar cobro pendiente" : `Cobrar $${totals.total}`}
           </button>
         </footer>
       </aside>
@@ -419,9 +438,9 @@ export function SalesScreen({
           type="button"
           className="button button-primary"
           onClick={() => setCheckoutOpen(true)}
-          disabled={cart.length === 0 || !shift || readOnly}
+          disabled={pendingAttempt ? readOnly : cart.length === 0 || !shift || readOnly}
         >
-          Cobrar
+          {pendingAttempt ? "Recuperar cobro" : "Cobrar"}
         </button>
       </div>
 
@@ -451,7 +470,7 @@ export function SalesScreen({
                 type="button"
                 className="button button-danger"
                 onClick={() => {
-                  onCartChange([]);
+                  if (!checkoutLocked) onCartChange([]);
                   setClearOpen(false);
                 }}
               >
@@ -469,11 +488,13 @@ export function SalesScreen({
         </Modal>
       )}
 
-      {checkoutOpen && shift && (
+      {checkoutOpen && (shift || pendingAttempt) && (
         <CheckoutDialog
           cart={cart}
           shift={shift}
           readOnly={readOnly}
+          pendingAttempt={pendingAttempt}
+          onPendingAttemptChange={onPendingAttemptChange}
           onClose={() => setCheckoutOpen(false)}
           onCompleted={(sale) => {
             onSaleCompleted(sale);
