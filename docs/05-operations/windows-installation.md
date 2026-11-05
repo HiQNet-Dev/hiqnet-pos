@@ -15,8 +15,8 @@ distribuirse como versión comercial.
 | Formato | NSIS |
 | Modo de instalación | `currentUser` (sin privilegios administrativos) |
 | Firma Authenticode | **NotSigned** |
-| Tamaño | 5 123 567 bytes (4.89 MiB) |
-| SHA-256 | `B3D31ADB78137CE09D6BCD646EC683DC691BB361C834D97AD587F8D2A6AACD06` |
+| Tamaño | 5 124 009 bytes (4.89 MiB) |
+| SHA-256 | `228AFD0F34D24C6F29FE9D78E9DAC0B0486151A8F90C30AAFE77919411FC3EBC` |
 
 Se construye desde la raíz del repositorio con:
 

@@ -30,7 +30,7 @@ mediciones locales; lo no ejecutado se declara explícitamente.
 | Rechazo de esquema posterior | Implementado y probado | `open` y `verify_backup` devuelven `IncompatibleSchema` |
 | Detección de base corrupta | Implementado y probado | `PRAGMA quick_check` al abrir |
 | Operación offline | Implementado; **no ejecutado con red desconectada** | Sin llamadas de red en los flujos; falta la prueba física en VM |
-| Instalador NSIS | Construido; **instalación no ejecutada** | 4.89 MiB, `NotSigned`, `SHA-256 B3D31ADB…AACD06`, modo `currentUser`; sin VM disponible |
+| Instalador NSIS | Construido; **instalación no ejecutada** | 4.89 MiB, `NotSigned`, `SHA-256 228AFD0F…3EBC`, modo `currentUser`; sin entorno aislado habilitado |
 | Ejecutable de release (contenido del instalador) | Verificado | E2E comercial, devoluciones, guardia de restauración y multifase ejecutados contra `target/release/pos-desktop.exe` |
 | Actualización sobre versión anterior | **No ejecutado** | Requiere VM limpia y build previo |
 | Desinstalación/reinstalación conservando datos | **No ejecutado** | Requiere VM limpia |
