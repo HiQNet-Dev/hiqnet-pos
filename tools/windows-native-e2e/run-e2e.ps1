@@ -21,6 +21,11 @@
 .PARAMETER KeepArtifacts
     Conserva el directorio temporal y los logs del driver para depuración.
 
+.PARAMETER DatabasePath
+    Base que se reabre (o se crea) en lugar de una temporal única. Sirve para
+    probar continuidad tras una actualización o un reinicio. Nunca se permite una
+    ruta dentro de `%LOCALAPPDATA%\HiQNet\POS\data` y jamás se borra el directorio.
+
 .EXAMPLE
     powershell -NoProfile -File tools/windows-native-e2e/run-e2e.ps1 -Script tools/windows-native-e2e/e2e_flow.py
 #>
@@ -37,6 +42,8 @@ param(
     [string]$NativeDriver = (Join-Path $env:TEMP "edgedriver\msedgedriver.exe"),
 
     [int]$TimeoutSeconds = 300,
+
+    [string]$DatabasePath = "",
 
     [switch]$KeepArtifacts
 )
@@ -61,14 +68,37 @@ if (-not (Test-Path -LiteralPath $NativeDriver -PathType Leaf)) {
     throw "No existe msedgedriver: $NativeDriver. Descárgalo desde https://msedgedriver.microsoft.com/<version>/edgedriver_win64.zip"
 }
 
-# Directorio y base aislados, únicos por ejecución.
-$runId = [guid]::NewGuid().ToString("N")
-$runDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("hiqnet-e2e-" + $runId)
-New-Item -ItemType Directory -Path $runDirectory -Force | Out-Null
-$databasePath = Join-Path $runDirectory "hiqnet-pos.db"
+# Directorio y base aislados, únicos por ejecución. Con -DatabasePath se reabre
+# una base existente y no se crea ni se borra nada del directorio indicado.
+$reusingDatabase = $false
+if ($DatabasePath) {
+    if (-not [System.IO.Path]::IsPathRooted($DatabasePath)) {
+        throw "-DatabasePath debe ser una ruta absoluta."
+    }
+    $resolved = [System.IO.Path]::GetFullPath($DatabasePath)
+    $realData = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "HiQNet\POS\data"))
+    if ($resolved.StartsWith($realData, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "El arnés nunca opera sobre la base de trabajo real: $realData"
+    }
+    if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+        $parent = Split-Path -Parent $resolved
+        if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+            throw "No existe el directorio de la base indicada en -DatabasePath: $parent"
+        }
+    }
+    $databasePath = $resolved
+    $runDirectory = Split-Path -Parent $resolved
+    $reusingDatabase = $true
+}
+else {
+    $runId = [guid]::NewGuid().ToString("N")
+    $runDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("hiqnet-e2e-" + $runId)
+    New-Item -ItemType Directory -Path $runDirectory -Force | Out-Null
+    $databasePath = Join-Path $runDirectory "hiqnet-pos.db"
 
-if (-not ($runDirectory -like (Join-Path ([System.IO.Path]::GetTempPath()) "hiqnet-e2e-*"))) {
-    throw "Directorio temporal inesperado: $runDirectory"
+    if (-not ($runDirectory -like (Join-Path ([System.IO.Path]::GetTempPath()) "hiqnet-e2e-*"))) {
+        throw "Directorio temporal inesperado: $runDirectory"
+    }
 }
 
 $driverLog = Join-Path $runDirectory "tauri-driver.log"
@@ -260,7 +290,7 @@ finally {
 
     Write-Output "sqlite=$dbState"
 
-    if ($KeepArtifacts) {
+    if ($KeepArtifacts -or $reusingDatabase) {
         Write-Output "artifacts=$runDirectory"
     }
     else {
