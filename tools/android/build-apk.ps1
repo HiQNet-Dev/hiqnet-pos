@@ -96,13 +96,18 @@ try {
 }
 
 # --- 4. Verificación del artefacto ----------------------------------------
+# No se filtra por fecha: Gradle puede reutilizar salidas y un APK válido de la
+# misma compilación es un artefacto legítimo. Se toma el más reciente y solo se
+# advierte si es anterior al inicio de esta ejecución.
 $apkRoot = Join-Path $android "app/build/outputs/apk"
-$apk = Get-ChildItem -LiteralPath $apkRoot -Recurse -Filter "*.apk" -File |
-    Where-Object { $_.LastWriteTime -ge $started } |
+$apk = Get-ChildItem -LiteralPath $apkRoot -Recurse -Filter "*.apk" -File -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 
 if (-not $apk) { throw "No se generó ninguna APK en $apkRoot" }
+if ($apk.LastWriteTime -lt $started) {
+    Write-Output "aviso=la APK es anterior a esta ejecución ($($apk.LastWriteTime)); Gradle reutilizó salidas"
+}
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [System.IO.Compression.ZipFile]::OpenRead($apk.FullName)
