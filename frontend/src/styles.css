@@ -164,17 +164,10 @@ select {
 }
 
 .brand-mark {
-  display: grid;
-  place-items: center;
+  display: block;
   width: 32px;
   height: 32px;
   flex: none;
-  border-radius: 9px;
-  background: var(--color-accent);
-  color: #fff;
-  font-weight: 700;
-  font-size: var(--text-sm);
-  letter-spacing: 0.03em;
 }
 
 .brand-text {

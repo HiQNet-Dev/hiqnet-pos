@@ -1,6 +1,6 @@
 import type { Actor, CashRegister, CashShift, CommercialState } from "../contracts";
 import type { BranchSummary } from "../contracts";
-import { CashIcon, KeyIcon, LogoutIcon } from "./icons";
+import { BrandMark, CashIcon, KeyIcon, LogoutIcon } from "./icons";
 
 interface Props {
   actor: Actor;
@@ -48,9 +48,7 @@ export function TopBar({
   return (
     <header className="topbar">
       <div className="topbar-brand">
-        <span className="brand-mark" aria-hidden="true">
-          HQ
-        </span>
+        <BrandMark className="brand-mark" />
         <div className="brand-text">
           <span className="brand-name">HiQNet POS</span>
           <span className="brand-branch">

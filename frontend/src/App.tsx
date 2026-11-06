@@ -7,6 +7,7 @@ import { AppShell } from "./shell/AppShell";
 import { loadInitialStatus } from "./lib/startup";
 import { installViewportGuard } from "./lib/viewportGuard";
 import { installAndroidBackGuard } from "./lib/backNavigation";
+import { BrandMark } from "./shell/icons";
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
@@ -95,9 +96,7 @@ export default function App() {
     return (
       <div className="auth-layout">
         <div className="auth-brand">
-          <span className="brand-mark" aria-hidden="true">
-            HQ
-          </span>
+          <BrandMark className="brand-mark" />
           <div>
             <p className="brand-name">HiQNet POS</p>
             <p className="brand-branch">Configuración inicial</p>
@@ -118,9 +117,7 @@ export default function App() {
     return (
       <div className="auth-layout">
         <div className="auth-brand">
-          <span className="brand-mark" aria-hidden="true">
-            HQ
-          </span>
+          <BrandMark className="brand-mark" />
           <div>
             <p className="brand-name">HiQNet POS</p>
             <p className="brand-branch">Punto de venta local-first</p>

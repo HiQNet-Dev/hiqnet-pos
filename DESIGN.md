@@ -203,6 +203,22 @@ Sistema tonal y de bordes, no de sombras decorativas.
 - Chips, badges y etiquetas usan radio de píldora.
 - Los bordes son de 1 px; no se usan bordes laterales de color como decoración.
 
+## Marca
+
+Un solo dibujo de marca en todo el producto: cuadrado redondeado con el acento
+`#1d4ed8` y una «H» geométrica en blanco.
+
+- Fuente normativa: `apps/pos-desktop/src-tauri/app-icon.svg` (1024 px) y
+  `frontend/public/favicon.svg` (24 px). Los iconos del instalador se generan
+  desde ese SVG.
+- En la interfaz, `BrandMark` (`frontend/src/shell/icons.tsx`) dibuja el mismo
+  glifo con `var(--color-accent)`; se usa en la barra superior y en las pantallas
+  de onboarding y de acceso.
+- La marca no lleva texto («HQ»): a 16 px el texto deja de ser legible y el
+  icono del sistema terminaba sin parecido con la cabecera.
+- La marca no se recolorea, no lleva degradados ni sombras y no convive con un
+  segundo logotipo.
+
 ## Components
 
 - **Botón primario**: fondo `accent`, texto blanco, 36 px de alto; deshabilitado
