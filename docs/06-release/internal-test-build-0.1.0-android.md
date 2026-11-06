@@ -83,14 +83,66 @@ Diseño propuesto, con autoridad en Rust:
 ## APK tras la auditoría UX (2026-11-05)
 
 El frontend cambió con la auditoría UX/UI (`docs/04-quality/ux-audit-0.1.0.md`),
-así que las APK de la tabla corresponden al commit `5262880` y no representan la
-interfaz vigente. En esta sesión se compiló una APK **sin firmar** para
-`arm64-v8a`:
+así que las APK de la tabla inicial corresponden a `5262880` y quedan como
+historial. Artefactos vigentes, compilados y firmados desde `21bde50`:
 
 | Artefacto | ABI | Bytes | SHA-256 |
 | --- | --- | ---: | --- |
-| `app-universal-release-unsigned.apk` | `arm64-v8a` | 11 850 965 | `6C3BD7E9134E551BEE0C6ABD328C6DE465D2005609493C2FCBE701D2FB81762E` |
+| `hiqnet-pos-0.1.0-internal-arm64.apk` (firmada, entrega) | `arm64-v8a` | 11 913 408 | `ACEA7BED64A22D487C148A9D7BCCB188EEF58FF6BD8337F2F3ACEF218C6E1FD1` |
+| `hiqnet-pos-0.1.0-internal-arm64-unsigned.apk` (antes de firmar) | `arm64-v8a` | 11 851 029 | `4CFE084E0F15DE72BAB540EBD87A9213F1DBEF39B33B507D1D7C2CBD5AE0B75` |
+| `hiqnet-pos-0.1.0-internal-x86_64-emulador.apk` (emulador, no es entregable) | `x86_64` | 12 728 509 | `F887E24ACB19AB818D4C4939374BE29AE84C31121B24A20B9303A98DAB64EA04` |
 
-Queda pendiente firmarla con la clave interna (fuera del repositorio), instalarla
-en el emulador y revisar la interfaz táctil. La verificación en hardware ARM64
-sigue **BLOCKED**.
+- Firma: `zipalign -p -f 4` + `apksigner sign` con `hiqnet-test.jks` (fuera del
+  repositorio, carpeta `~/HiQNet-Internal-Test-5262880/android/keystore/`).
+  `apksigner verify --print-certs` → esquemas **v2 y v3**, certificado
+  `CN=HiQNet Internal Test, OU=QA, O=HiQNet`, digest SHA-256
+  `3A522CD050CF0728268F71855521CBAF2718CC88123D1EF5E1153FD0619EA072`.
+- Frontend embebido en `lib/arm64-v8a/libpos_desktop_lib.so`: `index-CPbDWAOQ.js`
+  e `index-Hp6fmz8Q.css`, los mismos que `frontend/dist` del commit.
+- ABI incluida: **solo** `lib/arm64-v8a`.
+- Ubicación de la entrega: `~/HiQNet-Internal-Test-21bde50/android/`.
+
+## Verificación en emulador (2026-11-05)
+
+AVD `hiqnet_tablet`, Android 17, `x86_64`, 2560×1600 @ 320 dpi (`w1280dp h800dp`).
+APK instalada: la de `x86_64`. La interacción se dirigió leyendo el árbol de
+accesibilidad (`uiautomator dump`) y pulsando el centro del control, no por
+coordenadas fijas.
+
+| Comprobación | Estado | Evidencia |
+| --- | --- | --- |
+| Instalación limpia (`adb install -r` tras `pm clear`) | PASS | — |
+| Arranque en frío | PASS | `am start -W` → `LaunchState: COLD`, 548–842 ms |
+| Onboarding por interfaz | PASS | `emulador-01/02-onboarding*.png` |
+| Inicio de sesión y shell con navegación expandida (1280 dp) | PASS | `emulador-03-ventas.png` |
+| Navegación a Productos, Inventario, Cajas y turnos, Gestión | PASS | `emulador-04..07` |
+| Modal de alta de producto (foco, cierre, acciones) | PASS | `emulador-08-modal-producto.png` |
+| Alta real de producto (IPC de escritura) y aparición en Ventas | PASS | `emulador-14b/15/16` |
+| Navegación en vertical 800 dp (riel compacto de 88 px) | PASS | `emulador-18-catalogo-desplazado.png` |
+| Teclado virtual: el viewport se reduce y el campo sigue visible | PASS | `emulador-12-teclado-ventas.png` |
+| Safe areas con `enableEdgeToEdge` | PASS | contenido bajo la barra de estado y sobre la de gestos |
+| Back con un diálogo abierto | **FAIL** | cierra el diálogo y además termina la Activity |
+| Scroll con desbordamiento real | NO EJECUTADO | el fixture tenía 7 productos y caben en pantalla |
+| Hardware ARM64 físico | BLOCKED | sin dispositivo |
+
+### Defecto abierto: Back cierra la Activity
+
+Con el modal de «Nuevo producto» abierto, `KEYCODE_BACK` cierra el diálogo y
+además finaliza `MainActivity`: el proceso muere y Android registra
+
+```text
+F libc  : FORTIFY: pthread_mutex_lock called on a destroyed mutex
+```
+
+en el hilo de Rust durante el desmontaje (`onActivityFinishing`). Con
+`am force-stop` no aparece: el aborto es específico del camino de
+`Activity.finish()`. No lo introduce esta auditoría (no se tocó código nativo) y
+no se corrigió porque `MainActivity.kt` vive en `apps/pos-desktop/src-tauri/gen/`,
+que está **fuera de Git**: un parche ahí se perdería en el próximo
+`tauri android init`. La corrección propuesta es registrar un
+`OnBackPressedCallback` que consulte a la interfaz (`history`/diálogo abierto)
+antes de finalizar, y versionarla como plantilla u overlay aplicado por script.
+
+**Android no se declara terminado**: navegación, modales y teclado se verificaron;
+Back, scroll con desbordamiento y hardware ARM64 siguen pendientes, y SAF
+continúa sin implementar.

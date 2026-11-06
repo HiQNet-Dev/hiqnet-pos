@@ -135,13 +135,23 @@ referencia hasta repetirlas sobre este SHA.
 
 ## Artefactos tras la auditoría UX (2026-11-05)
 
-La auditoría UX/UI (`docs/04-quality/ux-audit-0.1.0.md`) cambió el frontend, por
-lo que el instalador de esta tabla quedó obsoleto. El instalador regenerado
-—compilado desde el árbol de trabajo posterior a `84caf76`— es:
+La auditoría UX/UI (`docs/04-quality/ux-audit-0.1.0.md`) cambió el frontend. El
+instalador de la tabla inicial corresponde a `5262880` y queda como historial.
+Artefacto vigente:
+
+- Commit: `21bde50` (`chore/integration-android-ux`).
+- Compilado con `cargo tauri build` (perfil release, NSIS).
 
 | Artefacto | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `HiQNet POS_0.1.0_x64-setup.exe` (NSIS, sin firma de editor) | 3 853 558 | `BADC4E59EF551348A30558A957D6BFAE2E89CCBFAEAA36C533D388032BA6F705` |
+| `HiQNet POS_0.1.0_x64-setup.exe` (NSIS, sin firma de editor) | 3 855 246 | `864B2076989744AC2CB102BA994B4428879898D2925E6A55A45D40D84B31A19D` |
+| `pos-desktop.exe` dentro del paquete | 13 881 856 | `A95ACFCEC0FEA46B2FEEEDDD4D622C483D589B3EF57CC93D5EE682B3F7FB2C5B` |
 
-La tabla original se conserva como evidencia del binario `5262880`; no describe
-el artefacto vigente.
+Ubicación de la entrega: `~/HiQNet-Internal-Test-21bde50/windows/instaladores/`.
+
+La verificación E2E nativa de esta pasada (`e2e_layout_drift`, `e2e_flow`,
+`e2e_returns`) se ejecutó sobre el binario **debug** del mismo commit; el
+instalador usa el mismo frontend (`index-CPbDWAOQ.js`, `index-Hp6fmz8Q.css`).
+No se instaló el NSIS en Windows Sandbox en esta pasada: la evidencia de
+instalación, desinstalación y actualización sigue siendo la de `5262880`, cuyo
+mecanismo no cambió.

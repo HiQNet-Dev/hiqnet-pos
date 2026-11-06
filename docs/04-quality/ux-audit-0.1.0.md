@@ -37,6 +37,7 @@
 | 14 | Gestión, meta de cada evento | “Venta sale-128 · fecha” repetía el sustantivo que ya llevaba la acción. | P3 | `after/11-gestion-1920.png` | La meta combinaba etiqueta de entidad, identificador y fecha. | Fecha primero y referencia corta en monoespaciado. |
 | 15 | Navegación lateral | El contador del ticket podía crecer a tres dígitos y desbordar la píldora del riel. | P3 | Código + `shell-nav.spec.ts` | Sin límite de dígitos. | Abreviatura `99+`; el número completo va en la etiqueta accesible. |
 | 16 | Shell Android | `100vh` no sigue las barras dinámicas del sistema. | P3 | Código | Altura fija al viewport grande. | `100dvh` con respaldo en `100vh`. |
+| 17 | Android, gesto Back con un diálogo abierto | Cierra el diálogo **y** finaliza la Activity: el proceso muere y `libc` registra `FORTIFY: pthread_mutex_lock called on a destroyed mutex` durante el desmontaje. | **P1 abierto** | `docs/06-release/internal-test-build-0.1.0-android.md` | No existe `OnBackPressedCallback`; el host Android consume Back como salida. El archivo vive en `src-tauri/gen/`, fuera de Git. | **No corregido**: requiere versionar la plantilla Android. Se documenta como bloqueo y no se declara Android terminado. |
 
 Hallazgo de proceso: el arnés podía fotografiar estados intermedios (inventario
 en “Consultando…”, riel con el resaltado del frame anterior). El capturador
@@ -175,14 +176,30 @@ Ver `README-TESTING.md` para comandos, prerrequisitos y cobertura por nivel.
 ## H. Entregable
 
 El frontend cambió, así que los instaladores internos de 0.1.0 se regeneran
-desde el commit de esta pasada. Los artefactos anteriores
-(`DC623307…` en Windows y `E45914FC…` en Android) corresponden a `5262880` y
-quedan sustituidos; las tablas originales de `docs/06-release/` se conservan
-como historial.
+desde `21bde50`. Los artefactos de `5262880` (`DC623307…` en Windows y
+`E45914FC…` en Android) quedan como historial.
 
-Los tamaños, hashes y la verificación con `apksigner` de la APK firmada se
-registran en `docs/06-release/internal-test-build-0.1.0.md` y
-`docs/06-release/internal-test-build-0.1.0-android.md`.
+| Artefacto | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `HiQNet POS_0.1.0_x64-setup.exe` (NSIS, sin firma de editor) | 3 855 246 | `864B2076989744AC2CB102BA994B4428879898D2925E6A55A45D40D84B31A19D` |
+| `hiqnet-pos-0.1.0-internal-arm64.apk` (firmada, v2 + v3) | 11 913 408 | `ACEA7BED64A22D487C148A9D7BCCB188EEF58FF6BD8337F2F3ACEF218C6E1FD1` |
+
+Ubicación: `~/HiQNet-Internal-Test-21bde50/{windows,android}/`.
+
+Android verificado en emulador `x86_64` (Android 17, 2560×1600): instalación
+limpia, arranque en frío, onboarding, inicio de sesión, navegación por las nueve
+secciones, modal de alta, alta real de producto y teclado virtual. Evidencia en
+`after/42-android-ventas-1280x800.png`, `after/43-android-vertical-800x1280.png`,
+`after/44-android-teclado.png` y `after/45-android-modal.png`.
+
+**Bloqueos abiertos** (no se declaran superados):
+
+- Back con un diálogo abierto termina la Activity y aborta el proceso nativo
+  (ver hallazgo 17 y `docs/06-release/internal-test-build-0.1.0-android.md`).
+- SAF para respaldo/restauración externa: no implementado.
+- Tablet ARM64 física: sin dispositivo.
+- Scroll Android con desbordamiento real: no forzado en el emulador; sí
+  verificado en el arnés de Playwright y en el E2E nativo de Windows.
 
 ## Limitaciones declaradas
 

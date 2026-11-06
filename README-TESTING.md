@@ -107,14 +107,21 @@ La APK resultante queda **sin firmar** en
 aplica con la clave interna (fuera del repositorio) y se verifica con
 `apksigner`; los comandos están en `docs/06-release/internal-test-build-0.1.0-android.md`.
 
-Estado real de la verificación Android:
+Verificado en emulador `x86_64` (Android 17, 2560×1600) el 2026-11-05:
+instalación limpia, arranque en frío (548–842 ms), onboarding, inicio de sesión,
+navegación por las nueve secciones, modal de alta, alta real de producto,
+orientación vertical con riel compacto y teclado virtual (el viewport se reduce,
+el campo sigue visible).
 
-- Compilación ARM64: verificada.
-- Instalación y arranque en emulador `x86_64`: verificables con `adb`; requiere
-  compilar también para `x86_64`.
-- Interacción táctil completa, teclado virtual real y hardware ARM64 físico:
-  **pendientes**. No se declaran superados por una reducción de viewport.
-- SAF (respaldo/restauración externa): **no implementado**.
+Pendiente y **no declarado superado**:
+
+- **Back con un diálogo abierto**: cierra el diálogo y finaliza la Activity; el
+  proceso aborta en `libc` durante el desmontaje. Requiere un
+  `OnBackPressedCallback` en la plantilla Android, que hoy vive en
+  `src-tauri/gen/` (fuera de Git).
+- Scroll con desbordamiento real en el dispositivo: no forzado en el emulador.
+- Interacción táctil completa, hardware ARM64 físico y SAF
+  (respaldo/restauración externa).
 
 ## 6. Resultados de la última pasada
 
