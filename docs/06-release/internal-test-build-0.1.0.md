@@ -132,3 +132,16 @@ referencia hasta repetirlas sobre este SHA.
 - Actualización de un esquema con migraciones nuevas: todavía no existe una
   migración posterior a `sale returns`, así que ese caso no se probó.
 - Firma de editor para evitar advertencias de SmartScreen.
+
+## Artefactos tras la auditoría UX (2026-11-05)
+
+La auditoría UX/UI (`docs/04-quality/ux-audit-0.1.0.md`) cambió el frontend, por
+lo que el instalador de esta tabla quedó obsoleto. El instalador regenerado
+—compilado desde el árbol de trabajo posterior a `84caf76`— es:
+
+| Artefacto | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `HiQNet POS_0.1.0_x64-setup.exe` (NSIS, sin firma de editor) | 3 853 558 | `BADC4E59EF551348A30558A957D6BFAE2E89CCBFAEAA36C533D388032BA6F705` |
+
+La tabla original se conserva como evidencia del binario `5262880`; no describe
+el artefacto vigente.

@@ -155,6 +155,22 @@ describe("InventoryScreen", () => {
     expect(api.listInventoryMovements).toHaveBeenCalledWith("p-1", 50);
   });
 
+  it("repetir la misma selección no deja la lectura en curso", async () => {
+    renderScreen();
+    const user = userEvent.setup();
+    const select = screen.getByLabelText("Producto");
+
+    await user.selectOptions(select, "p-1");
+    expect(await screen.findByText("20", { selector: ".stock-figure" })).toBeVisible();
+
+    // Volver a elegir la misma opción no debe vaciar el panel ni dejar "…".
+    await user.selectOptions(select, "p-1");
+
+    expect(screen.getByText("20", { selector: ".stock-figure" })).toBeVisible();
+    expect(screen.queryByText("…")).not.toBeInTheDocument();
+    expect(api.currentStock).toHaveBeenCalledTimes(1);
+  });
+
   it("registra una entrada y refresca existencias", async () => {
     const { onStockChanged } = renderScreen();
     const user = userEvent.setup();

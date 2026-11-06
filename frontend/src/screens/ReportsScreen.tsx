@@ -198,7 +198,8 @@ export function ReportsScreen({ actor, readOnly }: Props) {
               <ul className="compact-list">
                 {report.expenses.categories.map((category) => (
                   <li key={category.name}>
-                    {category.name} · <span className="mono">{formatMoney(category.total)}</span>
+                    <span>{category.name}</span>
+                    <span className="mono">{formatMoney(category.total)}</span>
                   </li>
                 ))}
               </ul>

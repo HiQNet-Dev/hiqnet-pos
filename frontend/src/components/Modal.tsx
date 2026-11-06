@@ -22,13 +22,19 @@ export function Modal({ title, subtitle, onClose, children, footer, size = "md" 
   const titleId = useId();
   const container = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  // Se captura en el primer render, no en el efecto: un campo con `autoFocus`
+  // mueve el foco durante el montaje y el efecto ya no vería el control que
+  // abrió el diálogo, dejando el foco en el `body` al cerrar.
+  const opener = useRef<HTMLElement | null>(null);
+  if (opener.current === null) {
+    opener.current = document.activeElement as HTMLElement | null;
+  }
 
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
 
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
     const node = container.current;
     const first = node?.querySelector<HTMLElement>(FOCUSABLE);
     (first ?? node)?.focus();
@@ -63,7 +69,7 @@ export function Modal({ title, subtitle, onClose, children, footer, size = "md" 
     return () => {
       document.removeEventListener("keydown", handleKey, true);
       // Devolver el foco sin arrastrar la pantalla de fondo.
-      previous?.focus?.({ preventScroll: true });
+      opener.current?.focus?.({ preventScroll: true });
     };
   }, []);
 

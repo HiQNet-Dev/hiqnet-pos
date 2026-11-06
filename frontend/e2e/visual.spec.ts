@@ -571,7 +571,20 @@ async function mockBridge(page: Page, initialized = true) {
   );
 }
 
+/**
+ * Captura estable: espera a que las fuentes estén listas, a que React haya
+ * aplicado el cambio en dos frames consecutivos y a que el compositor pinte el
+ * estado final. Sin esta espera el riel de navegación podía aparecer con el
+ * resaltado del estado anterior en la captura.
+ */
 async function shot(page: Page, name: string) {
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  });
+  await page.waitForTimeout(120);
   await page.screenshot({ path: path.join(OUT_DIR, `${name}.png`), fullPage: false });
 }
 
@@ -651,6 +664,13 @@ async function borderContrast(page: Page, selector: string, backgroundSelector: 
   );
   expect(result, `${selector} should be visible`).not.toBeNull();
   return result!;
+}
+
+async function waitForInventory(page: Page) {
+  // El panel muestra "…" y "Consultando inventario…" mientras llega la lectura.
+  // Una captura en ese estado no es evidencia del diseño final.
+  await expect(page.locator(".stock-figure")).toHaveText(/^\d/);
+  await expect(page.getByText("Consultando inventario…")).toHaveCount(0);
 }
 
 async function login(page: Page) {
@@ -744,6 +764,7 @@ test.describe("revisión visual del shell", () => {
     await page.getByRole("navigation").getByRole("button", { name: "Inventario" }).click();
     await page.getByRole("combobox", { name: "Producto" }).selectOption("p-1");
     await expect(page.getByRole("region", { name: "Existencias del producto" })).toBeVisible();
+    await waitForInventory(page);
     await shot(page, "15c-inventario-1024");
     await expectNoHorizontalOverflow(page);
 
@@ -751,6 +772,7 @@ test.describe("revisión visual del shell", () => {
     await page.getByRole("navigation").getByRole("button", { name: "Inventario" }).click();
     await page.getByRole("combobox", { name: "Producto" }).selectOption("p-1");
     await expect(page.getByRole("region", { name: "Existencias del producto" })).toBeVisible();
+    await waitForInventory(page);
     await shot(page, "09-inventario-1920");
     await expectNoHorizontalOverflow(page);
 
@@ -818,6 +840,7 @@ test.describe("revisión visual del shell", () => {
     await page.getByRole("navigation").getByRole("button", { name: "Inventario" }).click();
     await page.getByRole("combobox", { name: "Producto" }).selectOption("p-1");
     await expect(page.getByRole("region", { name: "Existencias del producto" })).toBeVisible();
+    await waitForInventory(page);
     await shot(page, "19-tablet-inventario");
     await expectNoHorizontalOverflow(page);
 
@@ -825,6 +848,102 @@ test.describe("revisión visual del shell", () => {
     await expect(page.getByRole("heading", { name: "Productos y catálogo" })).toBeVisible();
     await shot(page, "20-tablet-productos");
     await expectNoHorizontalOverflow(page);
+  });
+
+  test("navegación expandida, colapsada y riel compacto", async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await mockBridge(page, true);
+    await login(page);
+    await addProducts(page);
+
+    const nav = page.getByRole("navigation", { name: "Navegación principal" });
+    await shot(page, "21-nav-expandida-1440");
+
+    await page.getByRole("button", { name: "Contraer navegación" }).click();
+    await expect(page.getByRole("button", { name: "Expandir navegación" })).toBeVisible();
+    await shot(page, "22-nav-colapsada-1440");
+
+    await nav.getByRole("button", { name: /^Ventas/ }).hover();
+    await expect(nav.locator(".nav-tooltip").first()).toBeVisible();
+    await shot(page, "23-nav-colapsada-tooltip-1440");
+
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await shot(page, "24-nav-riel-1024");
+    await expectNoHorizontalOverflow(page);
+
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await shot(page, "25-nav-riel-768");
+    await expectNoHorizontalOverflow(page);
+
+    await page.setViewportSize({ width: 412, height: 915 });
+    await shot(page, "26-topbar-412");
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test("ventana mínima de Windows y tablet vertical", async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 1024, height: 700 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await mockBridge(page, true);
+    await login(page);
+    await addProducts(page);
+    await shot(page, "27-ventas-1024x700");
+    await expectNoHorizontalOverflow(page);
+
+    const collect = await page.getByRole("button", { name: /^Cobrar/ }).boundingBox();
+    expect(collect).not.toBeNull();
+    expect(collect!.y + collect!.height).toBeLessThanOrEqual(700);
+
+    await page.getByRole("button", { name: /^Cobrar/ }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await shot(page, "28-checkout-1024x700");
+    const dialog = await page.getByRole("dialog").boundingBox();
+    expect(dialog!.y).toBeGreaterThanOrEqual(0);
+    expect(dialog!.y + dialog!.height).toBeLessThanOrEqual(700);
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("navigation").getByRole("button", { name: "Caja" }).click();
+    await expect(page.getByRole("region", { name: "Operación del turno" })).toBeVisible();
+    await shot(page, "29-caja-1024x700");
+    await expectNoHorizontalOverflow(page);
+
+    await page.setViewportSize({ width: 800, height: 1280 });
+    await page.getByRole("navigation").getByRole("button", { name: "Ventas" }).click();
+    await shot(page, "30-ventas-800x1280");
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test("autenticación en pantallas estrechas y con teclado abierto", async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 412, height: 760 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await mockBridge(page, true);
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Entrar a la caja" })).toBeVisible();
+    await shot(page, "40-login-412");
+    await expectNoHorizontalOverflow(page);
+
+    // Altura reducida: equivale al viewport que deja el teclado virtual.
+    await page.setViewportSize({ width: 412, height: 360 });
+    const scrollable = await page.evaluate(() => {
+      const layout = document.querySelector(".auth-layout") as HTMLElement;
+      return {
+        scrollHeight: layout.scrollHeight,
+        clientHeight: layout.clientHeight,
+        rootScroll: document.documentElement.scrollTop,
+      };
+    });
+    expect(scrollable.rootScroll).toBe(0);
+    expect(scrollable.scrollHeight).toBeGreaterThanOrEqual(scrollable.clientHeight);
+
+    // Todos los campos siguen alcanzables: el contenedor se desplaza, no se recorta.
+    const field = page.getByLabel("Contraseña");
+    await field.scrollIntoViewIfNeeded();
+    await expect(field).toBeInViewport();
+    await expect(page.getByRole("button", { name: "Entrar" })).toBeInViewport();
+    await shot(page, "41-login-412-teclado");
   });
 
   test("contraste y foco visibles en la operación", async ({ page }) => {

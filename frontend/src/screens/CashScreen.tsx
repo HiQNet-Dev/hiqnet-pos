@@ -481,7 +481,7 @@ export function CashScreen({
           {history.length === 0 ? (
             <p className="muted empty-cell">Aún no hay turnos cerrados.</p>
           ) : (
-            <ol className="ledger">
+            <ol className="ledger ledger-history">
               {history.map((item) => (
                 <li key={item.id} className="ledger-row">
                   <span className="ledger-main">

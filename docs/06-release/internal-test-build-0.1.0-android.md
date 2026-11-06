@@ -79,3 +79,18 @@ Diseño propuesto, con autoridad en Rust:
 - Sin SAF no hay recuperación externa verificada; Android queda apto para pruebas
   supervisadas con datos desechables, no para pruebas prolongadas.
 - La APK AAB no se generó como entregable y no se publica.
+
+## APK tras la auditoría UX (2026-11-05)
+
+El frontend cambió con la auditoría UX/UI (`docs/04-quality/ux-audit-0.1.0.md`),
+así que las APK de la tabla corresponden al commit `5262880` y no representan la
+interfaz vigente. En esta sesión se compiló una APK **sin firmar** para
+`arm64-v8a`:
+
+| Artefacto | ABI | Bytes | SHA-256 |
+| --- | --- | ---: | --- |
+| `app-universal-release-unsigned.apk` | `arm64-v8a` | 11 850 965 | `6C3BD7E9134E551BEE0C6ABD328C6DE465D2005609493C2FCBE701D2FB81762E` |
+
+Queda pendiente firmarla con la clave interna (fuera del repositorio), instalarla
+en el emulador y revisar la interfaz táctil. La verificación en hardware ARM64
+sigue **BLOCKED**.

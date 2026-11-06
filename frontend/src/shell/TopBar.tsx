@@ -68,20 +68,34 @@ export function TopBar({
         </span>
 
         {shift ? (
-          <button type="button" className="chip chip-success" onClick={onOpenCash}>
+          <button
+            type="button"
+            className="chip chip-success topbar-cash"
+            onClick={onOpenCash}
+            aria-label={`${register ? `${register.name} · ${register.code}` : "Caja"} · turno abierto. Ir a caja y turnos`}
+          >
             <CashIcon size={14} />
-            {register ? `${register.name} · ${register.code}` : "Caja"} · turno abierto
+            <span className="topbar-cash-label" aria-hidden="true">
+              {register ? `${register.name} · ${register.code}` : "Caja"} · turno abierto
+            </span>
           </button>
         ) : canOpenCash ? (
-          <button type="button" className="chip chip-muted" onClick={onOpenCash}>
+          <button
+            type="button"
+            className="chip chip-muted topbar-cash"
+            onClick={onOpenCash}
+            aria-label="Sin turno de caja. Ir a caja y turnos"
+          >
             <CashIcon size={14} />
-            Sin turno de caja
+            <span className="topbar-cash-label" aria-hidden="true">
+              Sin turno de caja
+            </span>
           </button>
         ) : null}
 
         {commercial && (
           <span
-            className={commercial.read_only ? "badge badge-warning" : "badge badge-neutral"}
+            className={`${commercial.read_only ? "badge badge-warning" : "badge badge-neutral"} topbar-plan`}
             title={`Vigente hasta ${commercial.valid_until}`}
           >
             {commercial.read_only ? "Solo lectura" : `Plan ${planLabel(commercial.plan)}`}

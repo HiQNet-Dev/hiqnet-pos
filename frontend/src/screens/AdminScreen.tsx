@@ -77,28 +77,21 @@ const ACTION_LABELS: Record<string, string> = {
   "cash.movement_registered": "Movimiento de caja registrado",
   "cash.shift_closed": "Turno cerrado",
   "sales.completed": "Venta confirmada",
+  "sales.returned": "Devolución registrada",
   "inventory.movement_registered": "Movimiento de inventario registrado",
+  "waste.recorded": "Merma registrada",
+  "purchasing.supplier_created": "Proveedor creado",
+  "purchasing.order_created": "Orden de compra creada",
+  "purchasing.order_confirmed": "Orden de compra confirmada",
+  "purchasing.received": "Mercancía recibida",
+  "expenses.category_created": "Categoría de gasto creada",
+  "expenses.recorded": "Gasto registrado",
   "backup.created": "Respaldo creado",
   "users.created": "Usuario creado",
   "users.deactivated": "Usuario desactivado",
   "users.reactivated": "Usuario reactivado",
   "users.password_reset": "Contraseña restablecida",
   "users.password_changed": "Contraseña actualizada",
-};
-
-const ENTITY_LABELS: Record<string, string> = {
-  sale: "Venta",
-  inventory_movement: "Movimiento de inventario",
-  cash_shift: "Turno de caja",
-  cash_register: "Caja",
-  product: "Producto",
-  category: "Categoría",
-  modifier_group: "Grupo de modificadores",
-  modifier_option: "Opción de modificador",
-  session: "Sesión",
-  organization: "Organización",
-  backup: "Respaldo",
-  user: "Usuario",
 };
 
 export function AdminScreen({ actor, commercial, readOnly }: Props) {
@@ -299,7 +292,11 @@ export function AdminScreen({ actor, commercial, readOnly }: Props) {
                           </button>
                           <button
                             type="button"
-                            className="button button-quiet button-small"
+                            className={
+                              user.active
+                                ? "button button-quiet-danger button-small"
+                                : "button button-quiet button-small"
+                            }
                             onClick={() => setConfirming({ user, active: !user.active })}
                             disabled={readOnly || (user.active && user.id === actor.user_id)}
                           >
@@ -415,13 +412,15 @@ export function AdminScreen({ actor, commercial, readOnly }: Props) {
           ) : (
             <ol className="audit-list">
               {audit.map((event) => (
-                <li key={event.id}>
+                <li key={event.id} data-action={event.action}>
                   <span className="audit-action">
-                    {ACTION_LABELS[event.action] ?? event.action}
+                    {/* La clave técnica vive en `data-action`; el usuario ve siempre
+                        una frase en español, incluso para una acción nueva. */}
+                    {ACTION_LABELS[event.action] ?? "Actividad registrada"}
                   </span>
                   <span className="audit-meta">
-                    {ENTITY_LABELS[event.entity_type] ?? event.entity_type}{" "}
-                    {event.entity_id.slice(0, 8)} · {formatDate(event.occurred_at)}
+                    {formatDate(event.occurred_at)} ·{" "}
+                    <span className="mono">{event.entity_id.slice(0, 8)}</span>
                   </span>
                 </li>
               ))}

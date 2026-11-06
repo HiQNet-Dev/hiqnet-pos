@@ -42,6 +42,8 @@
   --focus-ring: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-accent);
   --topbar-height: 56px;
   --sidenav-width: 216px;
+  --sidenav-width-collapsed: 72px;
+  --sidenav-width-rail: 88px;
 }
 
 * {
@@ -118,6 +120,7 @@ select {
 
 .app {
   height: 100vh;
+  height: 100dvh;
   display: grid;
   grid-template-rows: var(--topbar-height) 1fr;
   overflow: hidden;
@@ -157,6 +160,7 @@ select {
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
+  flex: 0 1 auto;
 }
 
 .brand-mark {
@@ -183,6 +187,9 @@ select {
 .brand-name {
   font-weight: 600;
   font-size: var(--text-md);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .brand-branch {
@@ -195,7 +202,8 @@ select {
 }
 
 .topbar-spacer {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .topbar-meta {
@@ -203,14 +211,29 @@ select {
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
+  flex: 0 1 auto;
 }
 
-/* Los controles del extremo derecho no se comprimen: el nombre es lo que cede. */
+/* Los controles del extremo derecho no se comprimen: el nombre es lo que cede.
+   La única excepción es el chip de caja, que cede antes que las acciones de
+   cuenta y recorta su texto. */
 .topbar-meta > .connection,
 .topbar-meta > .chip,
 .topbar-meta > .badge,
 .topbar-meta > .icon-button {
   flex: none;
+}
+
+.topbar-meta > .topbar-cash {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.topbar-cash-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .connection {
@@ -260,10 +283,8 @@ select {
   min-height: 0;
   overflow: hidden;
   overflow: clip;
-}
-
-.app-body[data-collapsed="true"] {
-  grid-template-columns: 72px minmax(0, 1fr);
+  /* Contraer no es solo cambiar un ancho: el contenido se recoloca. */
+  transition: grid-template-columns 160ms ease;
 }
 
 .sidenav {
@@ -275,7 +296,9 @@ select {
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
   min-height: 0;
-  overflow-y: auto;
+  /* Sin recorte propio: el tooltip del riel colapsado debe poder salir del
+     ancho de la barra. El recorte de la lista se explica más abajo. */
+  overflow: visible;
 }
 
 .sidenav-list {
@@ -284,9 +307,19 @@ select {
   padding: 0;
   display: grid;
   gap: 2px;
+  align-content: start;
+  flex: 0 1 auto;
+  min-height: 0;
+  /* Sin desplazamiento interno: un contenedor desplazable recorta el tooltip en
+     el eje transversal. La lista de secciones es fija (ocho o nueve entradas) y
+     cabe en la ventana mínima soportada (700 px de alto), incluso con objetivos
+     táctiles de 48 px. Si el dominio crece, esta decisión debe revisarse junto
+     con el diseño del riel. */
+  overflow: visible;
 }
 
 .nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -301,6 +334,10 @@ select {
   text-align: left;
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
+}
+
+.nav-item > svg {
+  flex: none;
 }
 
 .nav-item:hover {
@@ -337,12 +374,34 @@ select {
   place-items: center;
 }
 
+/* Tooltip del riel colapsado. Solo aparece en escritorio colapsado, donde la
+   etiqueta deja de estar visible. */
+.nav-tooltip {
+  display: none;
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 30;
+  padding: 5px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-1);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .sidenav-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
   padding: 6px 8px;
+  flex: none;
 }
 
 .sidenav-version {
@@ -368,6 +427,47 @@ select {
 
 .chevron-right {
   transform: rotate(180deg);
+}
+
+/* --- Escritorio: navegación expandida y colapsada ---
+   El estado colapsado se define solo por encima del riel compacto para que la
+   preferencia guardada nunca deje la barra en un estado intermedio ilegible. */
+@media (min-width: 1081px) {
+  .app-body[data-collapsed="true"] {
+    grid-template-columns: var(--sidenav-width-collapsed) minmax(0, 1fr);
+  }
+
+  .app-body[data-collapsed="true"] .nav-item {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  /* Las etiquetas se retiran del layout; el nombre accesible sigue viniendo del
+     `aria-label` del botón. */
+  .app-body[data-collapsed="true"] .nav-label,
+  .app-body[data-collapsed="true"] .nav-label-short,
+  .app-body[data-collapsed="true"] .sidenav-version {
+    display: none;
+  }
+
+  .app-body[data-collapsed="true"] .nav-count {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    font-size: 10px;
+  }
+
+  .app-body[data-collapsed="true"] .sidenav-footer {
+    justify-content: center;
+  }
+
+  .app-body[data-collapsed="true"] .nav-item:hover .nav-tooltip,
+  .app-body[data-collapsed="true"] .nav-item:focus-visible .nav-tooltip {
+    display: block;
+  }
 }
 
 .app-content {
@@ -522,14 +622,27 @@ select {
 
 .auth-layout {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: var(--space-4);
   padding: var(--space-5);
   background: var(--color-bg);
   overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Centrado seguro: cuando el teclado en pantalla o una ventana baja dejan el
+   formulario más alto que el área visible, el grupo se alinea arriba y se puede
+   desplazar. `justify-content: center` deja la primera fila fuera del área
+   desplazable y el campo de usuario queda inalcanzable. */
+.auth-layout > :first-child {
+  margin-top: auto;
+}
+
+.auth-layout > :last-child {
+  margin-bottom: auto;
 }
 
 .auth-brand {
@@ -642,6 +755,20 @@ select {
   color: var(--color-text);
 }
 
+/* Acción destructiva en una fila de tabla: discreta como el resto de acciones
+   secundarias, pero con el color de peligro para no confundirse con una acción
+   neutra vecina. La confirmación y el botón de peligro siguen en el diálogo. */
+.button-quiet-danger {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-danger);
+}
+
+.button-quiet-danger:hover:not(:disabled) {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
 .button-danger {
   background: var(--color-danger);
   border-color: var(--color-danger);
@@ -745,7 +872,7 @@ select {
   flex-wrap: nowrap;
   gap: 6px;
   padding-bottom: 2px;
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: thin;
@@ -898,7 +1025,9 @@ select {
   gap: 6px;
   position: relative;
   min-width: 220px;
-  flex: 1;
+  /* La búsqueda cede espacio y los filtros conservan su ancho natural: así las
+     categorías se ven completas en vez de quedar cortadas a media palabra. */
+  flex: 1 1 220px;
 }
 
 .search-field .search-icon {
@@ -1755,6 +1884,18 @@ select {
   font-size: var(--text-sm);
 }
 
+/* El historial de turnos cerrados comparte el contenedor `.ledger` (reposo,
+   desplazamiento interno), pero no sus cuatro columnas: sus filas son texto y
+   arqueo. Sin esta regla la rejilla del libro de movimientos comprimía el
+   nombre y la fecha hasta partirlos en dos líneas. */
+.ledger-history > li.ledger-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: 10px var(--space-4);
+  font-size: var(--text-base);
+}
+
 .ledger-kind {
   font-weight: 700;
   font-size: var(--text-sm);
@@ -1889,6 +2030,13 @@ select {
   grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: var(--space-3);
   align-items: start;
+}
+
+/* La primera tarjeta es el reporte de ventas y contiene una tabla de cinco
+   columnas: ocupa la fila completa para que ninguna columna quede fuera del
+   alcance sin desplazamiento. */
+.reports-grid > .surface:first-child {
+  grid-column: 1 / -1;
 }
 
 .reports-note {
@@ -2121,19 +2269,26 @@ select {
   }
 }
 
+/* Prioridad del extremo derecho: primero caja/turno y acciones de cuenta; el
+   sello del plan se retira antes de recortar cualquier acción. */
+@media (max-width: 980px) {
+  .topbar-plan {
+    display: none;
+  }
+}
+
 @media (max-width: 1080px) {
-  /* Barra lateral compacta de 88 px: "Devoluciones" cabe en una o dos líneas. */
-  .app-body,
-  .app-body[data-collapsed="false"],
-  .app-body[data-collapsed="true"] {
-    grid-template-columns: 88px minmax(0, 1fr);
+  /* Riel compacto: el icono con etiqueta corta es la representación visible y el
+     control de colapso desaparece porque no tendría efecto. */
+  .app-body {
+    grid-template-columns: var(--sidenav-width-rail) minmax(0, 1fr);
   }
 
   .nav-label {
     display: none;
   }
 
-  /* Etiquetas completas: se permite el salto entre palabras, nunca dentro de
+  /* Etiquetas cortas: se permite el salto entre palabras, nunca dentro de
      una palabra. */
   .nav-label-short {
     display: block;
@@ -2146,12 +2301,7 @@ select {
     hyphens: none;
   }
 
-  .sidenav-version {
-    display: none;
-  }
-
   .nav-item {
-    position: relative;
     flex-direction: column;
     justify-content: center;
     gap: 3px;
@@ -2162,14 +2312,9 @@ select {
     position: absolute;
     top: 2px;
     right: 2px;
-    transform: none;
   }
 
   .sidenav-footer {
-    justify-content: center;
-  }
-
-  .sidenav-toggle {
     display: none;
   }
 
@@ -2250,6 +2395,12 @@ select {
     display: none;
   }
 
+  /* El chip de caja queda como icono con color de estado; conserva nombre
+     accesible completo en el `aria-label`. */
+  .topbar-cash-label {
+    display: none;
+  }
+
   .screen-header {
     align-items: flex-start;
   }
@@ -2305,6 +2456,10 @@ select {
   .nav-item,
   .banner-dismiss {
     min-height: 48px;
+  }
+
+  .chip {
+    min-height: 44px;
   }
 
   .icon-button,

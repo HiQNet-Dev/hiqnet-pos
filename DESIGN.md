@@ -147,8 +147,23 @@ Reglas:
 
 - Shell de escritorio: barra superior de 56 px, navegación lateral persistente y
   un área de trabajo con scroll interno.
-- Navegación: 216 px con etiquetas; 72 px con etiquetas cortas por debajo de
-  1080 px. No se ocultan las etiquetas en tablet.
+- Navegación lateral, tres estados deliberados:
+
+  | Estado | Ancho | Cuándo | Etiquetas | Control |
+  | --- | --- | --- | --- | --- |
+  | Expandida | 216 px | Escritorio, preferencia del usuario | Nombre completo | “Contraer navegación” |
+  | Colapsada | 72 px | Escritorio, preferencia del usuario | Ninguna; tooltip con el nombre completo al pasar el puntero o enfocar | “Expandir navegación” |
+  | Riel compacto | 88 px | ≤ 1080 px | Etiqueta corta bajo el icono | Ninguno: el colapso no tendría efecto |
+
+  El colapso es una transición de layout (la columna del `grid` cambia en
+  160 ms) y respeta `prefers-reduced-motion`. El contador del ticket se
+  posiciona sobre el icono y se abrevia como `99+` cuando excede dos dígitos.
+  La preferencia se guarda por instalación en `localStorage`
+  (`hiqnet.nav.collapsed`) y nunca contiene datos personales.
+- Barra superior: la identidad y las acciones de cuenta no se comprimen. En
+  ventanas estrechas cede primero la etiqueta del chip de caja, después el sello
+  del plan (≤ 980 px), el nombre de usuario (≤ 720 px) y el texto del chip de
+  caja, que queda como icono con nombre accesible.
 - Ventas en escritorio: catálogo a la izquierda y ticket a la derecha
   (360–430 px). El ticket nunca sale de la pantalla; sus totales y “Cobrar” viven
   en un pie fijo.
@@ -156,8 +171,8 @@ Reglas:
   conserva el total y el cobro.
 - Inventario y caja usan una columna principal y un panel lateral en escritorio;
   se apilan por debajo de 960 px.
-- Breakpoints: 1360, 1180, 1080, 960 y 720 px. El comportamiento responsive es
-  estructural, no tipográfico.
+- Breakpoints: 1360, 1180, 1080, 980, 960 y 720 px. El comportamiento responsive
+  es estructural, no tipográfico.
 - No hay scroll global: el `body` no scrollea; cada pantalla gestiona su propio
   desbordamiento.
 - Los contenedores del shell (`.app`, `.app-body`, `.app-content`) y el `body`
@@ -166,6 +181,10 @@ Reglas:
   desplazando el diseño hacia una esquina y dejando el resto de la ventana vacío.
   Los diálogos no alternan `body.style.overflow` por la misma razón, y devuelven
   el foco con `preventScroll`. Lo vigila `tools/windows-native-e2e/e2e_layout_drift.py`.
+- Autenticación: el grupo se centra con márgenes automáticos, no con
+  `justify-content: center`, para que con el teclado virtual abierto o una
+  ventana baja el formulario se alinee arriba y sus campos sigan siendo
+  alcanzables mediante scroll.
 
 ## Elevation & Depth
 
@@ -199,7 +218,24 @@ Sistema tonal y de bordes, no de sombras decorativas.
   explícita. La cantidad no baja de 1; para quitar una partida se usa el botón de
   papelera. “Vaciar” exige confirmación.
 - **Navegación**: el elemento activo usa `accent-soft` y `accent`; el contador
-  del ticket se anuncia con singular o plural correcto.
+  del ticket se anuncia con singular o plural correcto. El nombre accesible de
+  cada entrada es explícito (`aria-label`), de modo que no depende de qué
+  etiqueta esté visible en cada ancho.
+- **Búsqueda y filtros**: el campo de búsqueda cede ancho antes que los chips de
+  categoría; los chips conservan su tamaño natural y pasan a una fila propia
+  cuando no caben junto a la búsqueda, en lugar de quedar cortados a media
+  palabra.
+- **Acción destructiva secundaria**: `.button-quiet-danger` conserva el peso de
+  una acción discreta de fila, pero usa el color de peligro para no confundirse
+  con la acción neutra vecina. La confirmación y el botón de peligro pleno viven
+  en el diálogo.
+- **Auditoría**: cada evento se muestra con una frase en español; la clave
+  técnica vive en `data-action` y nunca en pantalla. La meta de cada fila es la
+  fecha y una referencia corta del registro, sin repetir el sustantivo que ya
+  lleva la acción.
+- **Historial lateral**: `.ledger-history` para las listas de dos columnas (texto
+  y arqueo). No reutiliza la rejilla de cuatro columnas del libro de movimientos;
+  compartir contenedor no significa compartir composición.
 - **Estado**: éxito, advertencia, error e información tienen su propio par de
   color y fondo. Un cierre de caja con diferencia es advertencia, no éxito.
 - **Carga**: esqueletos en la rejilla de venta; texto breve en paneles pequeños.
@@ -223,7 +259,9 @@ Sistema tonal y de bordes, no de sombras decorativas.
 
 - No añadas kickers, eyebrows ni etiquetas en mayúsculas sobre títulos.
 - No uses degradados, brillos, glassmorphism ni sombras duras como decoración.
-- No ocultes las etiquetas de navegación en tablet.
+- No ocultes las etiquetas de navegación en tablet: usa la etiqueta corta.
+- No dejes el control de colapso visible cuando el ancho lo vuelve inoperante.
+- No dejes una etiqueta de navegación visible dentro de la columna colapsada.
 - No muestres identificadores técnicos (`sale.completed`, `active`,
   `inventory_movement`) al usuario; tradúcelos.
 - No reduzcas el texto a iconos sin nombre accesible.
