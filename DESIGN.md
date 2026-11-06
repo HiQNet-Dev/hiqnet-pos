@@ -185,6 +185,11 @@ Reglas:
   `justify-content: center`, para que con el teclado virtual abierto o una
   ventana baja el formulario se alinee arriba y sus campos sigan siendo
   alcanzables mediante scroll.
+- Back de Android: un único listener (`lib/backNavigation.ts`) resuelve por capas
+  —teclado del sistema, diálogo, vista de ticket, raíz— y en la raíz consume el
+  evento sin finalizar la Activity. Un diálogo se cierra con el mismo `onClose`
+  que la X, «Cancelar» y Escape; el Back nunca altera el ticket. Un componente
+  nuevo que sea descartable con Escape debe registrar también esa capa.
 
 ## Elevation & Depth
 

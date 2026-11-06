@@ -136,22 +136,23 @@ referencia hasta repetirlas sobre este SHA.
 ## Artefactos tras la auditoría UX (2026-11-05)
 
 La auditoría UX/UI (`docs/04-quality/ux-audit-0.1.0.md`) cambió el frontend. El
-instalador de la tabla inicial corresponde a `5262880` y queda como historial.
-Artefacto vigente:
+instalador de la tabla inicial corresponde a `5262880` y el de `21bde50`
+(`864B2076…`) queda como historial. Artefacto vigente:
 
-- Commit: `21bde50` (`chore/integration-android-ux`).
+- Commit: `1821d2d` (`chore/integration-android-ux`), que añade la corrección del
+  Back de Android y la marca unificada.
 - Compilado con `cargo tauri build` (perfil release, NSIS).
 
 | Artefacto | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `HiQNet POS_0.1.0_x64-setup.exe` (NSIS, sin firma de editor) | 3 855 246 | `864B2076989744AC2CB102BA994B4428879898D2925E6A55A45D40D84B31A19D` |
-| `pos-desktop.exe` dentro del paquete | 13 881 856 | `A95ACFCEC0FEA46B2FEEEDDD4D622C483D589B3EF57CC93D5EE682B3F7FB2C5B` |
+| `HiQNet POS_0.1.0_x64-setup.exe` (NSIS, sin firma de editor) | 3 854 105 | `B34B30F5C977FE22C1B4F4B22DC849FEE1FC5F0B6895A902B671E85D12F9BFEB` |
+| `pos-desktop.exe` dentro del paquete | 13 882 368 | `C8F4AC328CC0AEE1B8FB4F981CB8B20420A0DAE0940835A9F18FB04AC090197` |
 
-Ubicación de la entrega: `~/HiQNet-Internal-Test-21bde50/windows/instaladores/`.
+Ubicación de la entrega: `~/HiQNet-Internal-Test-backfix2/windows/instaladores/`.
 
 La verificación E2E nativa de esta pasada (`e2e_layout_drift`, `e2e_flow`,
-`e2e_returns`) se ejecutó sobre el binario **debug** del mismo commit; el
-instalador usa el mismo frontend (`index-CPbDWAOQ.js`, `index-Hp6fmz8Q.css`).
-No se instaló el NSIS en Windows Sandbox en esta pasada: la evidencia de
-instalación, desinstalación y actualización sigue siendo la de `5262880`, cuyo
+`e2e_returns`) se ejecutó sobre el **binario release** del mismo commit, con
+assets `index-BsmKnnR5.js` e `index-9D_khkjU.css`, idénticos a los embebidos en el
+instalador. No se instaló el NSIS en Windows Sandbox en esta pasada: la evidencia
+de instalación, desinstalación y actualización sigue siendo la de `5262880`, cuyo
 mecanismo no cambió.

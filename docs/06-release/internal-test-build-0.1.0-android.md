@@ -84,7 +84,8 @@ Diseño propuesto, con autoridad en Rust:
 
 El frontend cambió con la auditoría UX/UI (`docs/04-quality/ux-audit-0.1.0.md`),
 así que las APK de la tabla inicial corresponden a `5262880` y quedan como
-historial. Artefactos vigentes, compilados y firmados desde `21bde50`:
+historial. Artefactos de la pasada intermedia, compilados y firmados desde
+`21bde50`:
 
 | Artefacto | ABI | Bytes | SHA-256 |
 | --- | --- | ---: | --- |
@@ -121,28 +122,113 @@ coordenadas fijas.
 | Navegación en vertical 800 dp (riel compacto de 88 px) | PASS | `emulador-18-catalogo-desplazado.png` |
 | Teclado virtual: el viewport se reduce y el campo sigue visible | PASS | `emulador-12-teclado-ventas.png` |
 | Safe areas con `enableEdgeToEdge` | PASS | contenido bajo la barra de estado y sobre la de gestos |
-| Back con un diálogo abierto | **FAIL** | cierra el diálogo y además termina la Activity |
+| Back con un diálogo abierto | **FAIL en `5262880`** → **PASS en `1821d2d`** | ver «Corrección del Back de Android» |
 | Scroll con desbordamiento real | NO EJECUTADO | el fixture tenía 7 productos y caben en pantalla |
 | Hardware ARM64 físico | BLOCKED | sin dispositivo |
 
-### Defecto abierto: Back cierra la Activity
+### Corrección del Back de Android (2026-11-06)
 
-Con el modal de «Nuevo producto» abierto, `KEYCODE_BACK` cierra el diálogo y
-además finaliza `MainActivity`: el proceso muere y Android registra
+#### Causa raíz
+
+Con el modal de «Nuevo producto» abierto, `KEYCODE_BACK` cerraba el diálogo y
+además finalizaba `MainActivity`; el proceso moría y Android registraba
 
 ```text
 F libc  : FORTIFY: pthread_mutex_lock called on a destroyed mutex
 ```
 
 en el hilo de Rust durante el desmontaje (`onActivityFinishing`). Con
-`am force-stop` no aparece: el aborto es específico del camino de
-`Activity.finish()`. No lo introduce esta auditoría (no se tocó código nativo) y
-no se corrigió porque `MainActivity.kt` vive en `apps/pos-desktop/src-tauri/gen/`,
-que está **fuera de Git**: un parche ahí se perdería en el próximo
-`tauri android init`. La corrección propuesta es registrar un
-`OnBackPressedCallback` que consulte a la interfaz (`history`/diálogo abierto)
-antes de finalizar, y versionarla como plantilla u overlay aplicado por script.
+`am force-stop` no aparecía: el aborto era específico de `Activity.finish()` y,
+además, **intermitente** (3 de 5 y 1 de 5 intentos en dos series), así que una
+sola ejecución no demostraba nada.
 
-**Android no se declara terminado**: navegación, modales y teclado se verificaron;
-Back, scroll con desbordamiento y hardware ARM64 siguen pendientes, y SAF
-continúa sin implementar.
+El origen no estaba en la aplicación. Tauri 2.11.6 registra en
+`AppPlugin.kt` un `OnBackPressedCallback(true)` que reenvía el evento
+`back-button` a JavaScript. Cuando **no hay ningún listener registrado**, el
+plugin comprueba si la WebView puede retroceder y, al no poder hacerlo —una SPA
+de una sola entrada nunca puede—, llama a `activity.onBackPressed()`, que
+ejecuta `finish()`. Cada pulsación de Back terminaba la Activity.
+
+#### Solución aplicada
+
+API oficial `onBackButtonPress` de `@tauri-apps/api/app` (2.12.4; disponible
+desde 2.9). **No se añadió ningún adaptador Kotlin** y `src-tauri/gen/android/`
+sigue intacto: nada que se pierda al regenerar el proyecto Android.
+
+- `frontend/src/lib/backNavigation.ts`: pila de manejadores (gana el último
+  registrado), un único listener nativo con conteo de referencias para
+  sobrevivir a React StrictMode, liberación idempotente y baja diferida si la
+  promesa de registro se resuelve después del desmontaje.
+- `App.tsx` instala el guardia una vez por ciclo de vida.
+- `Modal.tsx` registra una capa que llama al mismo `onClose` que la X,
+  «Cancelar» y Escape: no hay un segundo mecanismo de cierre.
+- `SalesScreen.tsx` registra una capa que devuelve del ticket al catálogo sin
+  tocar las partidas.
+
+Prioridad efectiva: **teclado del sistema** (lo consume Android antes del
+callback) → **diálogo** → **vista de ticket** → **raíz**, donde el evento se
+consume sin finalizar la Activity. En Windows el evento no existe y no cambia
+nada; Escape, foco y modales conservan su comportamiento.
+
+#### Matriz de Back sobre la APK real
+
+`.devkit/back-matrix.py` sobre `hiqnet-pos-0.1.0-internal-x86_64-emulador.apk`
+(compilada desde `1821d2d`), leyendo el árbol de accesibilidad para cada toque.
+
+| Escenario | Resultado |
+| --- | --- |
+| Back en onboarding | PASS: no cierra y conserva el formulario |
+| Back en pantalla raíz | PASS: la app sigue viva y en Ventas |
+| Back con diálogo abierto | PASS: cierra solo el diálogo; PID sin cambios |
+| Back repetido en diálogo | PASS: un solo cierre, sin salir |
+| 20 ciclos modal → Back → reapertura → Back | PASS: 20/20 |
+| Back con teclado virtual abierto | PASS: cierra el teclado y conserva el diálogo |
+| Vista de ticket | PASS: vuelve al catálogo y conserva la partida |
+| Back durante el checkout | PASS: cierra el diálogo y conserva el ticket |
+| Back tras confirmar la venta | PASS: sin cierre y ticket vacío |
+| Gesto del sistema (deslizar desde el borde) | PASS: mismo comportamiento que el botón |
+| Back tras background/resume | PASS |
+| Force-stop y arranque posterior | PASS |
+| Back en login | PASS: no cierra |
+| Abortos nativos (`FORTIFY`, `Fatal signal`) | PASS: 0 coincidencias en logcat |
+| Persistencia tras reinicio | PASS: «Venta confirmada» en Gestión, 0 abortos |
+
+**33/33 PASS.** Evidencia: `after/46-android-back-modal-cerrado.png`,
+`after/47-android-back-ticket.png` y
+`after/48-android-back-persistencia.png`. El criterio no fue «el diálogo
+desaparece»: cada comprobación verifica además que el proceso sigue vivo y que
+no aparece ningún aborto en `logcat`.
+
+#### Artefactos vigentes
+
+Frontend, iconos y Back cambian respecto a `21bde50`, así que los instaladores se
+regeneran desde `1821d2d` (release, assets `index-BsmKnnR5.js` e
+`index-9D_khkjU.css`).
+
+| Artefacto | ABI | Bytes | SHA-256 |
+| --- | --- | ---: | --- |
+| `hiqnet-pos-0.1.0-internal-arm64.apk` (firmada, entrega) | `arm64-v8a` | 11 860 301 | `FC80389DE88B92B687F983CFB6A4EA1BF61D4F8BF684CE15A196C59B6EC84206` |
+| `hiqnet-pos-0.1.0-internal-arm64-unsigned.apk` (antes de firmar) | `arm64-v8a` | 11 852 553 | `8E735EB8C33417DC709A2DE30EA9704F23EA5328755C40274A1208BE21701A9C` |
+| `hiqnet-pos-0.1.0-internal-x86_64-emulador.apk` (emulador, no es entregable) | `x86_64` | 12 675 402 | `1BF089123F721D5781C26D8AAE254ACFA64881E7EC8C8143ED77176C83EE760B` |
+
+- `lib/arm64-v8a/libpos_desktop_lib.so` dentro de la APK ARM64: 10 239 504
+  bytes, SHA-256
+  `CF2F1FC795BCA42B63993B7F3E0B5B2475C71A8351FD83AF39D32A2A68A0A237`.
+- Firma: `zipalign -p -f 4` + `apksigner sign` con `hiqnet-test.jks` (fuera del
+  repositorio). `apksigner verify --print-certs` → esquemas **v2 y v3**,
+  certificado `CN=HiQNet Internal Test, OU=QA, O=HiQNet`, digest SHA-256
+  `3A522CD050CF0728268F71855521CBAF2718CC88123D1EF5E1153FD0619EA072`.
+- ABI incluida: **solo** `lib/arm64-v8a`; la variante `x86_64` existe únicamente
+  para el emulador.
+- Ubicación de la entrega: `~/HiQNet-Internal-Test-backfix2/android/`.
+
+#### Bloqueos que siguen abiertos
+
+- **Hardware ARM64 físico: BLOCKED.** Solo emulador `x86_64` (Android 17). No se
+  declara `ANDROID HARDWARE VALIDADO`.
+- **SAF (respaldo/restauración externa): BLOCKED.** No implementado.
+- Scroll Android con desbordamiento real: no forzado en el emulador (el fixture
+  cabe en pantalla); verificado en Playwright y en el E2E nativo de Windows.
+
+**Android no se declara terminado por completo**: Back, navegación, modales y
+tecleado están verificados en emulador; SAF y hardware ARM64 siguen pendientes.

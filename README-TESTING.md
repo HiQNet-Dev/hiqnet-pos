@@ -47,6 +47,7 @@ VISUAL_REVIEW=1 pnpm exec playwright test # además, capturas
 | `e2e/smoke.spec.ts` | Onboarding y login sobre el shell |
 | `e2e/shell-nav.spec.ts` | Expandir/colapsar con geometría medida, alternancia repetida, persistencia, riel compacto, tablet, barra superior en 1024→412, teclado, foco del diálogo |
 | `e2e/screens-layout.spec.ts` | Densidad del historial de turnos, lectura de existencias al repetir selección, traducción de la auditoría |
+| `e2e/android-back.spec.ts` | Un solo registro nativo del Back, prioridad del diálogo sobre la vista de ticket y consumo sin cerrar la vista |
 | `e2e/visual.spec.ts` | Capturas de login, ventas, catálogo, inventario, caja, gestión, navegación y autenticación en 1920, 1440, 1366, 1024, 800 y 412 |
 | `e2e/visual-admin.spec.ts` | Capturas de reportes, compras, gastos, devoluciones y gestión |
 
@@ -107,38 +108,45 @@ La APK resultante queda **sin firmar** en
 aplica con la clave interna (fuera del repositorio) y se verifica con
 `apksigner`; los comandos están en `docs/06-release/internal-test-build-0.1.0-android.md`.
 
-Verificado en emulador `x86_64` (Android 17, 2560×1600) el 2026-11-05:
-instalación limpia, arranque en frío (548–842 ms), onboarding, inicio de sesión,
-navegación por las nueve secciones, modal de alta, alta real de producto,
-orientación vertical con riel compacto y teclado virtual (el viewport se reduce,
-el campo sigue visible).
+Verificado en emulador `x86_64` (Android 17, 2560×1600) el 2026-11-06, sobre la
+APK compilada desde `1821d2d`: instalación limpia, arranque en frío, onboarding,
+inicio de sesión, navegación por las nueve secciones, modal de alta, alta real de
+producto, orientación vertical con riel compacto y teclado virtual (el viewport
+se reduce, el campo sigue visible).
+
+El Back de Android tiene su propia matriz de 33 comprobaciones
+(`.devkit/back-matrix.py`, evidencia en
+`docs/06-release/internal-test-build-0.1.0-android.md`): diálogo, doble pulsación,
+20 ciclos modal → Back, teclado abierto, vista de ticket, checkout, venta
+confirmada, gesto del sistema, resume, force-stop, login y persistencia tras
+reinicio. Se ejecuta leyendo el árbol de accesibilidad, sin coordenadas fijas, y
+cada paso comprueba que el proceso sigue vivo y que `logcat` no registra
+`FORTIFY` ni `Fatal signal`.
 
 Pendiente y **no declarado superado**:
 
-- **Back con un diálogo abierto**: cierra el diálogo y finaliza la Activity; el
-  proceso aborta en `libc` durante el desmontaje. Requiere un
-  `OnBackPressedCallback` en la plantilla Android, que hoy vive en
-  `src-tauri/gen/` (fuera de Git).
 - Scroll con desbordamiento real en el dispositivo: no forzado en el emulador.
-- Interacción táctil completa, hardware ARM64 físico y SAF
-  (respaldo/restauración externa).
+- Hardware ARM64 físico (solo emulador `x86_64`) y SAF (respaldo/restauración
+  externa).
 
 ## 6. Resultados de la última pasada
 
-Ejecutada el 2026-11-05 sobre `chore/integration-android-ux`:
+Ejecutada el 2026-11-06 sobre `chore/integration-android-ux` (`1821d2d`):
 
 | Comprobación | Resultado |
 | --- | --- |
 | `pnpm lint` / `pnpm typecheck` | Pasan |
-| `pnpm test` | 96 pruebas, 15 archivos |
-| `pnpm build` | Pasa |
-| `playwright test` | 13 pruebas (8 capturas omitidas sin `VISUAL_REVIEW`) |
+| `pnpm test` | 109 pruebas, 16 archivos |
+| `pnpm build` | Pasa (`index-BsmKnnR5.js`, `index-9D_khkjU.css`) |
+| `playwright test` | 18 pruebas (8 capturas omitidas sin `VISUAL_REVIEW`) |
 | `VISUAL_REVIEW=1 playwright test` | 8 capturas pasan |
 | `cargo fmt` / `clippy -D warnings` / `cargo test --workspace` | Pasan (25 binarios) |
-| `cargo tauri build --debug --no-bundle` | Pasa |
-| `e2e_layout_drift.py` | PASS |
+| `cargo tauri build` (release, NSIS) | Pasa |
+| `cargo tauri android build --apk --target aarch64` | Pasa |
+| `e2e_layout_drift.py` | PASS (8 rondas, binario release) |
 | `e2e_flow.py` | PASS |
 | `e2e_returns.py` | PASS |
+| Matriz Back Android | 33/33 PASS, 0 abortos nativos |
 
 ## 7. Qué no cubre esta suite
 

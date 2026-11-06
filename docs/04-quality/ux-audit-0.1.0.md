@@ -37,7 +37,8 @@
 | 14 | Gestión, meta de cada evento | “Venta sale-128 · fecha” repetía el sustantivo que ya llevaba la acción. | P3 | `after/11-gestion-1920.png` | La meta combinaba etiqueta de entidad, identificador y fecha. | Fecha primero y referencia corta en monoespaciado. |
 | 15 | Navegación lateral | El contador del ticket podía crecer a tres dígitos y desbordar la píldora del riel. | P3 | Código + `shell-nav.spec.ts` | Sin límite de dígitos. | Abreviatura `99+`; el número completo va en la etiqueta accesible. |
 | 16 | Shell Android | `100vh` no sigue las barras dinámicas del sistema. | P3 | Código | Altura fija al viewport grande. | `100dvh` con respaldo en `100vh`. |
-| 17 | Android, gesto Back con un diálogo abierto | Cierra el diálogo **y** finaliza la Activity: el proceso muere y `libc` registra `FORTIFY: pthread_mutex_lock called on a destroyed mutex` durante el desmontaje. | **P1 abierto** | `docs/06-release/internal-test-build-0.1.0-android.md` | No existe `OnBackPressedCallback`; el host Android consume Back como salida. El archivo vive en `src-tauri/gen/`, fuera de Git. | **No corregido**: requiere versionar la plantilla Android. Se documenta como bloqueo y no se declara Android terminado. |
+| 17 | Android, gesto Back con un diálogo abierto | Cerraba el diálogo **y** finalizaba la Activity: el proceso moría y `libc` registraba `FORTIFY: pthread_mutex_lock called on a destroyed mutex` durante el desmontaje. | **P1 corregido** | `after/46-android-back-modal-cerrado.png`, `after/47-android-back-ticket.png`, `after/48-android-back-persistencia.png` | Tauri registra un `OnBackPressedCallback` y, sin listener en la interfaz, delega en `Activity.onBackPressed()`: `finish()` sobre una SPA de una sola entrada. | Un único listener con `onBackButtonPress` y una pila de prioridad en `frontend/src/lib/backNavigation.ts` (diálogo → vista de ticket → raíz). Matriz Android 33/33 PASS, 20/20 ciclos, 0 abortos nativos. Detalle en `docs/06-release/internal-test-build-0.1.0-android.md`. |
+| 18 | Marca de la aplicación | El favicon con el texto «HQ» era ilegible a 16 px y el icono del instalador no se parecía al de la cabecera. | P3 | `apps/pos-desktop/src-tauri/app-icon.svg`, `frontend/public/favicon.svg` | El favicon era un `<text>` y la cabecera un distintivo aparte. | Un único dibujo (cuadrado de acento con H geométrica) como fuente en `app-icon.svg`, iconos del paquete regenerados y `BrandMark` en la interfaz. Documentado en `DESIGN.md`. |
 
 Hallazgo de proceso: el arnés podía fotografiar estados intermedios (inventario
 en “Consultando…”, riel con el resaltado del frame anterior). El capturador
@@ -107,6 +108,7 @@ el contenido interno (`.product-scroll`) sí se desplaza.
 | Chip de la barra superior | `.topbar-cash` con etiqueta truncable y nombre accesible completo; icono solo ≤ 720 px |
 | Campo de búsqueda / chips | Búsqueda flexible, filtros con su ancho natural |
 | Navegación (`nav-item`) | `aria-label` explícito, tooltip, contador abreviado, icono `flex: none` |
+| Marca (`brand-mark`) | `BrandMark` con el mismo dibujo que el icono del sistema, sin texto |
 | Barra superior | Prioridad de colapso: identidad → contexto operativo → caja/turno → usuario → cuenta |
 | Diálogo (`Modal`) | Foco devuelto al control de origen |
 | Autenticación | Centrado seguro con desplazamiento utilizable |
@@ -124,17 +126,19 @@ para describir el comportamiento real.
 | --- | --- |
 | `pnpm lint` | Pasa |
 | `pnpm typecheck` | Pasa |
-| `pnpm test` | 96 pruebas, 15 archivos |
-| `pnpm build` | Pasa (`index-Hp6fmz8Q.css`, `index-CPbDWAOQ.js`) |
-| `playwright test` | 13 pruebas; 8 capturas omitidas sin `VISUAL_REVIEW` |
+| `pnpm test` | 109 pruebas, 16 archivos |
+| `pnpm build` | Pasa (`index-9D_khkjU.css`, `index-BsmKnnR5.js`) |
+| `playwright test` | 18 pruebas; 8 capturas omitidas sin `VISUAL_REVIEW` |
 | `VISUAL_REVIEW=1 playwright test` | 8 capturas pasan |
 | `cargo fmt --all --check` | Pasa |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Pasa |
 | `cargo test --workspace` | 25 binarios en verde |
-| `cargo tauri build --debug --no-bundle` | Pasa |
-| E2E nativo `e2e_layout_drift.py` | PASS (8 rondas) |
+| `cargo tauri build` (release, NSIS) | Pasa |
+| `cargo tauri android build --apk --target aarch64` | Pasa |
+| E2E nativo `e2e_layout_drift.py` | PASS (8 rondas, binario release) |
 | E2E nativo `e2e_flow.py` | PASS (bootstrap → venta → reinicio → compras → gastos/merma → arqueo → usuarios → resoluciones) |
 | E2E nativo `e2e_returns.py` | PASS (devolución → reportes → reinicio → permisos) |
+| Matriz Back Android (`.devkit/back-matrix.py`) | 33/33 PASS, 0 abortos nativos |
 
 Pruebas añadidas en esta pasada:
 
@@ -143,6 +147,9 @@ Pruebas añadidas en esta pasada:
   auditoría sin claves técnicas ni sustantivos repetidos.
 - `InventoryScreen.test.tsx`: caso de selección repetida.
 - `visual.spec.ts`: `waitForInventory`, que impide capturar inventario en carga.
+- `backNavigation.test.ts` (10), `Modal.test.tsx` (+2), `SalesScreen.test.tsx`
+  (+1) y `android-back.spec.ts` (5): prioridad del Back, un solo registro
+  nativo, cierre único del diálogo y conservación del ticket.
 
 Ver `README-TESTING.md` para comandos, prerrequisitos y cobertura por nivel.
 
@@ -152,7 +159,9 @@ Ver `README-TESTING.md` para comandos, prerrequisitos y cobertura por nivel.
   CSS puro; el estado de colapso es un booleano que se lee una vez al montar y se
   escribe en `localStorage` en un efecto.
 - La transición de layout dura 160 ms y solo se dispara al alternar la barra.
-- Paquete: CSS 31.49 kB → 33.42 kB; JS 452.62 kB → 453.80 kB.
+- Paquete final: CSS 33.28 kB y JS 457.13 kB (antes de la corrección del Back
+  y de la marca: 33.42 kB y 453.80 kB). El incremento es el componente de marca
+  y la pila de Back; no hay dependencias nuevas.
 - `perf_smoke.py` no se volvió a ejecutar; los cambios no tocan el camino de
   cobro ni las consultas. El flujo comercial nativo completo se ejecutó sobre el
   binario final.
@@ -160,14 +169,18 @@ Ver `README-TESTING.md` para comandos, prerrequisitos y cobertura por nivel.
 ## G. Git
 
 - Rama: `chore/integration-android-ux`, base `84caf76`.
-- Commit semántico con los cambios de UX/UI y su documentación; sin merge, sin
-  rebase destructivo sobre `main` y sin publicar releases.
+- Commits de esta corrección: `a9b980d` (Back de Android) y `1821d2d` (marca
+  unificada); la documentación va en el commit siguiente. Sin merge, sin rebase
+  destructivo sobre `main` y sin publicar releases.
 - Archivos de código: `frontend/index.html`, `styles.css`, `shell/SideNav.tsx`,
-  `shell/TopBar.tsx`, `shell/AppShell.tsx`, `components/Modal.tsx`,
-  `screens/AdminScreen.tsx`, `screens/CashScreen.tsx`,
-  `screens/InventoryScreen.tsx`, `screens/ReportsScreen.tsx`.
+  `shell/TopBar.tsx`, `shell/AppShell.tsx`, `shell/icons.tsx`,
+  `components/Modal.tsx`, `lib/backNavigation.ts`, `screens/AdminScreen.tsx`,
+  `screens/CashScreen.tsx`, `screens/InventoryScreen.tsx`,
+  `screens/ReportsScreen.tsx`, `screens/SalesScreen.tsx`.
 - Pruebas: `shell/SideNav.test.tsx`, `screens/InventoryScreen.test.tsx`,
-  `e2e/mock-shell.ts`, `e2e/shell-nav.spec.ts`, `e2e/screens-layout.spec.ts`,
+  `lib/backNavigation.test.ts`, `components/Modal.test.tsx`,
+  `screens/SalesScreen.test.tsx`, `e2e/mock-shell.ts`, `e2e/shell-nav.spec.ts`,
+  `e2e/screens-layout.spec.ts`, `e2e/android-back.spec.ts`,
   `e2e/visual-admin.spec.ts`, `e2e/visual.spec.ts`.
 - Documentación: `DESIGN.md`, `README-TESTING.md`, este informe y las capturas
   de `docs/04-quality/design-review/`.
@@ -176,30 +189,33 @@ Ver `README-TESTING.md` para comandos, prerrequisitos y cobertura por nivel.
 ## H. Entregable
 
 El frontend cambió, así que los instaladores internos de 0.1.0 se regeneran
-desde `21bde50`. Los artefactos de `5262880` (`DC623307…` en Windows y
-`E45914FC…` en Android) quedan como historial.
+desde `1821d2d`. Los artefactos de `5262880` (`DC623307…` en Windows y
+`E45914FC…` en Android) y los de `21bde50` (`864B2076…` y `ACEA7BED…`) quedan
+como historial.
 
 | Artefacto | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `HiQNet POS_0.1.0_x64-setup.exe` (NSIS, sin firma de editor) | 3 855 246 | `864B2076989744AC2CB102BA994B4428879898D2925E6A55A45D40D84B31A19D` |
-| `hiqnet-pos-0.1.0-internal-arm64.apk` (firmada, v2 + v3) | 11 913 408 | `ACEA7BED64A22D487C148A9D7BCCB188EEF58FF6BD8337F2F3ACEF218C6E1FD1` |
+| `HiQNet POS_0.1.0_x64-setup.exe` (NSIS, sin firma de editor) | 3 854 105 | `B34B30F5C977FE22C1B4F4B22DC849FEE1FC5F0B6895A902B671E85D12F9BFEB` |
+| `hiqnet-pos-0.1.0-internal-arm64.apk` (firmada, v2 + v3) | 11 860 301 | `FC80389DE88B92B687F983CFB6A4EA1BF61D4F8BF684CE15A196C59B6EC84206` |
 
-Ubicación: `~/HiQNet-Internal-Test-21bde50/{windows,android}/`.
+Ubicación: `~/HiQNet-Internal-Test-backfix2/{windows,android}/`.
 
 Android verificado en emulador `x86_64` (Android 17, 2560×1600): instalación
 limpia, arranque en frío, onboarding, inicio de sesión, navegación por las nueve
 secciones, modal de alta, alta real de producto y teclado virtual. Evidencia en
 `after/42-android-ventas-1280x800.png`, `after/43-android-vertical-800x1280.png`,
-`after/44-android-teclado.png` y `after/45-android-modal.png`.
+`after/44-android-teclado.png` y `after/45-android-modal.png`. La corrección del
+Back se verificó con la matriz 33/33 (`after/46`–`after/48`).
 
 **Bloqueos abiertos** (no se declaran superados):
 
-- Back con un diálogo abierto termina la Activity y aborta el proceso nativo
-  (ver hallazgo 17 y `docs/06-release/internal-test-build-0.1.0-android.md`).
 - SAF para respaldo/restauración externa: no implementado.
-- Tablet ARM64 física: sin dispositivo.
+- Tablet ARM64 física: sin dispositivo; sólo emulador `x86_64`.
 - Scroll Android con desbordamiento real: no forzado en el emulador; sí
   verificado en el arnés de Playwright y en el E2E nativo de Windows.
+- El NSIS se compiló, pero no se reinstaló en Windows Sandbox en esta pasada: la
+  evidencia de instalación, desinstalación y actualización sigue siendo la de
+  `5262880`, cuyo mecanismo no cambió.
 
 ## Limitaciones declaradas
 
