@@ -127,8 +127,10 @@ cada paso comprueba que el proceso sigue vivo y que `logcat` no registra
 Pendiente y **no declarado superado**:
 
 - Scroll con desbordamiento real en el dispositivo: no forzado en el emulador.
-- Hardware ARM64 físico (solo emulador `x86_64`) y SAF (respaldo/restauración
-  externa).
+- Hardware ARM64 físico (solo emulador `x86_64`).
+- SAF en una APK instalada: el adaptador y las pruebas de persistencia se implementan en
+  `feat/android-saf-internal-backup`, pero aún requiere AVD conectado, selector real y firma
+  interna antes de declararse aprobado.
 
 ## 6. Resultados de la última pasada
 
@@ -191,3 +193,61 @@ nuevo instalador con migraciones.
 - No hay modo oscuro implementado.
 - La regresión visual no compara píxeles: combina geometría medida, estilos
   computados y aserciones funcionales.
+
+## 9. SAF Android — pruebas de la rama aislada
+
+La rama `feat/android-saf-internal-backup` incorpora un plugin Tauri local versionado, no una
+edición de `src-tauri/gen/android`. El adaptador usa `ACTION_CREATE_DOCUMENT`,
+`ACTION_OPEN_DOCUMENT` y `ContentResolver`; solo recibe rutas temporales privadas generadas por
+Rust. No solicita permisos de almacenamiento amplios.
+
+```bash
+cd backend-rust
+cargo test -p pos-storage-sqlite --test pending_restore
+
+cd ../frontend
+pnpm exec vitest run src/screens/AdminScreen.test.tsx
+
+cd ../apps/pos-desktop
+cargo tauri android build --apk --debug --target x86_64
+```
+
+| Comprobación | Estado en esta rama | Alcance |
+| --- | --- | --- |
+| Restauración misma instalación | PASS (SQLite) | snapshot, datos y Trial vigente preservado |
+| Reanudación tras interrupción entre promoción y estado comercial | PASS (SQLite) | la operación completa se repite sin bloquear el arranque |
+| Instalación/organización distinta | PASS (SQLite + emulador) | rechazo antes de reemplazar la base |
+| Licencia firmada sin verificador temprano | PASS (SQLite) | rechazo seguro, sin copiar derechos |
+| Archivo alterado después de confirmar | PASS (SQLite) | SHA-256 rechaza la operación; base intacta |
+| Plugin SAF Kotlin | PASS (`x86_64` debug y `arm64-v8a` release) | APK generada sin modificar `gen/android` |
+| Exportación SAF real | PASS (emulador) | selector del sistema, `Downloads/hiqnet-pos-*.db`, 442 368 bytes |
+| Snapshot exportado | PASS | `pos-desktop.exe --verify-backup` → `resultado=OK` |
+| Importación + confirmación + reinicio | PASS (emulador) | dos ciclos; aviso «El respaldo se restauró correctamente.» |
+| Reversión de datos posteriores al respaldo | PASS (emulador) | dos productos creados después desaparecen tras restaurar |
+| Archivo corrupto | PASS (emulador) | «el respaldo no es válido»; app viva, sin reinicio |
+| Instalación ajena | PASS (emulador) | «el respaldo pertenece a otra instalación u organización» |
+| Abortos nativos durante export/import/restore | PASS | 0 coincidencias de `FORTIFY`, `Fatal signal`, `panic` |
+| Firma interna v2/v3 | BLOCKED | el JKS existe fuera de Git, pero no hay credencial autorizada disponible |
+| Hardware ARM64 físico | BLOCKED | no hay dispositivo |
+
+El AVD usado fue `hiqnet_saf_test`, creado para esta pasada desde la imagen
+`system-images;android-37.0;google_apis;x86_64`. No se desinstaló ni sobrescribió la
+instalación firmada preexistente de `hiqnet_tablet`. La aplicación se instaló con la clave debug
+estándar solo en ese AVD desechable; **no es una APK de distribución**.
+
+Evidencia local (`.devkit/` está fuera de Git):
+
+- `01-arranque.png` … `25-instalacion-ajena-rechazada.png`;
+- `ui-01.xml` … `ui-32.xml` con los árboles de accesibilidad de cada paso.
+
+Artefactos de esta pasada:
+
+| Artefacto | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `HiQNet POS_0.1.0_x64-setup.exe` (NSIS) | 3 918 388 | `2DD5E0F6C02BD854C8CF3509D8C2345D55B9AF2D8659DEB8979D2F27BC502616` |
+| `app-universal-release-unsigned.apk` (`arm64-v8a`) | 12 057 633 | `6A02DAD9B741DEFAC4763D860ED4CBB27642D3B9628899870610D1F62782D023` |
+
+La APK ARM64 **no está firmada** y no se entrega como paquete instalable.
+
+La política y los límites de 0.1.0 están en
+`docs/01-architecture/decisions/ADR-009-android-saf-same-installation-restore.md`.

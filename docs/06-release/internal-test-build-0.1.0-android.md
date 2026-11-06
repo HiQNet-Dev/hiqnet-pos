@@ -2,6 +2,14 @@
 
 Build interno de pruebas. **No es una release comercial** y no se publica.
 
+> El historial de artefactos se conserva abajo. La evidencia nueva de SAF vive en la rama
+> aislada `feat/android-saf-internal-backup`; no sustituye la aprobación de una APK firmada ni
+> una prueba instalada. Al verificar localmente el archivo histórico disponible
+> `hiqnet-pos-0.1.0-internal-arm64.signed.apk`, `apksigner` devolvió `DOES NOT VERIFY` / `Missing
+> META-INF/MANIFEST.MF`; ese archivo no se puede usar como prueba de continuidad del certificado.
+> El JKS histórico sigue fuera de Git, pero la firma queda bloqueada hasta que un operador aporte
+> la credencial mediante un canal seguro.
+
 ## Artefactos
 
 | Artefacto | ABI | Bytes | SHA-256 |
@@ -257,3 +265,78 @@ persistencia tras reinicio. La tarjeta de Ventas publica el precio al público
 
 **Android no se declara terminado por completo**: Back, navegación, modales y
 tecleado están verificados en emulador; SAF y hardware ARM64 siguen pendientes.
+
+## SAF en la rama aislada `feat/android-saf-internal-backup` (2026-11-06)
+
+Esta pasada no modifica `src-tauri/gen/android`: el transporte SAF vive en el plugin local
+versionado `plugins/tauri-plugin-saf-document` (Rust + Kotlin) y Rust conserva la autoridad sobre
+snapshots, validación, identidad, estado comercial y sustitución de la base.
+
+### Artefacto compilado
+
+| Artefacto | ABI | Bytes | SHA-256 |
+| --- | --- | ---: | --- |
+| `app-universal-release-unsigned.apk` | `arm64-v8a` | 12 057 633 | `6A02DAD9B741DEFAC4763D860ED4CBB27642D3B9628899870610D1F62782D023` |
+
+- `aapt2 dump badging` → `package=com.hiqnet.pos`, `versionName=0.1.0`,
+  `targetSdkVersion=37`, `native-code: 'arm64-v8a'`.
+- **Sin firma.** `apksigner` no puede verificarla; no es una entrega instalable.
+- El binario Windows de esta misma pasada se generó como NSIS:
+  `HiQNet POS_0.1.0_x64-setup.exe`, 3 918 388 bytes, SHA-256
+  `2DD5E0F6C02BD854C8CF3509D8C2345D55B9AF2D8659DEB8979D2F27BC502616`.
+
+### Verificación en emulador desechable
+
+AVD nuevo `hiqnet_saf_test` (Android 17, `x86_64`, 2560×1600 @ 320 dpi), creado desde
+`system-images;android-37.0;google_apis;x86_64`. La instalación firmada preexistente de
+`hiqnet_tablet` **no** se desinstaló ni se sobrescribió. La app de prueba usa la clave debug
+estándar solo en este AVD y no se publica.
+
+Ciclo ejecutado dos veces, con datos sintéticos y árbol de accesibilidad en cada paso:
+
+1. onboarding real y bootstrap;
+2. **Exportar respaldo** → selector `ACTION_CREATE_DOCUMENT` → `Downloads/hiqnet-pos-*.db`
+   (442 368 bytes). El temporal privado se eliminó después de escribir;
+3. el archivo se extrajo y se verificó con `pos-desktop.exe --verify-backup` → `resultado=OK`;
+4. se creó un producto posterior al respaldo;
+5. **Importar respaldo** → selector `ACTION_OPEN_DOCUMENT` → validación Rust → diálogo de
+   confirmación con vigencia y «Se conserva el estado vigente»;
+6. **Restaurar y reiniciar** → la app se cierra (sin `pid`),
+7. nuevo arranque en frío consume el marcador antes de abrir SQLite, exige login y muestra
+   «El respaldo se restauró correctamente.»;
+8. el producto posterior ya no existe y el Trial conserva su vencimiento.
+
+Casos adversariales en el mismo dispositivo:
+
+| Caso | Resultado | Detalle |
+| --- | --- | --- |
+| Archivo corrupto | PASS | «el respaldo no es válido»; app viva, sin reinicio |
+| `installation_id` ajeno | PASS | «el respaldo pertenece a otra instalación u organización» |
+| Temporales | PASS | export eliminado; import del ciclo 2 eliminado tras restaurar |
+| Abortos nativos | PASS | 0 `FORTIFY`, `Fatal signal`, `pthread_mutex_lock`, `panic` |
+
+Evidencia local en `.devkit/artifacts/android-saf/` (capturas `01`–`25` y árboles `ui-01`–`ui-32`).
+
+### Firma: BLOCKED
+
+El keystore histórico existe fuera del repositorio
+(`~/HiQNet-Internal-Test-5262880/android/keystore/hiqnet-test.jks`), pero esta sesión no dispone de
+la credencial autorizada y no se adivinan contraseñas. Comprobar el archivo histórico
+`hiqnet-pos-0.1.0-internal-arm64.signed.apk` con `apksigner` devolvió
+`DOES NOT VERIFY: Missing META-INF/MANIFEST.MF`, así que tampoco sirve para confirmar la
+continuidad del certificado. **No hay APK firmada de esta pasada.**
+
+### Estado por etapa
+
+- `ANDROID BUILD VALIDADO`: sí (release ARM64 sin firmar).
+- `ANDROID FIRMA VALIDADA`: **no** (BLOCKED).
+- `ANDROID E2E EMULADOR APROBADO`: sí, sobre el build de depuración instalado en el AVD aislado.
+- `ANDROID BACKUP/RESTORE SAF APROBADO`: sí en emulador; no en APK firmada de distribución.
+- `ANDROID HARDWARE ARM64 PENDIENTE`: sí.
+
+## Bloqueos restantes
+
+- Firma interna v2/v3: requiere la contraseña del JKS por un canal seguro.
+- Hardware ARM64 físico: sin dispositivo disponible.
+- SAF en la APK firmada: depende de la firma y de una instalación autorizada.
+- Scroll Android con desbordamiento real en dispositivo: no forzado.

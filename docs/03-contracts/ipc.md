@@ -441,6 +441,30 @@ Devuelve la ruta del respaldo.
 > La restauración no se expone todavía por IPC: requiere cerrar la conexión. El
 > procedimiento probado está en `docs/05-operations/backup-and-restore.md`.
 
+## Respaldo Android mediante SAF
+
+Los siguientes comandos solo se habilitan en Android y requieren `backups.manage` salvo
+`saf_backup_available`:
+
+- `saf_backup_available` → `boolean`. Informa si el adaptador SAF está disponible.
+- `export_saf_backup` → `boolean`. Crea y verifica un snapshot con Rust, abre
+  `ACTION_CREATE_DOCUMENT` mediante el adaptador nativo y escribe por `ContentResolver`.
+  Devuelve `false` si el usuario cancela; solo registra `backup.created` tras una escritura
+  completada.
+- `import_saf_backup` → `{ "backup_valid_until": RFC3339, "preserves_commercial_state": true } | null`.
+  Abre `ACTION_OPEN_DOCUMENT`, copia a temporal privado y valida integridad, migraciones,
+  instalación, organización y política comercial. `null` significa cancelación. No programa una
+  restauración todavía.
+- `schedule_saf_restore` → `null`. Revalida el temporal y, tras la confirmación explícita de la
+  UI, escribe un marcador privado con SHA-256 y cierra la app. La restauración se consume antes
+  de abrir el pool en el siguiente arranque.
+- `restore_startup_notice` → `string | null`. Entrega una sola vez la confirmación de una
+  restauración consumida correctamente, después de autenticar y comprobar `backups.manage`.
+
+El selector Android solo transporta bytes: las rutas privadas, comprobaciones SQLite, identidad,
+licencia y sustitución de base pertenecen a Rust. Los respaldos de otra instalación u organización
+se rechazan y no se expone una restauración en caliente.
+
 ## Compatibilidad
 
 Los nombres de campos son parte del contrato. Cualquier cambio requiere

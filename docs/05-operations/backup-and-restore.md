@@ -29,6 +29,27 @@ Destino por defecto:
 > archivo principal quedaría vacía o desactualizada. Usa siempre el respaldo de
 > la aplicación o `VACUUM INTO`.
 
+## Android: exportar e importar mediante SAF
+
+En Android, usuarios con `backups.manage` pueden elegir **Exportar respaldo** para crear un
+snapshot privado consistente y seleccionar un documento con el selector del sistema. El archivo
+se escribe mediante `ContentResolver`; cancelar el selector no se registra como éxito.
+
+**Importar respaldo** copia primero el documento elegido a almacenamiento privado y valida su
+integridad, claves foráneas, migraciones, instalación y organización. Solo después muestra una
+confirmación. Al aceptar, la aplicación se cierra y deja un marcador con la huella SHA-256 del
+archivo: el siguiente arranque vuelve a validarlo y restaura antes de abrir SQLite.
+
+La restauración Android de 0.1.0 solo admite la **misma instalación y organización**. Conserva
+el plan, funciones, estado y vencimiento comercial que estaban vigentes antes de restaurar, por
+lo que un Trial antiguo no se puede ampliar. Si la base actual o el respaldo contiene material de
+licencia firmado, se rechaza mientras no exista una clave pública de verificación configurada para
+el arranque temprano. No hay recuperación entre dispositivos ni transferencia de licencia.
+
+El procedimiento conserva las mismas garantías de copia de recuperación, validación y reversión
+descritas abajo. No se concede almacenamiento amplio ni se interpretan URI `content://` como
+rutas de archivo.
+
 ## Verificar un respaldo
 
 Sin abrir la aplicación:
@@ -174,6 +195,13 @@ arrancar. Revertir el ejecutable **no** revierte la base.
 - restauración con respaldo inválido deja la base intacta;
 - sin archivos `.restore-tmp` residuales;
 - detección de base corrupta al abrir.
+
+`backend-rust/crates/pos-storage-sqlite/tests/pending_restore.rs`:
+
+- misma instalación: restaura datos y preserva el vencimiento vigente del Trial;
+- instalación u organización distintas: rechazo sin tocar la base;
+- material de licencia sin verificación Ed25519 configurada: rechazo seguro;
+- archivo alterado después de confirmar: la huella no coincide y la base queda intacta.
 
 `backend-rust/crates/pos-storage-sqlite/tests/migration_failure.rs`:
 
