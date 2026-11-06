@@ -155,6 +155,8 @@ describe("InventoryScreen", () => {
     await user.selectOptions(screen.getByLabelText("Producto"), "p-1");
 
     expect(await screen.findByText("20", { selector: ".stock-figure" })).toBeVisible();
+    expect(screen.getByText("Al público")).toBeVisible();
+    expect(screen.getByText("$12.50")).toBeVisible();
     expect(await screen.findByText(/sin motivo/i)).toBeVisible();
     expect(api.listInventoryMovements).toHaveBeenCalledWith("p-1", 50);
   });

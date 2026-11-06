@@ -100,10 +100,14 @@ describe("ReportsScreen", () => {
     render(<ReportsScreen actor={actor} readOnly={false} />);
     const user = userEvent.setup();
     await screen.findByText("Ventas netas");
+    expect(api.reportsSummary).toHaveBeenCalledTimes(1);
     await user.clear(screen.getByLabelText("Desde"));
     await user.type(screen.getByLabelText("Desde"), "2026-11-01");
+    expect(api.reportsSummary).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/los resultados mostrados corresponden/i)).toBeVisible();
     await user.click(screen.getByRole("button", { name: /actualizar/i }));
-    await waitFor(() => expect(api.reportsSummary).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText(/los resultados mostrados corresponden/i)).not.toBeInTheDocument());
+    await waitFor(() => expect(api.reportsSummary).toHaveBeenCalledTimes(2));
     const last = api.reportsSummary.mock.calls.at(-1)?.[0];
     expect(last?.from).toBe("2026-11-01T00:00:00.000Z");
     expect(last?.to).toMatch(/T00:00:00\.000Z$/);

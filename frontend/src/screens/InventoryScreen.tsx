@@ -286,11 +286,11 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
                 <dd className="mono">{selectedProduct.sku}</dd>
               </div>
               <div>
-                <dt>Precio neto</dt>
-                <dd className="mono">${selectedProduct.unit_price}</dd>
+                <dt>Al público</dt>
+                <dd className="mono">${selectedProduct.public_unit_total}</dd>
               </div>
               <div>
-                <dt>Impuesto</dt>
+                <dt>IVA</dt>
                 <dd className="mono">{(selectedProduct.tax_rate_bp / 100).toFixed(2)}%</dd>
               </div>
             </dl>

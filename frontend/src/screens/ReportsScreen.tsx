@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, IpcError } from "../api";
 import type { Actor, ReportsView } from "../contracts";
 
@@ -30,11 +30,21 @@ function formatMoney(value: string): string {
 
 export function ReportsScreen({ actor, readOnly }: Props) {
   const canView = actor.permissions.includes("reports.view");
-  const [from, setFrom] = useState(isoDay(-6));
-  const [to, setTo] = useState(isoDay());
+  const [initialRange] = useState(() => {
+    const from = isoDay(-6);
+    const to = isoDay();
+    return { from, to, bounds: dayBounds(from, to) };
+  });
+  const [from, setFrom] = useState(initialRange.from);
+  const [to, setTo] = useState(initialRange.to);
   const [report, setReport] = useState<ReportsView | null>(null);
+  const [appliedRange, setAppliedRange] = useState<{ from: string; to: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestRef = useRef(0);
+  const resultsOutdated =
+    report !== null &&
+    (appliedRange === null || appliedRange.from !== from || appliedRange.to !== to);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -43,29 +53,39 @@ export function ReportsScreen({ actor, readOnly }: Props) {
       setError("El período no es válido: revisa las fechas.");
       return;
     }
-    await loadBounds(bounds);
+    await loadBounds(bounds, { from, to });
   }
 
-  const loadBounds = useCallback(async (bounds: { from: string; to: string }) => {
+  const loadBounds = useCallback(async (
+    bounds: { from: string; to: string },
+    range: { from: string; to: string },
+  ) => {
+    const request = ++requestRef.current;
     setLoading(true);
     setError(null);
     try {
-      setReport(await api.reportsSummary(bounds));
+      const nextReport = await api.reportsSummary(bounds);
+      if (request !== requestRef.current) return;
+      setReport(nextReport);
+      setAppliedRange(range);
     } catch (cause) {
+      if (request !== requestRef.current) return;
       setError(
         cause instanceof IpcError ? cause.message : "No fue posible calcular los reportes.",
       );
     } finally {
-      setLoading(false);
+      if (request === requestRef.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const bounds = dayBounds(from, to);
-    if (!bounds) return;
-    const timer = window.setTimeout(() => void loadBounds(bounds), 0);
+    if (!initialRange.bounds) return;
+    const timer = window.setTimeout(
+      () => void loadBounds(initialRange.bounds!, { from: initialRange.from, to: initialRange.to }),
+      0,
+    );
     return () => window.clearTimeout(timer);
-  }, [from, to, loadBounds]);
+  }, [initialRange, loadBounds]);
 
   if (!canView) {
     return (
@@ -103,6 +123,15 @@ export function ReportsScreen({ actor, readOnly }: Props) {
       {error && (
         <div className="screen-inline-alert" aria-live="polite">
           <p className="alert alert-error">{error}</p>
+        </div>
+      )}
+
+      {resultsOutdated && appliedRange && (
+        <div className="screen-inline-alert" role="status">
+          <p className="alert alert-info">
+            Los resultados mostrados corresponden a {appliedRange.from}–{appliedRange.to}. Pulsa
+            Actualizar para consultar el período seleccionado.
+          </p>
         </div>
       )}
 
