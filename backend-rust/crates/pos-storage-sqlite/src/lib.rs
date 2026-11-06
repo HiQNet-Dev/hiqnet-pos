@@ -14,9 +14,9 @@ pub mod lock;
 pub mod uow;
 
 pub use backup::{
-    PendingRestoreOutcome, RestorePreview, RestoreReport, backup_to, consume_pending_restore,
-    open_read_only, preview_restore_candidate, restore_from_backup, schedule_pending_restore,
-    verify_backup,
+    PendingRestoreOutcome, RestorePreview, RestoreReport, backup_to, cleanup_saf_staging,
+    consume_pending_restore, open_read_only, preview_restore_candidate, restore_from_backup,
+    saf_workspace, schedule_pending_restore, verify_backup,
 };
 pub use lock::{DatabaseLock, lock_path, try_lock};
 pub use uow::SqliteStore;

@@ -19,6 +19,10 @@ const CORE_TABLES: [&str; 6] = [
     "local_installation_state",
 ];
 
+/// Tope de tamaño para un respaldo. El adaptador SAF aplica además un límite
+/// equivalente durante la copia; aquí protege también a la utilidad offline.
+const MAX_BACKUP_BYTES: u64 = 512 * 1024 * 1024;
+
 /// Resultado de una restauración completada.
 #[derive(Debug, Clone)]
 pub struct RestoreReport {
@@ -323,6 +327,31 @@ fn pending_restore_path(database_path: &Path) -> PathBuf {
     database_path.with_file_name("hiqnet-pos.restore-pending.json")
 }
 
+/// Directorio privado del adaptador SAF, derivado de la ubicación de la base.
+pub fn saf_workspace(database_path: &Path, purpose: &str) -> PathBuf {
+    database_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("saf")
+        .join(purpose)
+}
+
+/// Elimina temporales de exportación/importación que no pertenezcan a una
+/// restauración pendiente. Se invoca al arrancar, después de consumir el
+/// marcador: si el marcador existiera, no se llega aquí.
+pub fn cleanup_saf_staging(database_path: &Path) {
+    for purpose in ["exports", "imports"] {
+        let Ok(entries) = std::fs::read_dir(saf_workspace(database_path, purpose)) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if entry.path().is_file() {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
 fn write_pending_restore(
     database_path: &Path,
     pending: &PendingRestore,
@@ -361,6 +390,13 @@ fn sha256_file(path: &Path) -> Result<String, StorageError> {
 /// Verificación estructural: integridad, tablas base y claves foráneas.
 async fn verify_structure(path: &Path) -> Result<(), StorageError> {
     if !path.is_file() {
+        return Err(StorageError::InvalidBackup);
+    }
+    if std::fs::metadata(path)
+        .map(|meta| meta.len())
+        .unwrap_or(u64::MAX)
+        > MAX_BACKUP_BYTES
+    {
         return Err(StorageError::InvalidBackup);
     }
 
@@ -1109,6 +1145,16 @@ mod failure_tests {
             .execute(&pool)
             .await
             .unwrap();
+        sqlx::query(
+            "INSERT INTO local_installation_state \
+             (id, installation_id, organization_id, plan, license_status, features_json, \
+              trial_started_at, valid_until, license_grant_json, license_signature_b64, updated_at) \
+             VALUES (1, 'install-1', 'org-1', 'trial', 'trial', '[\"catalog\"]', \
+                     '2026-01-01T00:00:00Z', '2026-12-01T00:00:00Z', NULL, NULL, '2026-01-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         for id in ["p-1", "p-2"] {
             sqlx::query(
                 "INSERT INTO product (id, organization_id, sku, name, unit_price_minor, tax_rate_bp, active, created_at) \
@@ -1138,6 +1184,41 @@ mod failure_tests {
 
     fn staged(database: &Path) -> PathBuf {
         staged_path(database)
+    }
+
+    #[tokio::test]
+    async fn un_fallo_de_promocion_tras_confirmar_conserva_el_marcador_y_permite_reintentar() {
+        let _serial = serial();
+        let (_dir, database, backup) = scenario().await;
+
+        schedule_pending_restore(&database, &backup).await.unwrap();
+        faults::inject(&[RestoreStep::FinalVerification]);
+        let error = consume_pending_restore(&database).await.unwrap_err();
+        assert!(
+            matches!(error, StorageError::InvalidBackup | StorageError::Restore),
+            "obtenido {error:?}"
+        );
+        assert!(
+            pending_restore_path(&database).is_file(),
+            "el marcador debe sobrevivir para permitir el reintento"
+        );
+        assert_eq!(
+            pending_count(&database).await,
+            3,
+            "la base previa se conserva"
+        );
+
+        // Reintento sin fallo: la restauración completa y libera el marcador.
+        assert_eq!(
+            consume_pending_restore(&database).await.unwrap(),
+            PendingRestoreOutcome::Restored
+        );
+        assert_eq!(pending_count(&database).await, 2);
+        assert!(!pending_restore_path(&database).is_file());
+        assert!(
+            !backup.exists(),
+            "la copia importada se elimina tras restaurar"
+        );
     }
 
     #[tokio::test]

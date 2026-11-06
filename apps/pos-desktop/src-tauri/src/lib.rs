@@ -678,12 +678,7 @@ fn restore_error(error: pos_storage_sqlite::StorageError) -> IpcError {
 }
 
 fn saf_workspace(state: &AppState, purpose: &str) -> PathBuf {
-    state
-        .db_path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .join("saf")
-        .join(purpose)
+    pos_storage_sqlite::saf_workspace(&state.db_path, purpose)
 }
 
 fn document_provider_error(error: tauri_plugin_saf_document::Error) -> IpcError {
@@ -929,6 +924,10 @@ pub fn run() {
                     )));
                 }
             };
+
+            // Sin marcador pendiente, cualquier temporal SAF es un residuo de una
+            // importación/exportación interrumpida o no confirmada.
+            pos_storage_sqlite::cleanup_saf_staging(&db_path);
 
             let (pool, database_lock) =
                 tauri::async_runtime::block_on(pos_storage_sqlite::open_locked(&db_path)).map_err(
