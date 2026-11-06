@@ -171,9 +171,13 @@ este informe no altera binario, frontend ni migraciones.
 
 ## Pendientes y decisión de entrega
 
-- Falta regenerar e instalar una APK ARM64 desde el commit final y firmarla v2/v3
-  con la clave interna externa; la APK ARM64 previa no se presenta como entrega.
-- No hay emulador ni dispositivo conectado para validar la APK de este cierre;
-  no se declara Android, Back, scroll ni flujo comercial actuales como aprobados.
+- Se reconstruyó `app-universal-release-unsigned.apk` ARM64 (11 879 361 bytes,
+  SHA-256 `85A50959348996A308B21C613E1CCB4CF5F8FAD54D0C7FF39D0CD605D3CB62EB`),
+  con `lib/arm64-v8a/libpos_desktop_lib.so` embebida. `apksigner` devuelve
+  `DOES NOT VERIFY` por falta de firma: no es una entrega y debe firmarse v2/v3
+  con la clave interna externa.
+- ADB no tiene emulador ni dispositivo conectado para validar la APK de este
+  cierre; no se declara Android, Back, scroll ni flujo comercial actuales como
+  aprobados.
 - ARM64 físico y SAF Android siguen bloqueados/no implementados conforme a los
   informes anteriores.

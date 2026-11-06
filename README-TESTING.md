@@ -175,7 +175,7 @@ son evidencia histórica de sus commits indicados; no sustituyen estos resultado
 | Flujo operativo después de actualizar | **PASS** — `e2e_post_upgrade.py` conserva catálogo, inventario, caja, gastos, merma, compras, usuarios, ventas y auditoría |
 | Instalación aislada NSIS | **PASS** — Windows Sandbox verifica instalación, arranque, operación sin red, desinstalación, reinstalación y persistencia SQLite |
 | Instalador candidato | `apps/pos-desktop/src-tauri/target/release/bundle/nsis/HiQNet POS_0.1.0_x64-setup.exe` — 3 872 471 bytes — SHA-256 `9D35261FC65FDBEA816DCDA5FC2242F8C760D9A3F8086AA8091F309231A07E0E` |
-| Android de este cierre | **BLOCKED** — se debe reconstruir desde el commit final, firmar v2/v3 con la clave externa y probar en emulador/dispositivo. No se reutiliza la APK previa como evidencia. |
+| Android de este cierre | **BLOCKED** — se reconstruyó `app-universal-release-unsigned.apk` (ARM64, 11 879 361 bytes, SHA-256 `85A50959348996A308B21C613E1CCB4CF5F8FAD54D0C7FF39D0CD605D3CB62EB`), pero `apksigner` confirma que no verifica por falta de firma. No hay ADB conectado; falta firmar v2/v3 con la clave externa e instalar/probar. No es una entrega. |
 
 La crate `pos-storage-sqlite` contiene un `build.rs` que incorpora una huella de
 el directorio de migraciones a la compilación. Así, agregar, quitar o cambiar una
