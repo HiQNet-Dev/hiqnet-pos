@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Modal } from "./Modal";
+import { handleBackButton } from "../lib/backNavigation";
 
 function Harness() {
   const [open, setOpen] = useState(false);
@@ -68,5 +69,34 @@ describe("Modal", () => {
 
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("el botón Back de Android lo cierra con el mismo cierre que la X", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal title="Gasto" onClose={onClose}>
+        <p>Contenido</p>
+      </Modal>,
+    );
+
+    expect(handleBackButton()).toBe(true);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    // Consume el gesto una sola vez: no hay doble cierre.
+    onClose.mockClear();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("deja de consumir Back cuando se desmonta", () => {
+    const onClose = vi.fn();
+    const { unmount } = render(
+      <Modal title="Gasto" onClose={onClose}>
+        <p>Contenido</p>
+      </Modal>,
+    );
+
+    unmount();
+
+    expect(handleBackButton()).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

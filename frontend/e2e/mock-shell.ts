@@ -184,6 +184,19 @@ export async function mockShellBridge(page: Page): Promise<void> {
         __TAURI_INTERNALS__: {
           invoke: (command: string, args?: Record<string, unknown>) => {
             const request = args ?? {};
+            if (command === "plugin:app|register_listener") {
+              // Permite a las pruebas disparar el evento nativo de Back como lo
+              // haría `AppPlugin.trigger("back-button", …)` en Android.
+              const internals = window as unknown as Record<string, unknown>;
+              internals.__hiqnetBack = request.handler;
+              internals.__hiqnetBackRegistrations =
+                (Number(internals.__hiqnetBackRegistrations) || 0) + 1;
+              return Promise.resolve(1);
+            }
+            if (command === "plugin:app|remove_listener") {
+              (window as unknown as Record<string, unknown>).__hiqnetBack = null;
+              return Promise.resolve(null);
+            }
             if (command === "configure_product") {
               const draft = request.draft as { product_id?: string } | undefined;
               const product =

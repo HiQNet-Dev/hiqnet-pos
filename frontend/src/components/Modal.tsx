@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { CloseIcon } from "../shell/icons";
+import { registerBackHandler } from "../lib/backNavigation";
 
 interface Props {
   title: string;
@@ -33,6 +34,17 @@ export function Modal({ title, subtitle, onClose, children, footer, size = "md" 
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+
+  // Back de Android cierra este diálogo, y solo este, con el mismo cierre que
+  // usan la X, «Cancelar» y Escape.
+  useEffect(
+    () =>
+      registerBackHandler(() => {
+        onCloseRef.current();
+        return true;
+      }),
+    [],
+  );
 
   useEffect(() => {
     const node = container.current;

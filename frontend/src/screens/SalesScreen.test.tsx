@@ -2,6 +2,7 @@ import { useState } from "react";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { handleBackButton } from "../lib/backNavigation";
 import type {
   Actor,
   CashShift,
@@ -234,6 +235,23 @@ describe("SalesScreen", () => {
     expect(screen.getByText("Café americano")).toBeVisible();
     expect(screen.getByText(/20 disp\./)).toBeVisible();
     expect(screen.getByText(/sin artículos/i)).toBeVisible();
+  });
+
+  it("Back devuelve del ticket al catálogo sin tocar las partidas", async () => {
+    render(<Harness shift={shift} />);
+    const user = userEvent.setup();
+    const root = document.querySelector(".sales")!;
+
+    await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+    await user.click(screen.getByRole("button", { name: /ver ticket/i }));
+    expect(root).toHaveAttribute("data-view", "ticket");
+
+    expect(handleBackButton()).toBe(true);
+    await waitFor(() => expect(root).toHaveAttribute("data-view", "catalog"));
+
+    // La partida sigue en el ticket: Back solo cambia la vista.
+    const ticket = screen.getByRole("complementary", { name: /ticket actual/i });
+    expect(within(ticket).getByText(/1 artículo/i)).toBeVisible();
   });
 
   it("agrega un producto simple al ticket con el precio de Rust", async () => {

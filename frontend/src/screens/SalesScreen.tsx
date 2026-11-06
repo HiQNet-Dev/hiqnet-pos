@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, IpcError } from "../api";
 import type {
   Actor,
@@ -18,6 +18,7 @@ import {
 } from "../lib/cart";
 import type { PendingSaleAttempt } from "../lib/pendingAttempt";
 import { formatMinor, formatQuantity } from "../lib/money";
+import { registerBackHandler } from "../lib/backNavigation";
 import { Modal } from "../components/Modal";
 import { CheckoutDialog } from "./CheckoutDialog";
 import { ProductConfigDialog, type ConfigTarget } from "./ProductConfigDialog";
@@ -81,6 +82,18 @@ export function SalesScreen({
   const [view, setView] = useState<"catalog" | "ticket">("catalog");
   const requestRef = useRef(0);
   const checkoutLocked = pendingAttempt !== null;
+
+  // En el diseño apilado (≤960 px) Back devuelve del ticket al catálogo sin
+  // tocar las partidas. En escritorio esta vista no se activa.
+  useEffect(
+    () =>
+      registerBackHandler(() => {
+        if (view !== "ticket") return false;
+        setView("catalog");
+        return true;
+      }),
+    [view],
+  );
 
   const totals = cartTotals(cart);
 

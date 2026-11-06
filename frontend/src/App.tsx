@@ -6,6 +6,7 @@ import { OnboardingScreen } from "./screens/OnboardingScreen";
 import { AppShell } from "./shell/AppShell";
 import { loadInitialStatus } from "./lib/startup";
 import { installViewportGuard } from "./lib/viewportGuard";
+import { installAndroidBackGuard } from "./lib/backNavigation";
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
@@ -14,6 +15,8 @@ export default function App() {
   const [fatal, setFatal] = useState<string | null>(null);
 
   useEffect(() => installViewportGuard(), []);
+  // Un solo listener nativo para todo el ciclo de vida de la aplicación.
+  useEffect(() => installAndroidBackGuard(), []);
 
   const refreshStatus = useCallback(async () => {
     try {
