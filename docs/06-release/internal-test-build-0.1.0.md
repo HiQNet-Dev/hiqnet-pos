@@ -133,6 +133,27 @@ referencia hasta repetirlas sobre este SHA.
   migración posterior a `sale returns`, así que ese caso no se probó.
 - Firma de editor para evitar advertencias de SmartScreen.
 
+## Artefactos tras el rediseño de precios y ventas (2026-11-06)
+
+El frontend y el contrato de catálogo cambiaron (`docs/04-quality/price-and-sales-ux-0.1.0.md`),
+así que el instalador se regenera desde `f5744d9`. El de `1821d2d` (`B34B30F5…`)
+queda como historial.
+
+| Artefacto | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `HiQNet POS_0.1.0_x64-setup.exe` (NSIS, sin firma de editor) | 3 873 492 | `B871A54873B3F725916E7B6564FD2D86F90A84AF277D0C36B8768E26C9DAA479` |
+| `pos-desktop.exe` dentro del paquete | 13 940 736 | `EE37B2126A324082EAB23BA87B2F2E6E84A9C8B759B0A3EDF29F4E8942DC8E84` |
+
+Ubicación: `~/HiQNet-Internal-Test-pricing/windows/instaladores/`.
+
+La verificación E2E nativa (`e2e_layout_drift`, `e2e_flow`, `e2e_returns`) se
+ejecutó sobre el **binario release** del mismo árbol, con assets
+`index-Bx8ah-xo.js` e `index-CiRAZ_O3.css`, idénticos a los del instalador.
+`e2e_flow` comprueba que la tarjeta publica el precio con IVA antes de vender.
+No se instaló el NSIS en Windows Sandbox en esta pasada: la evidencia de
+instalación y actualización sigue siendo la de `5262880`, cuyo mecanismo no
+cambió.
+
 ## Artefactos tras la auditoría UX (2026-11-05)
 
 La auditoría UX/UI (`docs/04-quality/ux-audit-0.1.0.md`) cambió el frontend. El

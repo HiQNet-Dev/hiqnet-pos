@@ -143,6 +143,23 @@ Reglas:
 - Los encabezados de tabla sí pueden ir en mayúsculas pequeñas con tracking
   porque funcionan como columnas de datos, no como kickers.
 
+## Precios
+
+- Todo precio guardado en el catálogo y en las variantes es **neto**. El
+  impuesto se calcula por unidad con redondeo half-up a centavos en
+  `pos_core::pricing`; es la única implementación de la política.
+- Lo que ve el operador es el **precio al público**: neto + impuesto. Nunca
+  «$100 + IVA» cuando necesita saber cuánto cobra.
+- Con tasa 0 % el precio al público coincide con el neto y no se añade ninguna
+  etiqueta de impuesto.
+- Con variantes se publica «Desde $X» con la variante activa más barata; no un
+  precio fijo que solo aplica a una presentación.
+- La interfaz no multiplica, no suma IVA y no redondea importes: presenta lo que
+  devuelve Rust. Un cálculo en React es un defecto, no una optimización.
+- Los formularios que capturan un neto muestran la vista previa del precio al
+  público por IPC (`preview_product_price`), nunca con aritmética local.
+- Importes con números tabulares y dos decimales fijos.
+
 ## Layout
 
 - Shell de escritorio: barra superior de 56 px, navegación lateral persistente y
@@ -231,10 +248,27 @@ Un solo dibujo de marca en todo el producto: cuadrado redondeado con el acento
 - **Botón secundario**: superficie blanca y borde `border-strong`.
 - **Botón de peligro**: solo para acciones destructivas confirmadas.
 - **Campo**: borde `control-border`, 36 px de alto, etiqueta de 12 px arriba.
+- **Campos con estado**: `:disabled` usa `surface-muted` y cursor inerte;
+  `[readonly]` añade borde discontinuo; `[aria-invalid="true"]` cambia el borde a
+  `danger`. Toda variante nueva debe reutilizar estos tres estados, no inventar
+  colores propios.
+- **Fecha**: `input[type="date"]` conserva el selector nativo (teclado y
+  accesibilidad del sistema) pero comparte altura, borde, radio y tipografía con
+  el resto de campos.
+- **Casilla y opción**: `checkbox-field` da 36 px de alto, 16 px de control y
+  `accent-color: var(--color-accent)`; la etiqueta es parte del objetivo táctil.
+- **Momento de precio**: un importe monetario se escribe como «Precio base, sin
+  IVA» y, cuando importa el resultado, se acompaña de una vista previa
+  «Precio final al público» calculada por Rust (`preview_product_price`). La
+  interfaz nunca multiplica por la tasa.
 - **Tabla**: encabezado fijo, filas de 36–44 px, importes alineados a la derecha,
   identificadores sin partirse.
-- **Tarjeta de producto**: nombre, SKU, precio y disponibilidad; la tarjeta
-  completa es el objetivo de clic; “Agotado” es un estado explícito.
+- **Tarjeta de producto**: nombre, SKU, precio **al público** con IVA incluido y
+  disponibilidad; la tarjeta completa es el objetivo de clic; “Agotado” es un
+  estado explícito. Con variantes se muestra «Desde $X» con el precio más bajo
+  publicado por Rust, más «N variantes» y «con extras» cuando corresponde. La
+  aclaración «los precios ya incluyen IVA» vive una sola vez en el encabezado:
+  repetirla en cada tarjeta es ruido.
 - **Ticket**: partidas con cantidad editable, total por línea y eliminación
   explícita. La cantidad no baja de 1; para quitar una partida se usa el botón de
   papelera. “Vaciar” exige confirmación.

@@ -48,6 +48,7 @@ VISUAL_REVIEW=1 pnpm exec playwright test # además, capturas
 | `e2e/shell-nav.spec.ts` | Expandir/colapsar con geometría medida, alternancia repetida, persistencia, riel compacto, tablet, barra superior en 1024→412, teclado, foco del diálogo |
 | `e2e/screens-layout.spec.ts` | Densidad del historial de turnos, lectura de existencias al repetir selección, traducción de la auditoría |
 | `e2e/android-back.spec.ts` | Un solo registro nativo del Back, prioridad del diálogo sobre la vista de ticket y consumo sin cerrar la vista |
+| `e2e/screens-layout.spec.ts` | Precio al público en la tarjeta, importes habituales del cobro, densidad del historial de turnos, lectura de existencias al repetir selección y traducción de la auditoría |
 | `e2e/visual.spec.ts` | Capturas de login, ventas, catálogo, inventario, caja, gestión, navegación y autenticación en 1920, 1440, 1366, 1024, 800 y 412 |
 | `e2e/visual-admin.spec.ts` | Capturas de reportes, compras, gastos, devoluciones y gestión |
 
@@ -131,22 +132,33 @@ Pendiente y **no declarado superado**:
 
 ## 6. Resultados de la última pasada
 
-Ejecutada el 2026-11-06 sobre `chore/integration-android-ux` (`1821d2d`):
+Ejecutada el 2026-11-06 sobre `chore/integration-android-ux` (`f5744d9`):
 
 | Comprobación | Resultado |
 | --- | --- |
 | `pnpm lint` / `pnpm typecheck` | Pasan |
-| `pnpm test` | 109 pruebas, 16 archivos |
-| `pnpm build` | Pasa (`index-BsmKnnR5.js`, `index-9D_khkjU.css`) |
-| `playwright test` | 18 pruebas (8 capturas omitidas sin `VISUAL_REVIEW`) |
+| `pnpm test` | 115 pruebas, 16 archivos |
+| `pnpm build` | Pasa (`index-Bx8ah-xo.js`, `index-CiRAZ_O3.css`) |
+| `playwright test` | 20 pruebas (8 capturas omitidas sin `VISUAL_REVIEW`) |
 | `VISUAL_REVIEW=1 playwright test` | 8 capturas pasan |
-| `cargo fmt` / `clippy -D warnings` / `cargo test --workspace` | Pasan (25 binarios) |
+| `cargo fmt` / `clippy -D warnings` / `cargo test --workspace` | Pasan (26 binarios) |
 | `cargo tauri build` (release, NSIS) | Pasa |
 | `cargo tauri android build --apk --target aarch64` | Pasa |
 | `e2e_layout_drift.py` | PASS (8 rondas, binario release) |
-| `e2e_flow.py` | PASS |
+| `e2e_flow.py` | PASS (verifica el precio al público antes de vender) |
 | `e2e_returns.py` | PASS |
 | Matriz Back Android | 33/33 PASS, 0 abortos nativos |
+
+Pruebas añadidas en esta pasada:
+
+- `pos-core/src/pricing.rs`: redondeo half-up, tasa cero, centavos y límites.
+- `pos-storage-sqlite/tests/catalog_pricing.rs`: precio al público en el
+  catálogo, variantes, modificadores, vista previa y venta real de dos unidades.
+- `SalesScreen.test.tsx`: precio publicado, «Desde», una sola llamada IPC y
+  `Enter` en la búsqueda.
+- `CatalogScreen.test.tsx`: vista previa del precio final por IPC.
+- `screens-layout.spec.ts`: precio en navegador real e importes habituales del
+  cobro.
 
 ## 7. Qué no cubre esta suite
 

@@ -222,6 +222,31 @@ regeneran desde `1821d2d` (release, assets `index-BsmKnnR5.js` e
   para el emulador.
 - Ubicación de la entrega: `~/HiQNet-Internal-Test-backfix2/android/`.
 
+#### Artefactos de la pasada de precios (2026-11-06)
+
+El contrato de catálogo y la interfaz cambiaron, así que la APK se regenera desde
+`f5744d9`. Los artefactos de `1821d2d` (`FC80389D…`) quedan como historial.
+
+| Artefacto | ABI | Bytes | SHA-256 |
+| --- | --- | ---: | --- |
+| `hiqnet-pos-0.1.0-internal-arm64.apk` (firmada, entrega) | `arm64-v8a` | 11 905 357 | `28664634C5E5F8729CAC37A86E4968A2B7D0628155340783E3108DAAFBEC23E0` |
+| `hiqnet-pos-0.1.0-internal-arm64-unsigned.apk` (antes de firmar) | `arm64-v8a` | 11 900 193 | `B81EB9708F33CEE3C657C6B15C13EA9FAB0CF152B6D8E88B014602015AF1A422` |
+| `hiqnet-pos-0.1.0-internal-x86_64-emulador.apk` (emulador, no es entregable) | `x86_64` | 12 728 650 | `33822F7E08F405E3B19AAC6255215E5D4A6E1A3AA7599DD616A0A3BB4412CB5F` |
+
+- `lib/arm64-v8a/libpos_desktop_lib.so`: 10 287 144 bytes, SHA-256
+  `632B161FEB9293BB0736E155A741D94916F700D57701300F591081BD61AE9CA4`.
+- Frontend embebido: `index-Bx8ah-xo.js` e `index-CiRAZ_O3.css` (presentes en la
+  biblioteca).
+- Firma verificada con `apksigner`: esquemas **v2 y v3**, certificado
+  `3A522CD050CF0728268F71855521CBAF2718CC88123D1EF5E1153FD0619EA072`.
+- Ubicación: `~/HiQNet-Internal-Test-pricing/android/`.
+
+Verificación en emulador `x86_64` (Android 17, 2560×1600) con esta APK: matriz de
+Back 33/33 PASS, 0 abortos nativos, 20/20 ciclos modal/Back, venta confirmada y
+persistencia tras reinicio. La tarjeta de Ventas publica el precio al público
+(MXN 11.60 para 10.00 + 16 % y MXN 13.92 para la variante de 12.00) en
+`after/50-android-precio-publico.png`.
+
 #### Bloqueos que siguen abiertos
 
 - **Hardware ARM64 físico: BLOCKED.** Solo emulador `x86_64` (Android 17). No se
