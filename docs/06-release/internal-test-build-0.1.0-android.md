@@ -365,9 +365,9 @@ Procedimiento: `tools/android/sign-internal-apk.ps1`. Solicita la contraseña co
 la expone solo en variables de entorno del proceso, firma con `--v2-signing-enabled` y
 `--v3-signing-enabled`, y falla si el SHA-256 del certificado no coincide con el histórico.
 
-> El archivo local `LEEME.txt` conserva la contraseña en texto plano. Se recomienda rotar
-> `storepass`/`keypass` (lo que **no** cambia el certificado ni rompe actualizaciones) y eliminar
-> la credencial del archivo, usando un gestor de secretos.
+> La contraseña del keystore se rotó tras la exposición: storepass y keypass son distintos y
+> viven en `%LOCALAPPDATA%\HiQNet\credentials\internal-keystore.clixml` protegidos por DPAPI.
+> `LEEME.txt` ya no contiene contraseñas. El par de claves y el certificado no cambiaron.
 
 ### E2E sobre APK release (AVD desechable)
 
@@ -424,6 +424,26 @@ Se corrigieron riesgos reproducibles en `SafDocumentPlugin`:
 
 Cubierto por 7 pruebas JVM (`OperationGateTest`, `DocumentIoTest`) ejecutadas con
 `:tauri-plugin-saf-document:testDebugUnitTest`.
+
+### Instalador Windows en Sandbox (esta pasada)
+
+Ejecución aislada en Windows Sandbox con la red activa solo durante la instalación (para que el
+instalador obtenga WebView2) y desactivada antes del arranque:
+
+| Comprobación | Resultado |
+| --- | --- |
+| Instalación silenciosa desde cero | PASS (`install_exit=0`) |
+| Archivos, desinstalador y versión `0.1.0` | PASS |
+| Arranque offline | PASS |
+| Base creada | PASS (11 migraciones, `ok`, 0 FK) |
+| Desinstalación | PASS (programa eliminado) |
+| Datos tras desinstalar y reinstalar | PASS (conservados) |
+| Firma de editor | `NotSigned` (declarado) |
+
+No se modificó la instalación real del host. Un rebuild desde el árbol congelado y la nueva
+contraseña produjo exactamente los mismos SHA-256, lo que confirma el build reproducible.
+
+El informe completo está en `docs/04-quality/internal-pilot-acceptance-0.1.0.md`.
 
 ### Estado por etapa (esta pasada)
 

@@ -262,9 +262,16 @@ Evidencia local (`.devkit/` está fuera de Git): capturas `01`–`50` y árboles
 
 Ubicación de los paquetes Android: `~/HiQNet-Internal-Test-saf/android/`.
 
-El procedimiento interactivo de firma es `tools/android/sign-internal-apk.ps1`; solicita la
-contraseña con `SecureString`, la pasa por variables de entorno del proceso y compara el SHA-256
-del certificado con la huella histórica. No escribe secretos en disco ni en la salida.
+El procedimiento interactivo de firma es `tools/android/sign-internal-apk.ps1`; lee las
+contraseñas de un almacén DPAPI o las solicita con `SecureString`, admite storepass y keypass
+distintos, las pasa por variables de entorno del proceso y compara el SHA-256 del certificado con
+la huella histórica. No escribe secretos en disco ni en la salida.
+
+Tras la exposición detectada, la credencial se rotó: storepass y keypass son distintos y viven en
+`%LOCALAPPDATA%\HiQNet\credentials\internal-keystore.clixml` (DPAPI). `LEEME.txt` ya no contiene
+contraseñas. El certificado y las actualizaciones siguen siendo válidos.
+
+El informe de aceptación está en `docs/04-quality/internal-pilot-acceptance-0.1.0.md`.
 
 La política y los límites de 0.1.0 están en
 `docs/01-architecture/decisions/ADR-009-android-saf-same-installation-restore.md`.
