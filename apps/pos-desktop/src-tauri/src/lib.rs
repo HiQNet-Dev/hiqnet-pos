@@ -26,13 +26,20 @@ use pos_core::ids::{BranchId, ProductId, PurchaseOrderId};
 use pos_security::Argon2idHasher;
 use pos_storage_sqlite::SqliteStore;
 use serde::Serialize;
-use tauri::{Manager, State};
+use tauri::{AppHandle, Manager, State};
+use tauri_plugin_saf_document::{ExportRequest, ImportRequest, SafDocumentExt};
+
+struct PendingSafRestore {
+    backup_path: PathBuf,
+}
 
 struct AppState {
     db_path: PathBuf,
     pool: sqlx::SqlitePool,
     service: PosService,
     session: RwLock<Option<Actor>>,
+    pending_saf_restore: RwLock<Option<PendingSafRestore>>,
+    restore_notice: RwLock<Option<String>>,
     /// Se mantiene vivo mientras la aplicación corre: la restauración offline
     /// se niega si otra instancia tiene la base bloqueada.
     #[allow(dead_code)]
@@ -663,6 +670,219 @@ async fn backup_database(state: State<'_, AppState>) -> IpcResult<String> {
     Ok(target.to_string_lossy().to_string())
 }
 
+fn restore_error(error: pos_storage_sqlite::StorageError) -> IpcError {
+    IpcError {
+        code: "restore_rejected",
+        message: error.to_string(),
+    }
+}
+
+fn saf_workspace(state: &AppState, purpose: &str) -> PathBuf {
+    state
+        .db_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("saf")
+        .join(purpose)
+}
+
+fn document_provider_error(error: tauri_plugin_saf_document::Error) -> IpcError {
+    // El detalle técnico queda en el log; el operador recibe una frase en español.
+    tracing::warn!(error = %error, "falló la operación con el proveedor de documentos");
+    IpcError {
+        code: "document_provider_error",
+        message: "No fue posible completar la operación con el selector de documentos.".into(),
+    }
+}
+
+/// El selector nativo bloquea hasta que el usuario responde; se ejecuta fuera
+/// del runtime asíncrono para no ocupar un worker mientras el diálogo del
+/// sistema está abierto.
+async fn export_document(
+    app: AppHandle,
+    request: ExportRequest,
+) -> IpcResult<tauri_plugin_saf_document::DocumentResult> {
+    tauri::async_runtime::spawn_blocking(move || app.saf_document().export_document(request))
+        .await
+        .map_err(|_| IpcError {
+            code: "document_provider_error",
+            message: "El selector de documentos no respondió a tiempo.".into(),
+        })?
+        .map_err(document_provider_error)
+}
+
+async fn import_document(
+    app: AppHandle,
+    request: ImportRequest,
+) -> IpcResult<tauri_plugin_saf_document::DocumentResult> {
+    tauri::async_runtime::spawn_blocking(move || app.saf_document().import_document(request))
+        .await
+        .map_err(|_| IpcError {
+            code: "document_provider_error",
+            message: "El selector de documentos no respondió a tiempo.".into(),
+        })?
+        .map_err(document_provider_error)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn saf_backup_available() -> bool {
+    cfg!(target_os = "android")
+}
+
+/// Exporta un snapshot temporal privado a un documento elegido por Android SAF.
+/// El plugin recibe la ruta solo desde Rust; el frontend nunca conoce rutas.
+#[tauri::command(rename_all = "snake_case")]
+async fn export_saf_backup(app: AppHandle, state: State<'_, AppState>) -> IpcResult<bool> {
+    let actor = authenticated(&state).await?;
+    actor.require(Permission::ManageBackups)?;
+    if !cfg!(target_os = "android") {
+        return Err(IpcError {
+            code: "platform_unavailable",
+            message:
+                "La exportación mediante selector de documentos solo está disponible en Android."
+                    .into(),
+        });
+    }
+
+    let stamp = time::OffsetDateTime::now_utc().unix_timestamp();
+    let directory = saf_workspace(&state, "exports");
+    let target = directory.join(format!("hiqnet-pos-{stamp}.db"));
+    let store = SqliteStore::new(state.pool.clone());
+    pos_storage_sqlite::backup_to(store.pool(), &target)
+        .await
+        .map_err(restore_error)?;
+
+    let result = export_document(
+        app,
+        ExportRequest {
+            display_name: format!("hiqnet-pos-{stamp}.db"),
+            source_path: target.to_string_lossy().to_string(),
+        },
+    )
+    .await;
+    let _ = std::fs::remove_file(&target);
+    let result = result?;
+    if result.status == "cancelled" {
+        return Ok(false);
+    }
+    if result.status != "completed" {
+        return Err(IpcError {
+            code: "document_provider_error",
+            message: "El proveedor de documentos devolvió un resultado no reconocido.".into(),
+        });
+    }
+    state
+        .service
+        .record_backup(&actor, "android-saf-document")
+        .await?;
+    Ok(true)
+}
+
+/// Abre el selector Android, importa a almacenamiento privado y valida el
+/// candidato. Elegir un archivo no programa una restauración todavía.
+#[tauri::command(rename_all = "snake_case")]
+async fn import_saf_backup(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> IpcResult<Option<pos_storage_sqlite::RestorePreview>> {
+    let actor = authenticated(&state).await?;
+    actor.require(Permission::ManageBackups)?;
+    if !cfg!(target_os = "android") {
+        return Err(IpcError {
+            code: "platform_unavailable",
+            message:
+                "La importación mediante selector de documentos solo está disponible en Android."
+                    .into(),
+        });
+    }
+
+    let stamp = time::OffsetDateTime::now_utc().unix_timestamp();
+    let target = saf_workspace(&state, "imports").join(format!("restore-{stamp}.db"));
+    let result = import_document(
+        app,
+        ImportRequest {
+            target_path: target.to_string_lossy().to_string(),
+        },
+    )
+    .await?;
+    if result.status == "cancelled" {
+        return Ok(None);
+    }
+    if result.status != "completed" {
+        let _ = std::fs::remove_file(&target);
+        return Err(IpcError {
+            code: "document_provider_error",
+            message: "El proveedor de documentos devolvió un resultado no reconocido.".into(),
+        });
+    }
+
+    let preview = match pos_storage_sqlite::preview_restore_candidate(&state.db_path, &target).await
+    {
+        Ok(preview) => preview,
+        Err(error) => {
+            let _ = std::fs::remove_file(&target);
+            return Err(restore_error(error));
+        }
+    };
+    let mut pending = state
+        .pending_saf_restore
+        .write()
+        .map_err(|_| AppError::Storage)?;
+    if let Some(previous) = pending.replace(PendingSafRestore {
+        backup_path: target,
+    }) {
+        let _ = std::fs::remove_file(previous.backup_path);
+    }
+    Ok(Some(preview))
+}
+
+/// Tras confirmación explícita, escribe el marcador privado y cierra la app.
+/// Android aplicará la restauración antes de abrir el pool en el siguiente inicio.
+#[tauri::command(rename_all = "snake_case")]
+async fn schedule_saf_restore(app: AppHandle, state: State<'_, AppState>) -> IpcResult<()> {
+    let actor = authenticated(&state).await?;
+    actor.require(Permission::ManageBackups)?;
+    if !cfg!(target_os = "android") {
+        return Err(IpcError {
+            code: "platform_unavailable",
+            message:
+                "La restauración mediante selector de documentos solo está disponible en Android."
+                    .into(),
+        });
+    }
+    let pending = state
+        .pending_saf_restore
+        .write()
+        .map_err(|_| AppError::Storage)?
+        .take()
+        .ok_or(IpcError {
+            code: "restore_not_prepared",
+            message: "Selecciona y valida un respaldo antes de restaurarlo.".into(),
+        })?;
+    pos_storage_sqlite::schedule_pending_restore(&state.db_path, &pending.backup_path)
+        .await
+        .map_err(restore_error)?;
+
+    // Entregamos primero la respuesta IPC; el cierre posterior garantiza que no
+    // quede un pool SQLite vivo cuando el siguiente arranque consuma el marcador.
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        app.exit(0);
+    });
+    Ok(())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn restore_startup_notice(state: State<'_, AppState>) -> IpcResult<Option<String>> {
+    let actor = authenticated(&state).await?;
+    actor.require(Permission::ManageBackups)?;
+    Ok(state
+        .restore_notice
+        .write()
+        .map_err(|_| AppError::Storage)?
+        .take())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = tracing_subscriber::fmt()
@@ -677,9 +897,11 @@ pub fn run() {
         .ok();
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let builder = tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build());
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_saf_document::init());
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::default().plugin(tauri_plugin_saf_document::init());
 
     builder
         .setup(|app| {
@@ -693,6 +915,20 @@ pub fn run() {
             let db_path = automation_database_path()
                 .or_else(|| std::env::var_os("HIQNET_POS_DB_PATH").map(PathBuf::from))
                 .unwrap_or_else(pos_storage_sqlite::default_database_path);
+
+            let restore_notice = match tauri::async_runtime::block_on(
+                pos_storage_sqlite::consume_pending_restore(&db_path),
+            ) {
+                Ok(pos_storage_sqlite::PendingRestoreOutcome::None) => None,
+                Ok(pos_storage_sqlite::PendingRestoreOutcome::Restored) => {
+                    Some("El respaldo se restauró correctamente.".to_string())
+                }
+                Err(error) => {
+                    return Err(Box::<dyn std::error::Error>::from(format!(
+                        "No fue posible completar la restauración pendiente: {error}"
+                    )));
+                }
+            };
 
             let (pool, database_lock) =
                 tauri::async_runtime::block_on(pos_storage_sqlite::open_locked(&db_path)).map_err(
@@ -718,6 +954,8 @@ pub fn run() {
                 pool,
                 service,
                 session: RwLock::new(None),
+                pending_saf_restore: RwLock::new(None),
+                restore_notice: RwLock::new(restore_notice),
                 database_lock,
             });
             Ok(())
@@ -780,7 +1018,12 @@ pub fn run() {
             list_inventory_movements,
             list_audit_events,
             commercial_state,
-            backup_database
+            backup_database,
+            saf_backup_available,
+            export_saf_backup,
+            import_saf_backup,
+            schedule_saf_restore,
+            restore_startup_notice
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar HiQNet POS");

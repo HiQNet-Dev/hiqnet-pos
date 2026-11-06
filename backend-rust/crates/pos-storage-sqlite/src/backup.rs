@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteLockingMode, SqlitePoolOptions};
 use sqlx::{ConnectOptions, Connection, Row, SqlitePool};
 use std::path::{Path, PathBuf};
@@ -22,6 +24,48 @@ const CORE_TABLES: [&str; 6] = [
 pub struct RestoreReport {
     /// Copia del estado previo, creada antes de reemplazar la base.
     pub recovery_copy: Option<PathBuf>,
+}
+
+/// Información segura para confirmar una restauración. No expone la licencia ni
+/// rutas internas; el backend conserva esos valores en el marcador privado.
+#[derive(Debug, Clone, Serialize)]
+pub struct RestorePreview {
+    pub backup_valid_until: String,
+    pub preserves_commercial_state: bool,
+}
+
+/// Resultado que el arranque puede registrar sin abrir todavía el pool de la
+/// aplicación. Una restauración se consume antes de `open_locked`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PendingRestoreOutcome {
+    None,
+    Restored,
+}
+
+/// Estado completo de `local_installation_state` que se conserva al restaurar.
+/// Es privado del adaptador: nunca atraviesa IPC ni se escribe fuera del
+/// almacenamiento privado de la aplicación.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct InstallationRecord {
+    installation_id: String,
+    organization_id: String,
+    plan: String,
+    license_status: String,
+    features_json: String,
+    trial_started_at: String,
+    valid_until: String,
+    license_grant_json: Option<String>,
+    license_signature_b64: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PendingRestore {
+    version: u8,
+    backup_path: PathBuf,
+    backup_sha256: String,
+    installation_id: String,
+    organization_id: String,
+    preserved_commercial: InstallationRecord,
 }
 
 /// Crea un respaldo consistente usando `VACUUM INTO`, que no requiere detener
@@ -59,6 +103,259 @@ pub async fn verify_backup(path: &Path) -> Result<(), StorageError> {
         .close()
         .await
         .map_err(|_| StorageError::InvalidBackup)
+}
+
+/// Valida un respaldo seleccionado para restaurarlo sobre la instalación local
+/// actual. La restauración entre instalaciones u organizaciones se rechaza. En
+/// 0.1.0 se rechazan snapshots que contengan material de licencia firmado:
+/// todavía no hay un verificador con clave pública configurado durante este
+/// arranque temprano. El estado comercial vigente se preserva exactamente, por
+/// lo que un trial antiguo no puede extenderse mediante recuperación.
+pub async fn preview_restore_candidate(
+    database_path: &Path,
+    backup_path: &Path,
+) -> Result<RestorePreview, StorageError> {
+    let current = read_current_installation(database_path).await?;
+    let backup = read_backup_installation(backup_path).await?;
+    validate_restore_policy(&current, &backup)?;
+    Ok(RestorePreview {
+        backup_valid_until: backup.valid_until,
+        preserves_commercial_state: true,
+    })
+}
+
+/// Crea el marcador solamente después de que la UI confirma explícitamente la
+/// restauración. Volvemos a validar para que un preview anterior nunca autorice
+/// un archivo modificado ni un cambio de identidad posterior.
+pub async fn schedule_pending_restore(
+    database_path: &Path,
+    backup_path: &Path,
+) -> Result<(), StorageError> {
+    let current = read_current_installation(database_path).await?;
+    let backup = read_backup_installation(backup_path).await?;
+    validate_restore_policy(&current, &backup)?;
+    let pending = PendingRestore {
+        version: 1,
+        backup_path: backup_path.to_path_buf(),
+        backup_sha256: sha256_file(backup_path)?,
+        installation_id: current.installation_id.clone(),
+        organization_id: current.organization_id.clone(),
+        preserved_commercial: current,
+    };
+    write_pending_restore(database_path, &pending)
+}
+
+/// Ejecuta una restauración que fue confirmada previamente y quedó marcada en
+/// almacenamiento privado. Debe invocarse antes de abrir el pool de la app.
+///
+/// El marcador permanece hasta que todo el procedimiento termina. Si Android
+/// mata el proceso entre etapas, el siguiente arranque vuelve a validar la
+/// huella, identidad y snapshot. Repetir una promoción del mismo respaldo y
+/// reponer el mismo estado comercial es idempotente.
+pub async fn consume_pending_restore(
+    database_path: &Path,
+) -> Result<PendingRestoreOutcome, StorageError> {
+    let path = pending_restore_path(database_path);
+    if !path.is_file() {
+        return Ok(PendingRestoreOutcome::None);
+    }
+    let bytes = std::fs::read(&path).map_err(|_| StorageError::PendingRestore)?;
+    let pending: PendingRestore =
+        serde_json::from_slice(&bytes).map_err(|_| StorageError::PendingRestore)?;
+    if pending.version != 1
+        || sha256_file(&pending.backup_path)? != pending.backup_sha256
+        || !pending.backup_path.is_file()
+    {
+        return Err(StorageError::PendingRestore);
+    }
+
+    let current = read_current_installation(database_path).await?;
+    // Solo la identidad debe permanecer: tras una interrupción entre la
+    // promoción y la reposición del estado comercial, la base ya contiene el
+    // snapshot y volver a comparar todo el estado impediría reanudar. La
+    // operación completa (restaurar + reponer estado) es idempotente.
+    if current.installation_id != pending.installation_id
+        || current.organization_id != pending.organization_id
+    {
+        return Err(StorageError::PendingRestore);
+    }
+    let backup = read_backup_installation(&pending.backup_path).await?;
+    validate_restore_policy(&current, &backup)?;
+
+    let report = restore_from_backup(database_path, &pending.backup_path).await?;
+    if let Err(error) =
+        restore_preserved_commercial(database_path, &pending.preserved_commercial).await
+    {
+        // La restauración ya promovida no es válida si no se puede restablecer el
+        // estado comercial anterior. Se intenta volver a la copia automática.
+        if let Some(recovery) = report.recovery_copy
+            && restore_from_backup(database_path, &recovery).await.is_err()
+        {
+            return Err(StorageError::RestoreCritical {
+                database: database_path.display().to_string(),
+                recovery: recovery.display().to_string(),
+                staged: staged_path(database_path).display().to_string(),
+            });
+        }
+        return Err(error);
+    }
+
+    // Borrar el marcador solo después de verificar que el estado comercial
+    // vigente volvió a quedar intacto. El archivo importado también se elimina:
+    // era una copia privada del respaldo, no un artefacto permanente.
+    std::fs::remove_file(&path).map_err(|_| StorageError::Restore)?;
+    let _ = std::fs::remove_file(&pending.backup_path);
+    Ok(PendingRestoreOutcome::Restored)
+}
+
+fn validate_restore_policy(
+    current: &InstallationRecord,
+    backup: &InstallationRecord,
+) -> Result<(), StorageError> {
+    if current.installation_id != backup.installation_id
+        || current.organization_id != backup.organization_id
+    {
+        return Err(StorageError::RestoreIdentityMismatch);
+    }
+    // En Local 0.1.0 no hay una clave pública de licencias configurada para el
+    // arranque temprano. Rechazar, en vez de aceptar o copiar material firmado
+    // sin verificación Ed25519, evita escalar o revivir derechos.
+    if current.license_grant_json.is_some()
+        || current.license_signature_b64.is_some()
+        || backup.license_grant_json.is_some()
+        || backup.license_signature_b64.is_some()
+    {
+        return Err(StorageError::RestoreLicensePolicy);
+    }
+    Ok(())
+}
+
+async fn read_backup_installation(path: &Path) -> Result<InstallationRecord, StorageError> {
+    verify_backup(path).await?;
+    read_installation(path, StorageError::InvalidBackup).await
+}
+
+async fn read_current_installation(path: &Path) -> Result<InstallationRecord, StorageError> {
+    read_installation(path, StorageError::Restore).await
+}
+
+async fn read_installation(
+    path: &Path,
+    error: StorageError,
+) -> Result<InstallationRecord, StorageError> {
+    let mut connection = open_read_only_connection(path)
+        .await
+        .map_err(|_| error.clone())?;
+    let row = sqlx::query(
+        "SELECT installation_id, organization_id, plan, license_status, features_json, \
+         trial_started_at, valid_until, license_grant_json, license_signature_b64 \
+         FROM local_installation_state WHERE id = 1",
+    )
+    .fetch_optional(&mut connection)
+    .await
+    .map_err(|_| error.clone())?
+    .ok_or(error.clone())?;
+    let record = InstallationRecord {
+        installation_id: row.get("installation_id"),
+        organization_id: row.get("organization_id"),
+        plan: row.get("plan"),
+        license_status: row.get("license_status"),
+        features_json: row.get("features_json"),
+        trial_started_at: row.get("trial_started_at"),
+        valid_until: row.get("valid_until"),
+        license_grant_json: row.get("license_grant_json"),
+        license_signature_b64: row.get("license_signature_b64"),
+    };
+    connection
+        .close()
+        .await
+        .map_err(|_| StorageError::Restore)?;
+    Ok(record)
+}
+
+async fn restore_preserved_commercial(
+    database_path: &Path,
+    state: &InstallationRecord,
+) -> Result<(), StorageError> {
+    let _process_lock = try_lock(database_path)?;
+    let mut connection = SqliteConnectOptions::new()
+        .filename(database_path)
+        .create_if_missing(false)
+        .foreign_keys(true)
+        .connect()
+        .await
+        .map_err(|_| StorageError::Restore)?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut connection)
+        .await
+        .map_err(|_| StorageError::Restore)?;
+    let update = sqlx::query(
+        "UPDATE local_installation_state SET \
+         installation_id = ?, organization_id = ?, plan = ?, license_status = ?, features_json = ?, \
+         trial_started_at = ?, valid_until = ?, license_grant_json = ?, license_signature_b64 = ?, \
+         updated_at = ? WHERE id = 1",
+    )
+    .bind(&state.installation_id)
+    .bind(&state.organization_id)
+    .bind(&state.plan)
+    .bind(&state.license_status)
+    .bind(&state.features_json)
+    .bind(&state.trial_started_at)
+    .bind(&state.valid_until)
+    .bind(&state.license_grant_json)
+    .bind(&state.license_signature_b64)
+    .bind(time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).map_err(|_| StorageError::Restore)?)
+    .execute(&mut connection)
+    .await;
+    if update.is_err() {
+        let _ = sqlx::query("ROLLBACK").execute(&mut connection).await;
+        let _ = connection.close().await;
+        return Err(StorageError::Restore);
+    }
+    sqlx::query("COMMIT")
+        .execute(&mut connection)
+        .await
+        .map_err(|_| StorageError::Restore)?;
+    connection.close().await.map_err(|_| StorageError::Restore)
+}
+
+fn pending_restore_path(database_path: &Path) -> PathBuf {
+    database_path.with_file_name("hiqnet-pos.restore-pending.json")
+}
+
+fn write_pending_restore(
+    database_path: &Path,
+    pending: &PendingRestore,
+) -> Result<(), StorageError> {
+    let path = pending_restore_path(database_path);
+    let temporary = path.with_extension("json.tmp");
+    let payload = serde_json::to_vec(pending).map_err(|_| StorageError::Restore)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|_| StorageError::Restore)?;
+    }
+    std::fs::write(&temporary, payload).map_err(|_| StorageError::Restore)?;
+    sync_file(&temporary).map_err(|_| StorageError::Restore)?;
+    std::fs::rename(&temporary, &path).map_err(|_| StorageError::Restore)?;
+    sync_parent(&path);
+    Ok(())
+}
+
+fn sha256_file(path: &Path) -> Result<String, StorageError> {
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path).map_err(|_| StorageError::PendingRestore)?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|_| StorageError::PendingRestore)?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
 }
 
 /// Verificación estructural: integridad, tablas base y claves foráneas.
