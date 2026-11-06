@@ -3,22 +3,29 @@
     Firma un APK de pruebas internas con la clave HiQNet y verifica el certificado.
 
 .DESCRIPTION
-    Solicita la contraseña del keystore de forma segura (SecureString), la usa
-    únicamente en variables de entorno del proceso y no la escribe en disco ni en
-    la salida. Después alinea, firma con esquemas v2/v3 y compara el SHA-256 del
-    certificado con la huella histórica.
+    Toma las contraseñas de un almacén local protegido por DPAPI (solo el usuario
+    actual puede descifrarlo) o las solicita de forma segura. Admite contraseñas
+    distintas para el almacén y para la clave, sin asumir que son iguales.
 
-    La clave y su contraseña viven fuera del repositorio. Este script no las
-    genera, no las copia y no las registra.
+    Después alinea, firma con esquemas v2/v3 y compara el SHA-256 del certificado
+    con la huella histórica. Nunca escribe las contraseñas en disco, en la salida
+    ni en el repositorio.
 
 .PARAMETER Apk
-    APK sin firmar o ya alineada que se va a firmar.
+    APK sin firmar o ya alineada.
 
 .PARAMETER Output
     Ruta del APK firmado. Por defecto, junto al original con sufijo `-signed`.
 
+.PARAMETER CredentialFile
+    Archivo DPAPI creado por el procedimiento de rotación. Si no existe o se usa
+    `-Prompt`, las contraseñas se solicitan de forma interactiva.
+
+.PARAMETER Prompt
+    Fuerza la solicitud interactiva aunque exista el archivo DPAPI.
+
 .PARAMETER CheckOnly
-    Solo verifica un APK existente; no firma ni solicita contraseña.
+    Solo verifica un APK existente; no firma ni solicita contraseñas.
 
 .EXAMPLE
     powershell -NoProfile -File tools/android/sign-internal-apk.ps1 `
@@ -30,13 +37,17 @@ param(
 
     [string]$Output = "",
 
-    [string]$Keystore = (Join-Path $HOME "HiQNet-Internal-Test-5262880\android\keystore\hiqnet-test.jks"),
+    [string]$Keystore = "C:\Users\gaelg\HiQNet-Internal-Test-5262880\android\keystore\hiqnet-test.jks",
 
     [string]$Alias = "hiqnet",
 
     [string]$BuildTools = "",
 
     [string]$ExpectedSha256 = "3A522CD050CF0728268F71855521CBAF2718CC88123D1EF5E1153FD0619EA072",
+
+    [string]$CredentialFile = (Join-Path $env:LOCALAPPDATA "HiQNet\credentials\internal-keystore.clixml"),
+
+    [switch]$Prompt,
 
     [switch]$CheckOnly
 )
@@ -62,10 +73,8 @@ if (-not (Test-Path $apksigner) -or -not (Test-Path $zipalign)) {
 
 function Show-Certificate([string]$path) {
     $details = & $apksigner verify --verbose --print-certs $path 2>&1 | Out-String
-    if ($LASTEXITCODE -ne 0) {
-        throw "El APK no verifica: $details"
-    }
-    Write-Output $details
+    if ($LASTEXITCODE -ne 0) { throw "El APK no verifica: $details" }
+    Write-Host $details
     $match = [regex]::Match($details, "SHA-256 digest: ([0-9a-fA-F]+)")
     if (-not $match.Success) { throw "No se pudo leer el SHA-256 del certificado." }
     return $match.Groups[1].Value.ToUpperInvariant()
@@ -87,16 +96,45 @@ if (-not $Output) {
     $Output = [System.IO.Path]::ChangeExtension($Apk, $null).TrimEnd('.') + "-signed.apk"
 }
 
-$secure = Read-Host -AsSecureString "Contraseña del keystore (no se mostrará)"
-$pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-try {
-    $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
-    if ([string]::IsNullOrEmpty($plain)) { throw "La contraseña no puede estar vacía." }
-    $env:HQNET_KS_PASS = $plain
-    $env:HQNET_KEY_PASS = $plain
-} finally {
-    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+function Unprotect([string]$value) {
+    $secure = ConvertTo-SecureString $value
+    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try {
+        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+    }
 }
+
+function Read-Secret([string]$label) {
+    $secure = Read-Host -AsSecureString $label
+    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try {
+        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+    }
+}
+
+$storeSecret = $null
+$keySecret = $null
+if (-not $Prompt -and (Test-Path -LiteralPath $CredentialFile -PathType Leaf)) {
+    $stored = Import-Clixml -LiteralPath $CredentialFile
+    if ($stored.keystore) { $Keystore = $stored.keystore }
+    if ($stored.alias) { $Alias = $stored.alias }
+    $storeSecret = Unprotect $stored.store
+    $keySecret = Unprotect $stored.key
+} else {
+    $storeSecret = Read-Secret "Contraseña del almacén (no se mostrará)"
+    $keySecret = Read-Secret "Contraseña de la clave (vacío = misma del almacén)"
+    if ([string]::IsNullOrEmpty($keySecret)) { $keySecret = $storeSecret }
+}
+
+if ([string]::IsNullOrEmpty($storeSecret) -or [string]::IsNullOrEmpty($keySecret)) {
+    throw "Las contraseñas no pueden estar vacías."
+}
+$env:HQNET_KS_PASS = $storeSecret
+$env:HQNET_KEY_PASS = $keySecret
 
 $aligned = [System.IO.Path]::ChangeExtension($Output, ".aligned.apk")
 try {
