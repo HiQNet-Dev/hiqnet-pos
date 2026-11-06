@@ -5,6 +5,7 @@ import {
   type Actor,
   type AuditEvent,
   type CommercialState,
+  type RestorePreview,
   type User,
 } from "../contracts";
 import { Modal } from "../components/Modal";
@@ -106,6 +107,8 @@ export function AdminScreen({ actor, commercial, readOnly }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [safAvailable, setSafAvailable] = useState(false);
+  const [restorePreview, setRestorePreview] = useState<RestorePreview | null>(null);
 
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<User | null>(null);
@@ -145,6 +148,28 @@ export function AdminScreen({ actor, commercial, readOnly }: Props) {
 
   useEffect(() => {
     let cancelled = false;
+    if (!canBackup) return;
+    api
+      .safBackupAvailable()
+      .then((available) => {
+        if (!cancelled) setSafAvailable(available);
+      })
+      .catch(() => {
+        if (!cancelled) setSafAvailable(false);
+      });
+    api
+      .restoreStartupNotice()
+      .then((message) => {
+        if (!cancelled && message) setNotice(message);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [canBackup]);
+
+  useEffect(() => {
+    let cancelled = false;
     if (!canManageUsers) return;
     api
       .listUsers()
@@ -177,6 +202,50 @@ export function AdminScreen({ actor, commercial, readOnly }: Props) {
       await loadAudit();
     } catch (cause) {
       setError(messageOf(cause, "No fue posible crear el respaldo."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function exportSafBackup() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const completed = await api.exportSafBackup();
+      setNotice(completed ? "Respaldo exportado correctamente." : "Exportación cancelada.");
+      if (completed) await loadAudit();
+    } catch (cause) {
+      setError(messageOf(cause, "No fue posible exportar el respaldo."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importSafBackup() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const preview = await api.importSafBackup();
+      if (preview) setRestorePreview(preview);
+      else setNotice("Importación cancelada.");
+    } catch (cause) {
+      setError(messageOf(cause, "No fue posible validar el respaldo seleccionado."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmSafRestore() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.scheduleSafRestore();
+      setRestorePreview(null);
+      setNotice("La aplicación se reiniciará para restaurar el respaldo.");
+    } catch (cause) {
+      setError(messageOf(cause, "No fue posible programar la restauración."));
     } finally {
       setBusy(false);
     }
@@ -380,14 +449,42 @@ export function AdminScreen({ actor, commercial, readOnly }: Props) {
             <p className="muted">
               Genera un respaldo consistente de la base local y lo registra en auditoría.
             </p>
-            <button
-              type="button"
-              className="button button-primary"
-              onClick={() => void backup()}
-              disabled={busy}
-            >
-              {busy ? "Creando respaldo…" : "Crear respaldo"}
-            </button>
+            <div className="row-actions">
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={() => void backup()}
+                disabled={busy}
+              >
+                {busy ? "Creando respaldo…" : "Crear respaldo"}
+              </button>
+              {safAvailable && (
+                <>
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => void exportSafBackup()}
+                    disabled={busy}
+                  >
+                    Exportar respaldo
+                  </button>
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => void importSafBackup()}
+                    disabled={busy}
+                  >
+                    Importar respaldo
+                  </button>
+                </>
+              )}
+            </div>
+            {safAvailable && (
+              <p className="muted">
+                La restauración solo acepta respaldos de esta misma instalación y organización.
+                Conserva el estado comercial vigente y reinicia la aplicación.
+              </p>
+            )}
           </section>
         )}
       </div>
@@ -463,6 +560,53 @@ export function AdminScreen({ actor, commercial, readOnly }: Props) {
           onClose={() => setConfirming(null)}
           onConfirm={() => void toggleActive(confirming.user, confirming.active)}
         />
+      )}
+
+      {restorePreview && (
+        <Modal
+          title="Restaurar respaldo"
+          subtitle="Esta operación recuperará los datos comerciales guardados en el respaldo."
+          onClose={() => !busy && setRestorePreview(null)}
+          footer={
+            <>
+              <button
+                type="button"
+                className="button"
+                onClick={() => setRestorePreview(null)}
+                disabled={busy}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={() => void confirmSafRestore()}
+                disabled={busy}
+              >
+                {busy ? "Preparando reinicio…" : "Restaurar y reiniciar"}
+              </button>
+            </>
+          }
+        >
+          <p>
+            Los datos posteriores al respaldo dejarán de estar en la base operativa. Se creará
+            una copia de recuperación antes del reemplazo.
+          </p>
+          <dl className="metric-grid">
+            <div>
+              <dt>Vigencia registrada en el respaldo</dt>
+              <dd>{formatDate(restorePreview.backup_valid_until)}</dd>
+            </div>
+            <div>
+              <dt>Estado comercial</dt>
+              <dd>{restorePreview.preserves_commercial_state ? "Se conserva el estado vigente" : "No disponible"}</dd>
+            </div>
+          </dl>
+          <p className="muted">
+            Solo se permiten respaldos de esta instalación y organización. Tras confirmar, la
+            aplicación se cerrará y exigirá iniciar sesión de nuevo.
+          </p>
+        </Modal>
       )}
     </div>
   );
