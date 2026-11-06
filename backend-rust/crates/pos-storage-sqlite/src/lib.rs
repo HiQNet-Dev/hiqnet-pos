@@ -85,6 +85,10 @@ pub fn latest_schema_version() -> i64 {
 /// Migraciones embebidas en el binario. Son la referencia de checksum para
 /// validar respaldos e historiales de esquema.
 pub(crate) fn embedded_migrations() -> sqlx::migrate::Migrator {
+    // Esta huella la produce build.rs a partir del directorio completo de
+    // migraciones. `sqlx::migrate!` rastrea los archivos conocidos, pero no
+    // detecta por sí solo una migración nueva fuera de la crate.
+    let _migration_build_fingerprint = env!("POS_STORAGE_MIGRATIONS_FINGERPRINT");
     sqlx::migrate!("../../migrations/local")
 }
 
@@ -143,13 +147,10 @@ pub async fn open(path: impl AsRef<Path>) -> Result<SqlitePool, StorageError> {
         return Err(StorageError::IncompatibleSchema);
     }
 
-    sqlx::migrate!("../../migrations/local")
-        .run(&pool)
-        .await
-        .map_err(|error| {
-            tracing::error!(error = %error, "no fue posible aplicar las migraciones");
-            StorageError::Migrate
-        })?;
+    embedded_migrations().run(&pool).await.map_err(|error| {
+        tracing::error!(error = %error, "no fue posible aplicar las migraciones");
+        StorageError::Migrate
+    })?;
 
     Ok(pool)
 }
