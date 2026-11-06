@@ -291,6 +291,51 @@ describe("SalesScreen", () => {
     expect(within(card).queryByText(/\+ iva/i)).not.toBeInTheDocument();
   });
 
+  it("permite explorar y seleccionar cualquier producto de un catálogo de 10k sin montar todo el DOM", async () => {
+    const products = Array.from({ length: 10_000 }, (_, offset): Product => {
+      const position = offset + 1;
+      return {
+        ...product,
+        id: `bulk-${position}`,
+        sku: `SKU-${position.toString().padStart(5, "0")}`,
+        name: `Producto ${position.toString().padStart(5, "0")}`,
+      };
+    });
+    render(<Harness shift={shift} products={products} />);
+    const user = userEvent.setup();
+
+    expect(screen.getAllByRole("button", { name: /producto \d+, sku-/i })).toHaveLength(200);
+    expect(screen.getByRole("button", { name: /producto 00001, sku-00001/i })).toBeVisible();
+    expect(screen.getByRole("button", { name: /producto 00199, sku-00199/i })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /producto 00201, sku-00201/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/mostrando 200 de 10000 productos/i)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: /mostrar 200 más/i }));
+    expect(screen.getAllByRole("button", { name: /producto \d+, sku-/i })).toHaveLength(400);
+    expect(screen.getByRole("button", { name: /producto 00201, sku-00201/i })).toBeVisible();
+
+    const search = screen.getByRole("textbox", { name: /buscar producto/i });
+    await user.type(search, "Producto 05000");
+    expect(screen.getByRole("button", { name: /producto 05000, sku-05000/i })).toBeVisible();
+
+    await user.clear(search);
+    await user.type(search, "SKU-10000{Enter}");
+    await waitFor(() =>
+      expect(api.configureProduct).toHaveBeenCalledWith({
+        product_id: "bulk-10000",
+        variant_id: null,
+        selected_option_ids: [],
+      }),
+    );
+
+    await user.clear(search);
+    await user.click(screen.getByRole("button", { name: "Bebidas" }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: /producto \d+, sku-/i })).toHaveLength(200),
+    );
+    expect(screen.getByText(/mostrando 200 de 10000 productos/i)).toBeVisible();
+  }, 15_000);
+
   it("usa «desde» con variantes y avisa de los extras", async () => {
     render(<Harness shift={shift} products={[product, latte]} />);
 

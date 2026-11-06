@@ -24,6 +24,8 @@ import { CheckoutDialog } from "./CheckoutDialog";
 import { ProductConfigDialog, type ConfigTarget } from "./ProductConfigDialog";
 import { MinusIcon, PlusIcon, SearchIcon, TrashIcon } from "../shell/icons";
 
+const MAX_VISIBLE_CATALOG_CARDS = 200;
+
 interface Props {
   actor: Actor;
   readOnly: boolean;
@@ -74,6 +76,7 @@ export function SalesScreen({
   const canManageCatalog = actor.permissions.includes("catalog.manage");
   const [query, setQuery] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [catalogPage, setCatalogPage] = useState({ key: "", count: MAX_VISIBLE_CATALOG_CARDS });
   const [configTarget, setConfigTarget] = useState<ConfigTarget | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -109,6 +112,15 @@ export function SalesScreen({
       return matchesCategory && matchesQuery;
     });
   }, [products, categoryId, query]);
+
+  // Un catálogo grande no debe crear miles de botones y nodos de una vez. La
+  // búsqueda y los filtros siguen trabajando sobre todos los productos cargados;
+  // solo se limita la representación inicial, no los datos comerciales.
+  const catalogFilterKey = `${categoryId}\u0000${query}`;
+  const visibleCardCount =
+    catalogPage.key === catalogFilterKey ? catalogPage.count : MAX_VISIBLE_CATALOG_CARDS;
+  const displayedProducts = visibleProducts.slice(0, visibleCardCount);
+  const hasMoreProducts = visibleProducts.length > displayedProducts.length;
 
   function addLine(line: CartLine) {
     onCartChange(mergeLine(cart, line));
@@ -298,6 +310,29 @@ export function SalesScreen({
           </div>
         )}
 
+        {hasMoreProducts && (
+          <div className="catalog-result-limit">
+            <p role="status">
+              Mostrando {displayedProducts.length} de {visibleProducts.length} productos.
+            </p>
+            <button
+              type="button"
+              className="button button-quiet"
+              aria-controls="catalog-products"
+              onClick={() =>
+                setCatalogPage((current) => ({
+                  key: catalogFilterKey,
+                  count:
+                    (current.key === catalogFilterKey ? current.count : MAX_VISIBLE_CATALOG_CARDS) +
+                    MAX_VISIBLE_CATALOG_CARDS,
+                }))
+              }
+            >
+              Mostrar {Math.min(MAX_VISIBLE_CATALOG_CARDS, visibleProducts.length - displayedProducts.length)} más
+            </button>
+          </div>
+        )}
+
         <div className="product-scroll">
           {loading ? (
             <div className="product-grid" aria-label="Cargando productos" aria-busy="true">
@@ -318,8 +353,8 @@ export function SalesScreen({
               )}
             </div>
           ) : (
-            <div className="product-grid" aria-label="Productos disponibles">
-              {visibleProducts.map((product) => {
+            <div id="catalog-products" className="product-grid" aria-label="Productos disponibles">
+              {displayedProducts.map((product) => {
                 const stock = stockOf(stockLevels, product.id);
                 const soldOut = stock !== null && stock <= 0;
                 const priceLabel = publicPriceLabel(product);

@@ -67,7 +67,7 @@ const PRODUCTS = [
   },
 ];
 
-export async function mockShellBridge(page: Page): Promise<void> {
+export async function mockShellBridge(page: Page, products = PRODUCTS): Promise<void> {
   await page.addInitScript(
     ({ actor, commercial, products }) => {
       const responses: Record<string, unknown> = {
@@ -88,10 +88,10 @@ export async function mockShellBridge(page: Page): Promise<void> {
           { id: "c-3", name: "Refrigerados", sort_order: 3, active: true },
           { id: "c-4", name: "Combos", sort_order: 4, active: true },
         ],
-        list_stock_levels: [
-          { product_id: "p-1", quantity: "20.000" },
-          { product_id: "p-2", quantity: "20.000" },
-        ],
+        list_stock_levels: products.map((product) => ({
+          product_id: product.id,
+          quantity: "20.000",
+        })),
         list_product_variants: [],
         list_modifier_groups: [],
         list_cash_registers: [
@@ -247,7 +247,7 @@ export async function mockShellBridge(page: Page): Promise<void> {
         },
       });
     },
-    { actor: ACTOR, commercial: COMMERCIAL, products: PRODUCTS },
+    { actor: ACTOR, commercial: COMMERCIAL, products },
   );
 }
 

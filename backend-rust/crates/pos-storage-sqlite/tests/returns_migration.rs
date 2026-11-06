@@ -1,4 +1,4 @@
-//! La migración 0010 debe actualizar una instalación que ya alcanzó 0009 y
+//! Las migraciones 0010–0011 deben actualizar una instalación que ya alcanzó 0009 y
 //! conservar los datos de gastos, merma y ventas.
 
 use sqlx::Row;
@@ -17,7 +17,7 @@ const FILES: [&str; 9] = [
 ];
 
 #[tokio::test]
-async fn actualiza_0009_a_0010_conservando_gastos_y_ventas() {
+async fn actualiza_0009_a_0011_conservando_gastos_y_ventas() {
     let dir = tempfile::tempdir().unwrap();
     let migrations = dir.path().join("migrations");
     std::fs::create_dir_all(&migrations).unwrap();
@@ -67,7 +67,7 @@ async fn actualiza_0009_a_0010_conservando_gastos_y_ventas() {
         .await
         .unwrap()
         .get("total");
-    assert_eq!(applied, 10);
+    assert_eq!(applied, 11);
 
     let expense = sqlx::query("SELECT amount_minor, concept FROM expense WHERE id = 'exp-1'")
         .fetch_one(&upgraded)

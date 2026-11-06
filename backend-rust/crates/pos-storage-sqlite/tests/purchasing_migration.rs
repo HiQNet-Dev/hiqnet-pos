@@ -1,10 +1,10 @@
-//! Las migraciones 0008–0010 deben actualizar una instalación que ya alcanzó 0007.
+//! Las migraciones 0008–0011 deben actualizar una instalación que ya alcanzó 0007.
 
 use sqlx::Row;
 use sqlx::sqlite::SqlitePoolOptions;
 
 #[tokio::test]
-async fn actualiza_0007_a_0010_y_conserva_el_esquema_previo() {
+async fn actualiza_0007_a_0011_y_conserva_el_esquema_previo() {
     let dir = tempfile::tempdir().unwrap();
     let migrations = dir.path().join("migrations");
     std::fs::create_dir_all(&migrations).unwrap();
@@ -42,7 +42,7 @@ async fn actualiza_0007_a_0010_y_conserva_el_esquema_previo() {
         .await
         .unwrap()
         .get("total");
-    assert_eq!(migrations, 10);
+    assert_eq!(migrations, 11);
     for table in [
         "organization",
         "sale",
