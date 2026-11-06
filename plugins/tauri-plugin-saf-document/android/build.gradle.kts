@@ -32,4 +32,5 @@ dependencies {
     implementation("androidx.core:core-ktx:1.9.0")
     implementation("androidx.activity:activity:1.8.2")
     implementation(project(":tauri-android"))
+    testImplementation("junit:junit:4.13.2")
 }
