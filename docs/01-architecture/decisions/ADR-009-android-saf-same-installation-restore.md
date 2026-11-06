@@ -52,3 +52,14 @@ un snapshot antiguo podría extender un Trial o reactivar derechos sin autorizac
   conforme a `restore_from_backup`.
 - Esta decisión no implementa migración de dispositivos, transferencia de licencia, SAF en iOS,
   ni validación de hardware ARM64 físico.
+
+## Límites de transporte
+
+- El plugin permite **una sola operación** de documentos a la vez y la mantiene activa hasta que
+  la copia termina, no solo hasta que el selector devuelve el control.
+- Las copias se hacen en streaming con un tope de 512 MiB; no se cargan en memoria. La
+  verificación Rust aplica el mismo tope a cualquier respaldo.
+- Las respuestas al proceso se ignoran si la Activity ya no escucha; los flujos se cierran con
+  `use` y un documento parcial se borra de forma best-effort.
+- Al arrancar, después de consumir el marcador, se eliminan los temporales SAF huérfanos;
+  mientras exista un marcador no se limpia nada.

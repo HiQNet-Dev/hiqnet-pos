@@ -208,46 +208,63 @@ cargo test -p pos-storage-sqlite --test pending_restore
 cd ../frontend
 pnpm exec vitest run src/screens/AdminScreen.test.tsx
 
-cd ../apps/pos-desktop
-cargo tauri android build --apk --debug --target x86_64
+# Pruebas JVM del plugin (sin dispositivo)
+cd ../apps/pos-desktop/src-tauri/gen/android
+./gradlew.bat :tauri-plugin-saf-document:testDebugUnitTest
+
+# APK release para un AVD desechable
+cd ../..
+cargo tauri android build --apk --target x86_64
+
+# Firma interna (pide la contraseña de forma segura, sin registrarla)
+powershell -NoProfile -File ../../../tools/android/sign-internal-apk.ps1 \
+    -Apk <ruta>/app-universal-release-unsigned.apk
 ```
 
-| Comprobación | Estado en esta rama | Alcance |
+| Comprobación | Estado | Alcance |
 | --- | --- | --- |
 | Restauración misma instalación | PASS (SQLite) | snapshot, datos y Trial vigente preservado |
-| Reanudación tras interrupción entre promoción y estado comercial | PASS (SQLite) | la operación completa se repite sin bloquear el arranque |
-| Instalación/organización distinta | PASS (SQLite + emulador) | rechazo antes de reemplazar la base |
+| Reanudación tras interrupción antes/después de reponer el estado comercial | PASS (SQLite) | dos escenarios; no bloquea el arranque |
+| Reabrir varias veces | PASS (SQLite) | sin marcador no hay segunda pasada |
+| Trial vencido no se revive | PASS (SQLite) | se conserva `read_only` y el vencimiento vigente |
+| Fallo de promoción tras confirmar | PASS (SQLite) | marcador y base previa se conservan; el reintento completa |
+| Instalación/organización distinta | PASS (SQLite + dispositivo) | rechazo antes de reemplazar la base |
 | Licencia firmada sin verificador temprano | PASS (SQLite) | rechazo seguro, sin copiar derechos |
 | Archivo alterado después de confirmar | PASS (SQLite) | SHA-256 rechaza la operación; base intacta |
-| Plugin SAF Kotlin | PASS (`x86_64` debug y `arm64-v8a` release) | APK generada sin modificar `gen/android` |
-| Exportación SAF real | PASS (emulador) | selector del sistema, `Downloads/hiqnet-pos-*.db`, 442 368 bytes |
-| Snapshot exportado | PASS | `pos-desktop.exe --verify-backup` → `resultado=OK` |
-| Importación + confirmación + reinicio | PASS (emulador) | dos ciclos; aviso «El respaldo se restauró correctamente.» |
-| Reversión de datos posteriores al respaldo | PASS (emulador) | dos productos creados después desaparecen tras restaurar |
-| Archivo corrupto | PASS (emulador) | «el respaldo no es válido»; app viva, sin reinicio |
-| Instalación ajena | PASS (emulador) | «el respaldo pertenece a otra instalación u organización» |
-| Abortos nativos durante export/import/restore | PASS | 0 coincidencias de `FORTIFY`, `Fatal signal`, `panic` |
-| Firma interna v2/v3 | BLOCKED | el JKS existe fuera de Git, pero no hay credencial autorizada disponible |
+| Limpieza de temporales SAF | PASS (SQLite) | residuos eliminados sin tocar la base |
+| Concurrencia del plugin | PASS (JVM, 7 pruebas) | una sola operación hasta terminar la copia |
+| Límite de tamaño | PASS (JVM + Rust) | streaming con tope; no se carga en memoria |
+| Exportación SAF real en release | PASS (emulador) | 442 368 bytes; verificado con Rust |
+| Importación + reinicio en release | PASS (emulador) | aviso correcto, datos revertidos, sesión cerrada |
+| Archivo corrupto / instalación ajena | PASS (emulador) | mensajes en español; app viva |
+| Actualización de APK sin desinstalar | PASS (emulador) | misma clave interna; 11 migraciones; datos preservados |
+| Back, IME, suspensión, offline y scroll real | PASS (emulador release) | 61 productos; último visible y seleccionable |
+| Abortos nativos | PASS | 0 `FORTIFY`, `Fatal signal`, `panic` |
+| Firma interna v2/v3 | PASS | certificado `3a522cd0…`, idéntico al histórico |
 | Hardware ARM64 físico | BLOCKED | no hay dispositivo |
 
-El AVD usado fue `hiqnet_saf_test`, creado para esta pasada desde la imagen
-`system-images;android-37.0;google_apis;x86_64`. No se desinstaló ni sobrescribió la
-instalación firmada preexistente de `hiqnet_tablet`. La aplicación se instaló con la clave debug
-estándar solo en ese AVD desechable; **no es una APK de distribución**.
+El AVD usado fue `hiqnet_saf_test` (Android 17, `x86_64`, 2560×1600), creado para esta pasada.
+La instalación firmada preexistente de `hiqnet_tablet` **no** se desinstaló ni se sobrescribió.
+La APK release de E2E se firmó con una identidad aislada `CN=HiQNet AVD Test`; la actualización
+se probó con la clave interna sobre el mismo AVD, previa desinstalación del build de pruebas.
 
-Evidencia local (`.devkit/` está fuera de Git):
+Evidencia local (`.devkit/` está fuera de Git): capturas `01`–`50` y árboles `ui-*.xml` en
+`.devkit/artifacts/android-saf/`.
 
-- `01-arranque.png` … `25-instalacion-ajena-rechazada.png`;
-- `ui-01.xml` … `ui-32.xml` con los árboles de accesibilidad de cada paso.
-
-Artefactos de esta pasada:
+### Artefactos vigentes
 
 | Artefacto | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `HiQNet POS_0.1.0_x64-setup.exe` (NSIS) | 3 918 388 | `2DD5E0F6C02BD854C8CF3509D8C2345D55B9AF2D8659DEB8979D2F27BC502616` |
-| `app-universal-release-unsigned.apk` (`arm64-v8a`) | 12 057 633 | `6A02DAD9B741DEFAC4763D860ED4CBB27642D3B9628899870610D1F62782D023` |
+| `HiQNet POS_0.1.0_x64-setup.exe` (NSIS) | 3 918 937 | `81989E2133E7821F121EBE9AAD7D8F0E53778A2885AB687D848A37159A8B5BCC` |
+| `hiqnet-pos-0.1.0-internal-arm64.apk` (firmada) | 12 122 640 | `82AD7A9163594B0FEB1E55A1C7C9503DD9112C463D16052A087DD4C7ED08E32F` |
+| `hiqnet-pos-0.1.0-internal-x86_64-emulador.apk` (firmada, solo actualización en AVD) | 12 970 509 | `04EDE9A6C21E1B4BDC600E3B55E14C49611DA851DA2BE2E5E513243DDFBF9F0B` |
+| `hiqnet-pos-0.1.0-avd-test-x86_64.apk` (clave aislada, no entregable) | 12 970 511 | `6275C09B05D98DE39F838FBB5B8942321B83DAD18E3F28F03DA0F140C1570E03` |
 
-La APK ARM64 **no está firmada** y no se entrega como paquete instalable.
+Ubicación de los paquetes Android: `~/HiQNet-Internal-Test-saf/android/`.
+
+El procedimiento interactivo de firma es `tools/android/sign-internal-apk.ps1`; solicita la
+contraseña con `SecureString`, la pasa por variables de entorno del proceso y compara el SHA-256
+del certificado con la huella histórica. No escribe secretos en disco ni en la salida.
 
 La política y los límites de 0.1.0 están en
 `docs/01-architecture/decisions/ADR-009-android-saf-same-installation-restore.md`.
