@@ -160,7 +160,30 @@ Pruebas añadidas en esta pasada:
 - `screens-layout.spec.ts`: precio en navegador real e importes habituales del
   cobro.
 
-## 7. Qué no cubre esta suite
+## 7. Cierre técnico más reciente — catálogo administrativo (2026-11-06)
+
+El cierre posterior se ejecutó sobre el commit funcional `28a95f8`, que corrige
+la invalidación de compilación de migraciones embebidas. Las tablas anteriores
+son evidencia histórica de sus commits indicados; no sustituyen estos resultados.
+
+| Comprobación | Resultado |
+| --- | --- |
+| Frontend | **PASS** — `pnpm lint`, `pnpm typecheck`, 118 Vitest, build, 22 Playwright (8 visuales omitidas), revisión visual administrativa y escala 1k/10k |
+| Rust | **PASS** — `cargo fmt --all -- --check`, Clippy con `-D warnings` y `cargo test --workspace` |
+| Tauri Windows release | **PASS** — NSIS reconstruido tras recompilar `pos-storage-sqlite` |
+| Actualización SQLite con ejecutable release | **PASS** — base sintética `0010 → 0011`: 11 migraciones, índice `idx_product_org_name`, `integrity_check=ok` y 0 claves foráneas inválidas |
+| Flujo operativo después de actualizar | **PASS** — `e2e_post_upgrade.py` conserva catálogo, inventario, caja, gastos, merma, compras, usuarios, ventas y auditoría |
+| Instalación aislada NSIS | **PASS** — Windows Sandbox verifica instalación, arranque, operación sin red, desinstalación, reinstalación y persistencia SQLite |
+| Instalador candidato | `apps/pos-desktop/src-tauri/target/release/bundle/nsis/HiQNet POS_0.1.0_x64-setup.exe` — 3 872 471 bytes — SHA-256 `9D35261FC65FDBEA816DCDA5FC2242F8C760D9A3F8086AA8091F309231A07E0E` |
+| Android de este cierre | **BLOCKED** — se debe reconstruir desde el commit final, firmar v2/v3 con la clave externa y probar en emulador/dispositivo. No se reutiliza la APK previa como evidencia. |
+
+La crate `pos-storage-sqlite` contiene un `build.rs` que incorpora una huella de
+el directorio de migraciones a la compilación. Así, agregar, quitar o cambiar una
+migración vuelve a compilar la crate aun cuando el build Tauri use su propio
+target; la prueba de actualización anterior es parte obligatoria de cualquier
+nuevo instalador con migraciones.
+
+## 8. Qué no cubre esta suite
 
 - No hay E2E nativo en CI: los runners no garantizan WebView2 ni WebDriver
   estables. Es una verificación local previa a un piloto.

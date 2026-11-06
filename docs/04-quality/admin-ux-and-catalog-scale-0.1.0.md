@@ -142,11 +142,38 @@ coincidencia única.
 | E2E nativo Windows: layout drift | **PASS** — 8 rondas, resize/maximizar, scroll interno, modal, foco y sin clipping detectado |
 | APK/emulador Android de esta pasada | **NOT RUN todavía** |
 
+### Validación posterior del empaquetado SQLite (2026-11-06)
+
+La primera reconstrucción release de Windows conservó un `rlib` de
+`pos-storage-sqlite` que solo embebía `0001`–`0010`: una base sintética con la
+versión 10 se abría sin aplicar `0011`. La causa fue que
+`sqlx::migrate!` rastrea archivos ya conocidos, pero no una alta nueva en su
+directorio externo a la crate Tauri.
+
+`pos-storage-sqlite/build.rs` ahora calcula una huella determinista de nombres y
+contenidos de todas las migraciones, declara el directorio y cada SQL con
+`rerun-if-changed` y la incorpora como entrada de compilación. Esto obliga a
+recompilar la crate ante alta, baja o cambio de migraciones, también desde el
+workspace Tauri independiente.
+
+| Comprobación posterior | Estado real |
+| --- | --- |
+| Dependencias del `rlib` release | **PASS** — incluye `0011_catalog_list_index.sql` y `POS_STORAGE_MIGRATIONS_FINGERPRINT` |
+| Actualización sintética `0010 → 0011` mediante `pos-desktop.exe` release | **PASS** — 11 migraciones, versión 11 presente, `idx_product_org_name` creado, `integrity_check=ok`, `foreign_key_check=0` |
+| Continuidad comercial post-actualización | **PASS** — catálogo, inventario, caja, gastos, merma, compras, usuarios, venta y auditoría en `e2e_post_upgrade.py` |
+| Build release Windows / NSIS | **PASS** — `HiQNet POS_0.1.0_x64-setup.exe`, 3 872 471 bytes, SHA-256 `9D35261FC65FDBEA816DCDA5FC2242F8C760D9A3F8086AA8091F309231A07E0E` |
+| Instalación aislada NSIS (Windows Sandbox) | **PASS** — instalación, primer arranque, operación sin red, desinstalación, reinstalación y persistencia SQLite; evidencia local en `C:/Users/gaelg/HiQNet-Prepilot/evidence/` |
+| `cargo fmt --all -- --check`, Clippy y workspace tests tras la corrección | **PASS** |
+| Frontend tras la corrección | **PASS** — lint, tipos, 118 Vitest, 22 Playwright (8 visuales omitidas), visual administrativo y escala 1k/10k |
+
+El instalador se compiló desde el commit funcional `28a95f8`; el commit de
+este informe no altera binario, frontend ni migraciones.
+
 ## Pendientes y decisión de entrega
 
-- Falta la regresión Android (APK/emulador) sobre el commit resultante.
+- Falta regenerar e instalar una APK ARM64 desde el commit final y firmarla v2/v3
+  con la clave interna externa; la APK ARM64 previa no se presenta como entrega.
+- No hay emulador ni dispositivo conectado para validar la APK de este cierre;
+  no se declara Android, Back, scroll ni flujo comercial actuales como aprobados.
 - ARM64 físico y SAF Android siguen bloqueados/no implementados conforme a los
   informes anteriores.
-- Al haber cambiado frontend y SQLite, los instaladores Windows/APK existentes
-  dejan de corresponder al SHA final: se deben regenerar y volver a firmar antes
-  de presentar artefactos de prueba.
