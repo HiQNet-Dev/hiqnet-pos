@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use pos_application::{
-    AppError, AppResult, CashReportTotals, ExpenseCategoryReportRow, ExpensesReportTotals,
-    InstallationState, InventoryReportTotals, ProductSalesReportRow, PurchasesReportTotals,
-    ReturnedTotals, ReturnsReportTotals, SalesReportTotals, Store, StoreTx,
+    AppError, AppResult, CashReportTotals, CatalogConfiguration, ExpenseCategoryReportRow,
+    ExpensesReportTotals, InstallationState, InventoryReportTotals, ProductSalesReportRow,
+    PurchasesReportTotals, ReturnedTotals, ReturnsReportTotals, SalesReportTotals, Store, StoreTx,
 };
 use pos_core::audit::{AuditAction, AuditEvent};
 use pos_core::cash::{CashMovement, CashRegister, CashShift, CashShiftStatus};
@@ -356,6 +356,57 @@ impl StoreTx for SqliteTx {
                 })
             })
             .collect()
+    }
+
+    async fn list_catalog_configuration(
+        &mut self,
+        organization_id: OrganizationId,
+    ) -> AppResult<CatalogConfiguration> {
+        let variant_rows = sqlx::query(
+            "SELECT id, organization_id, product_id, name, sku, unit_price_minor, active, sort_order, created_at \
+             FROM product_variant WHERE organization_id = ? AND active = 1 \
+             ORDER BY product_id, sort_order, name COLLATE NOCASE",
+        )
+        .bind(organization_id.to_string())
+        .fetch_all(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+
+        let variants = variant_rows
+            .into_iter()
+            .map(|row| -> AppResult<ProductVariant> {
+                Ok(ProductVariant {
+                    id: parse_id(row.get("id"))?,
+                    organization_id: parse_id(row.get("organization_id"))?,
+                    product_id: parse_id(row.get("product_id"))?,
+                    name: row.get("name"),
+                    sku: row.get("sku"),
+                    unit_price: Money::from_minor_units(row.get("unit_price_minor"))
+                        .map_err(AppError::Domain)?,
+                    active: row.get::<i64, _>("active") != 0,
+                    sort_order: row.get("sort_order"),
+                    created_at: parse_ts(row.get("created_at"))?,
+                })
+            })
+            .collect::<AppResult<Vec<_>>>()?;
+
+        let modifier_rows = sqlx::query(
+            "SELECT DISTINCT product_id FROM modifier_group WHERE organization_id = ? AND active = 1",
+        )
+        .bind(organization_id.to_string())
+        .fetch_all(&mut **self.tx()?)
+        .await
+        .map_err(map_sqlx)?;
+
+        let products_with_modifiers = modifier_rows
+            .into_iter()
+            .map(|row| parse_id::<ProductId>(row.get("product_id")))
+            .collect::<AppResult<_>>()?;
+
+        Ok(CatalogConfiguration {
+            variants,
+            products_with_modifiers,
+        })
     }
 
     async fn insert_category(&mut self, category: &Category) -> AppResult<()> {

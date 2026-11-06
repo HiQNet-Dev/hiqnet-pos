@@ -28,6 +28,17 @@ pub struct SalesReportTotals {
     pub total_minor: i64,
 }
 
+/// Configuración comercial necesaria para presentar precios de catálogo.
+///
+/// Se lee una vez por organización y se combina en memoria con la lista de
+/// productos: la tarjeta de venta conoce sus variantes y modificadores sin una
+/// consulta ni una llamada IPC por producto.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CatalogConfiguration {
+    pub variants: Vec<ProductVariant>,
+    pub products_with_modifiers: std::collections::BTreeSet<ProductId>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductSalesReportRow {
     pub product_id: ProductId,
@@ -166,6 +177,14 @@ pub trait StoreTx: Send {
         product_id: ProductId,
     ) -> AppResult<Option<Product>>;
     async fn list_products(&mut self, organization_id: OrganizationId) -> AppResult<Vec<Product>>;
+
+    /// Variantes activas y productos con grupos de modificadores activos de toda
+    /// la organización, en una sola lectura por tabla. Permite presentar el
+    /// catálogo completo sin una consulta por producto.
+    async fn list_catalog_configuration(
+        &mut self,
+        organization_id: OrganizationId,
+    ) -> AppResult<CatalogConfiguration>;
 
     async fn insert_category(&mut self, category: &Category) -> AppResult<()>;
     async fn find_category(

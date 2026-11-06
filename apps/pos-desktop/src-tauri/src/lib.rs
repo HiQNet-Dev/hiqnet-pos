@@ -14,11 +14,12 @@ use pos_application::{
     ExpenseCategoryView, ExpenseDraft, ExpenseView, InventoryMovementDraft, InventoryMovementView,
     LoginRequest, ModifierConfigurationDraft, ModifierConfigurationView, ModifierGroupDraft,
     ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PosService, ProductDraft,
-    ProductVariantDraft, ProductVariantView, ProductView, PurchaseOrderDraft, PurchaseOrderView,
-    PurchaseReceiptDraft, ReportsQuery, ReportsView, ResetUserPasswordDraft, ReturnableSaleView,
-    SaleReturnDraft, SaleReturnPreviewDraft, SaleReturnPreviewView, SaleReturnView, SaleView,
-    SetUserActiveDraft, SharedClock, SharedHasher, SharedStore, StockLevelView, SupplierDraft,
-    SupplierView, SystemClock, UserDraft, UserView, WasteDraft, WasteView,
+    ProductPricePreviewView, ProductVariantDraft, ProductVariantView, ProductView,
+    PurchaseOrderDraft, PurchaseOrderView, PurchaseReceiptDraft, ReportsQuery, ReportsView,
+    ResetUserPasswordDraft, ReturnableSaleView, SaleReturnDraft, SaleReturnPreviewDraft,
+    SaleReturnPreviewView, SaleReturnView, SaleView, SetUserActiveDraft, SharedClock, SharedHasher,
+    SharedStore, StockLevelView, SupplierDraft, SupplierView, SystemClock, UserDraft, UserView,
+    WasteDraft, WasteView,
 };
 use pos_core::identity::{Actor, Permission};
 use pos_core::ids::{BranchId, ProductId, PurchaseOrderId};
@@ -201,6 +202,20 @@ async fn create_product(state: State<'_, AppState>, draft: ProductDraft) -> IpcR
 async fn list_products(state: State<'_, AppState>) -> IpcResult<Vec<ProductView>> {
     let actor = authenticated(&state).await?;
     Ok(state.service.list_products(&actor).await?)
+}
+
+/// Vista previa del precio al público para formularios de catálogo. Solo
+/// calcula con la política del dominio: no escribe ni abre transacción.
+#[tauri::command(rename_all = "snake_case")]
+async fn preview_product_price(
+    state: State<'_, AppState>,
+    price: String,
+    tax_rate_bp: u16,
+) -> IpcResult<ProductPricePreviewView> {
+    let actor = authenticated(&state).await?;
+    Ok(state
+        .service
+        .preview_product_price(&actor, &price, tax_rate_bp)?)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -748,6 +763,7 @@ pub fn run() {
             close_cash_shift,
             create_product,
             list_products,
+            preview_product_price,
             assign_product_category,
             create_category,
             create_modifier_group,

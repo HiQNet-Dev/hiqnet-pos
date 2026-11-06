@@ -133,10 +133,52 @@ Entrada:
 Salida: producto con `unit_price` como cadena decimal. Un SKU duplicado en la
 organización devuelve `conflict`.
 
+## `preview_product_price`
+
+Requiere permiso `catalog.manage`. Calcula el precio al público de un importe
+neto **sin guardar nada**: no abre transacción, no escribe y no audita.
+
+Entrada: `{ "price": "100.00", "tax_rate_bp": 1600 }`.
+
+```json
+{ "unit_price": "100.00", "tax": "16.00", "public_unit_total": "116.00", "tax_rate_bp": 1600 }
+```
+
+El impuesto se redondea half-up a centavos por unidad con la misma política que
+la venta (`pos_core::pricing`). Un precio con formato inválido devuelve
+`validation_error`.
+
 ## `list_products`
 
 Requiere permiso `sales.sell`. Devuelve los productos de la organización del
 actor, ordenados por nombre.
+
+Cada producto incluye el precio neto y el precio al público calculado por Rust:
+
+```json
+{
+  "id": "...", "sku": "CAF-001", "name": "Café americano",
+  "unit_price": "10.00",
+  "public_unit_total": "11.60",
+  "tax_rate_bp": 1600,
+  "active": true,
+  "category_id": null,
+  "active_variants": 2,
+  "variant_public_from": "13.92",
+  "has_modifiers": true
+}
+```
+
+- `public_unit_total`: neto + impuesto de una unidad de la presentación base.
+- `active_variants` / `variant_public_from`: variantes activas y el precio al
+  público más barato entre ellas; `null` si no hay variantes.
+- `has_modifiers`: si algún grupo de modificadores activo obliga a configurar la
+  venta. La interfaz lo usa para no pedir dos listas por producto y abrir la
+  configuración solo cuando hace falta.
+
+Las variantes y los grupos se leen en una consulta por tabla para toda la
+instrucción: el catálogo completo se publica sin una consulta ni una llamada IPC
+por producto.
 
 ## `create_category` / `list_categories`
 
