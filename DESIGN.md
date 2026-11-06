@@ -268,7 +268,10 @@ Un solo dibujo de marca en todo el producto: cuadrado redondeado con el acento
   estado explícito. Con variantes se muestra «Desde $X» con el precio más bajo
   publicado por Rust, más «N variantes» y «con extras» cuando corresponde. La
   aclaración «los precios ya incluyen IVA» vive una sola vez en el encabezado:
-  repetirla en cada tarjeta es ruido.
+  repetirla en cada tarjeta es ruido. Con más de 200 coincidencias, Ventas
+  representa un primer bloque de 200 tarjetas y ofrece «Mostrar N más» para
+  continuar explorando resultados; búsqueda y filtros siguen evaluando el
+  catálogo cargado completo para evitar miles de controles simultáneos.
 - **Ticket**: partidas con cantidad editable, total por línea y eliminación
   explícita. La cantidad no baja de 1; para quitar una partida se usa el botón de
   papelera. “Vaciar” exige confirmación.
