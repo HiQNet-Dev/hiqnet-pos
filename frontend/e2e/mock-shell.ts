@@ -46,16 +46,24 @@ const PRODUCTS = [
     sku: "CAF-001",
     name: "Café americano",
     unit_price: "12.50",
+    public_unit_total: "12.50",
     tax_rate_bp: 1600,
     active: true,
+    active_variants: 0,
+    variant_public_from: null,
+    has_modifiers: false,
   },
   {
     id: "p-2",
     sku: "PAN-010",
     name: "Croissant de mantequilla",
     unit_price: "9.80",
+    public_unit_total: "9.80",
     tax_rate_bp: 1600,
     active: true,
+    active_variants: 0,
+    variant_public_from: null,
+    has_modifiers: false,
   },
 ];
 
@@ -196,6 +204,22 @@ export async function mockShellBridge(page: Page): Promise<void> {
             if (command === "plugin:app|remove_listener") {
               (window as unknown as Record<string, unknown>).__hiqnetBack = null;
               return Promise.resolve(null);
+            }
+            if (command === "preview_product_price") {
+              // Espejo del cálculo de Rust para el fixture: enteros en centavos
+              // y redondeo half-up del impuesto.
+              const net = Math.round(Number(request.price) * 100);
+              const rate = Number(request.tax_rate_bp);
+              if (!Number.isFinite(net) || !Number.isFinite(rate) || rate < 0 || rate > 10_000) {
+                return Promise.reject({ code: "validation_error", message: "precio inválido" });
+              }
+              const tax = Math.round((net * rate) / 10_000);
+              return Promise.resolve({
+                unit_price: (net / 100).toFixed(2),
+                tax: (tax / 100).toFixed(2),
+                public_unit_total: ((net + tax) / 100).toFixed(2),
+                tax_rate_bp: rate,
+              });
             }
             if (command === "configure_product") {
               const draft = request.draft as { product_id?: string } | undefined;

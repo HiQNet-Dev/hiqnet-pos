@@ -56,10 +56,10 @@ const commercial = {
 };
 
 const products = [
-  { id: "p-1", sku: "CAF-001", name: "Café americano", unit_price: "12.50", tax_rate_bp: 1600, active: true },
-  { id: "p-2", sku: "CAF-002", name: "Capuchino", unit_price: "18.00", tax_rate_bp: 1600, active: true },
-  { id: "p-3", sku: "PAN-010", name: "Croissant de mantequilla", unit_price: "9.80", tax_rate_bp: 1600, active: true },
-  { id: "p-4", sku: "COM-001", name: "Combo desayuno", unit_price: "39.00", tax_rate_bp: 1600, active: true },
+  { id: "p-1", sku: "CAF-001", name: "Café americano", unit_price: "12.50", public_unit_total: "14.50", tax_rate_bp: 1600, active: true, active_variants: 0, variant_public_from: null, has_modifiers: false },
+  { id: "p-2", sku: "CAF-002", name: "Capuchino", unit_price: "18.00", public_unit_total: "20.88", tax_rate_bp: 1600, active: true, active_variants: 0, variant_public_from: null, has_modifiers: false },
+  { id: "p-3", sku: "PAN-010", name: "Croissant de mantequilla", unit_price: "9.80", public_unit_total: "11.37", tax_rate_bp: 1600, active: true, active_variants: 0, variant_public_from: null, has_modifiers: false },
+  { id: "p-4", sku: "COM-001", name: "Combo desayuno", unit_price: "39.00", public_unit_total: "45.24", tax_rate_bp: 1600, active: true, active_variants: 0, variant_public_from: null, has_modifiers: false },
 ];
 
 const categories = [

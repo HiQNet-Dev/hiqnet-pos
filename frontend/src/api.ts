@@ -13,6 +13,7 @@ import {
   ipcErrorSchema,
   inventoryMovementSchema,
   productSchema,
+  productPricePreviewSchema,
   modifierConfigurationSchema,
   modifierGroupSchema,
   modifierOptionSchema,
@@ -31,6 +32,7 @@ import {
   type LoginRequest,
   type Product,
   type ProductDraft,
+  type ProductPricePreview,
   type InventoryMovement,
   type InventoryMovementDraft,
   type CashCloseShiftDraft,
@@ -130,6 +132,14 @@ export const api = {
 
   createProduct: (draft: ProductDraft) =>
     call<Product>("create_product", { draft }, productSchema),
+
+  /** Vista previa del precio al público; la calcula Rust, no React. */
+  previewProductPrice: (price: string, taxRateBp: number) =>
+    call<ProductPricePreview>(
+      "preview_product_price",
+      { price, tax_rate_bp: taxRateBp },
+      productPricePreviewSchema,
+    ),
 
   listProducts: () =>
     call<Product[]>("list_products", undefined, productSchema.array()),

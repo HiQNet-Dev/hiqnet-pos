@@ -10,6 +10,7 @@ import {
   type ModifierGroup,
   type ModifierOption,
   type Product,
+  type ProductPricePreview,
   type ProductVariant,
 } from "../contracts";
 import { Modal } from "../components/Modal";
@@ -144,7 +145,7 @@ export function CatalogScreen({
         <div>
           <h1>Productos y catálogo</h1>
           <p className="screen-subtitle">
-            Precios netos; el impuesto se calcula al vender.
+            Precios netos y precio al público con el impuesto ya incluido.
           </p>
         </div>
         <div className="screen-actions">
@@ -220,10 +221,13 @@ export function CatalogScreen({
                     <th scope="col">Producto</th>
                     <th scope="col">Categoría</th>
                     <th scope="col" className="align-end">
-                      Precio
+                      Precio neto
                     </th>
                     <th scope="col" className="align-end">
                       IVA
+                    </th>
+                    <th scope="col" className="align-end">
+                      Al público
                     </th>
                   </tr>
                 </thead>
@@ -256,6 +260,9 @@ export function CatalogScreen({
                         <td className="align-end mono">
                           {(product.tax_rate_bp / 100).toFixed(2)}%
                         </td>
+                        <td className="align-end mono product-public-price">
+                          ${product.public_unit_total}
+                        </td>
                       </tr>
                     );
                   })}
@@ -281,7 +288,7 @@ export function CatalogScreen({
                   <p className="sku-label mono">{selected.sku}</p>
                   <h2>{selected.name}</h2>
                 </div>
-                <span className="badge badge-neutral">${selected.unit_price}</span>
+                <span className="badge badge-neutral">${selected.public_unit_total} IVA incluido</span>
               </header>
 
               <div className="detail-scroll">
@@ -503,7 +510,7 @@ function VariantEditor({ disabled, onCreate }: VariantEditorProps) {
         <input value={name} onChange={(event) => setName(event.target.value)} />
       </label>
       <label className="field field-short">
-        <span>Precio</span>
+        <span>Precio neto</span>
         <input
           inputMode="decimal"
           value={price}
@@ -846,6 +853,45 @@ function ProductCreateDialog({ categories, onClose, onCreated, onError }: Produc
   const [categoryId, setCategoryId] = useState("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{
+    key: string;
+    result: ProductPricePreview | null;
+    error: string | null;
+  } | null>(null);
+
+  const taxRateBp = Math.round(Number(tax) * 100);
+  const trimmedPrice = price.trim();
+  const priceValid =
+    trimmedPrice !== "" && Number.isFinite(taxRateBp) && taxRateBp >= 0 && taxRateBp <= 10_000;
+  const previewKey = `${trimmedPrice}|${taxRateBp}`;
+
+  // El precio final lo calcula Rust con la misma política que la venta; aquí
+  // solo se muestra, con un retardo corto para no llamar en cada tecla.
+  useEffect(() => {
+    if (!priceValid) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      api
+        .previewProductPrice(trimmedPrice, taxRateBp)
+        .then((result) => {
+          if (!cancelled) setPreview({ key: previewKey, result, error: null });
+        })
+        .catch(() => {
+          if (!cancelled)
+            setPreview({
+              key: previewKey,
+              result: null,
+              error: "Escribe un precio válido para ver el precio final.",
+            });
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [previewKey, priceValid, trimmedPrice, taxRateBp]);
+
+  const currentPreview = priceValid && preview?.key === previewKey ? preview : null;
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -908,13 +954,14 @@ function ProductCreateDialog({ categories, onClose, onCreated, onError }: Produc
           <input value={name} onChange={(event) => setName(event.target.value)} required />
         </label>
         <div className="field-row">
-          <label className="field field-short">
-            <span>Precio (MXN)</span>
+          <label className="field field-price">
+            <span>Precio base, sin IVA</span>
             <input
               inputMode="decimal"
               value={price}
               onChange={(event) => setPrice(event.target.value)}
               placeholder="0.00"
+              aria-describedby="product-price-preview"
               required
             />
           </label>
@@ -927,18 +974,33 @@ function ProductCreateDialog({ categories, onClose, onCreated, onError }: Produc
               required
             />
           </label>
-          <label className="field">
-            <span>Categoría (opcional)</span>
-            <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
-              <option value="">Sin categoría</option>
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
+        <div className="price-preview" id="product-price-preview" aria-live="polite">
+          <span className="price-preview-label">Precio final al público</span>
+          <strong className="price-preview-value mono">
+            {currentPreview?.result ? `$${currentPreview.result.public_unit_total}` : "—"}
+          </strong>
+          <span className="price-preview-tax">
+            {!priceValid
+              ? "Se calcula con el precio base"
+              : currentPreview?.error
+                ? currentPreview.error
+                : currentPreview?.result
+                  ? `IVA ${currentPreview.result.tax_rate_bp / 100}%: $${currentPreview.result.tax}`
+                  : "Calculando…"}
+          </span>
+        </div>
+        <label className="field">
+          <span>Categoría (opcional)</span>
+          <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+            <option value="">Sin categoría</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </label>
         {localError && (
           <p className="alert alert-error" role="alert">
             {localError}

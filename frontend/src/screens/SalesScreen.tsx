@@ -121,6 +121,19 @@ export function SalesScreen({
     setSelectingId(product.id);
     setError(null);
     try {
+      // Un producto sin variantes ni modificadores activos no necesita dos
+      // llamadas previas: Rust confirma el precio con una sola llamada.
+      if (product.active_variants === 0 && !product.has_modifiers) {
+        const configuration = await api.configureProduct({
+          product_id: product.id,
+          variant_id: null,
+          selected_option_ids: [],
+        });
+        if (request !== requestRef.current) return;
+        addLine(lineFromConfiguration(configuration, 1));
+        return;
+      }
+
       const [variants, groups] = await Promise.all([
         api.listProductVariants(product.id),
         api.listModifierGroups(product.id),
@@ -175,6 +188,27 @@ export function SalesScreen({
     onCartChange(cart.filter((line) => line.key !== key));
   }
 
+  /** Precio al público que se muestra en la tarjeta. Lo calcula Rust. */
+  function publicPriceLabel(product: Product): string {
+    if (product.active_variants > 0 && product.variant_public_from) {
+      return `Desde $${product.variant_public_from}`;
+    }
+    return `$${product.public_unit_total}`;
+  }
+
+  /**
+   * Con una sola coincidencia, Enter en la búsqueda agrega el producto: sirve
+   * tanto al operador de teclado como a un lector de códigos en modo teclado.
+   */
+  function handleSearchKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return;
+    if (visibleProducts.length !== 1) return;
+    const only = visibleProducts[0];
+    if (!only) return;
+    event.preventDefault();
+    void handleProduct(only);
+  }
+
   if (!canSell) {
     return (
       <div className="empty-state">
@@ -190,7 +224,9 @@ export function SalesScreen({
         <header className="screen-header">
           <div>
             <h1 id="sales-title">Ventas</h1>
-            <p className="screen-subtitle">Selecciona productos y cobra el ticket actual.</p>
+            <p className="screen-subtitle">
+              Selecciona productos y cobra el ticket actual. Los precios ya incluyen IVA.
+            </p>
           </div>
           <div className="screen-actions">
             <label className="field field-inline">
@@ -226,8 +262,10 @@ export function SalesScreen({
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={handleSearchKeyDown}
               placeholder="Buscar por nombre o SKU"
-              aria-label="Buscar producto"
+              aria-label="Buscar producto. Enter agrega el único resultado"
+              aria-keyshortcuts="Enter"
             />
           </label>
 
@@ -284,6 +322,17 @@ export function SalesScreen({
               {visibleProducts.map((product) => {
                 const stock = stockOf(stockLevels, product.id);
                 const soldOut = stock !== null && stock <= 0;
+                const priceLabel = publicPriceLabel(product);
+                const meta = [
+                  product.active_variants > 0
+                    ? `${product.active_variants} ${
+                        product.active_variants === 1 ? "variante" : "variantes"
+                      }`
+                    : null,
+                  product.has_modifiers ? "con extras" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ");
                 return (
                   <button
                     key={product.id}
@@ -291,16 +340,16 @@ export function SalesScreen({
                     className="product-card"
                     onClick={() => void handleProduct(product)}
                     disabled={readOnly || checkoutLocked || soldOut || selectingId === product.id}
-                    aria-label={`${product.name}, ${product.sku}`}
+                    aria-label={`${product.name}, ${product.sku}, ${priceLabel}${
+                      product.tax_rate_bp > 0 ? ", IVA incluido" : ""
+                    }`}
                   >
                     <span className="product-card-name">{product.name}</span>
                     <span className="product-card-sku">{product.sku}</span>
                     <span className="product-card-footer">
-                      <span className="product-card-price">${product.unit_price}</span>
-                      {product.tax_rate_bp > 0 && (
-                        <span className="product-card-tax">+ IVA</span>
-                      )}
+                      <span className="product-card-price">{priceLabel}</span>
                     </span>
+                    {meta && <span className="product-card-tax">{meta}</span>}
                     <span
                       className={soldOut ? "product-card-stock stock-empty" : "product-card-stock"}
                     >

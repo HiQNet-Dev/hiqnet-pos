@@ -36,8 +36,12 @@ async function mockBridge(page: import("@playwright/test").Page, initialized: bo
         sku: "CAF-001",
         name: "Café americano",
         unit_price: "12.50",
+        public_unit_total: "14.50",
         tax_rate_bp: 1600,
         active: true,
+        active_variants: 0,
+        variant_public_from: null,
+        has_modifiers: false,
       };
 
       const responses: Record<string, unknown> = {

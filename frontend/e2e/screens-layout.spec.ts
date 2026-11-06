@@ -93,3 +93,36 @@ test("la auditoría traduce toda acción conocida y no repite el tipo de entidad
   const labels = new Set(entries.map((entry) => entry.label));
   expect(labels.size).toBe(entries.length);
 });
+
+test("la tarjeta de venta publica el precio final con IVA incluido", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await loginThroughBridge(page);
+
+  const card = page.getByRole("button", { name: /Café americano, CAF-001/ });
+  await expect(card).toBeVisible();
+
+  // El importe principal es el precio al público que calcula Rust, no el neto
+  // ni una etiqueta «+ IVA».
+  await expect(card.locator(".product-card-price")).toHaveText("$12.50");
+  await expect(page.getByText(/los precios ya incluyen iva/i)).toBeVisible();
+  await expect(card.locator(".product-card-tax")).toHaveCount(0);
+
+  const box = await card.boundingBox();
+  expect(box?.width ?? 0).toBeGreaterThan(120);
+  // Sin desbordes: el precio cabe en la tarjeta.
+  const overflow = await card.evaluate((node) => node.scrollWidth - node.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test("el cobro propone importes sin ejecutar la venta", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await loginThroughBridge(page);
+
+  await page.getByRole("button", { name: /Café americano, CAF-001/ }).click();
+  await page.getByRole("button", { name: /Cobrar \$/ }).click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /Exacto \$/ })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Confirmar cobro" })).toBeEnabled();
+});

@@ -567,7 +567,32 @@ async function mockBridge(page: Page, initialized = true) {
         },
       });
     },
-    { initialized, actor, products, categories, variantsByProduct, groupsByProduct, optionsByGroup, shift, closedShift, movements, auditEvents },
+    {
+      initialized,
+      actor,
+      // Los fixtures usan `unit_price` como precio al público; el mock añade los
+      // campos que Rust calcula para que la tarjeta muestre el mismo importe.
+      products: products.map((product) => {
+        const variants = (variantsByProduct[product.id] ?? []) as { unit_price: string }[];
+        return {
+          ...product,
+          public_unit_total: product.unit_price,
+          active_variants: variants.length,
+          variant_public_from: variants.length
+            ? Math.min(...variants.map((variant) => Number(variant.unit_price))).toFixed(2)
+            : null,
+          has_modifiers: (groupsByProduct[product.id] ?? []).length > 0,
+        };
+      }),
+      categories,
+      variantsByProduct,
+      groupsByProduct,
+      optionsByGroup,
+      shift,
+      closedShift,
+      movements,
+      auditEvents,
+    },
   );
 }
 

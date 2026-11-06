@@ -57,9 +57,13 @@ const product: Product = {
   sku: "CAF-001",
   name: "Café americano",
   unit_price: "12.50",
+  public_unit_total: "12.50",
   tax_rate_bp: 1600,
   active: true,
   category_id: "c-1",
+  active_variants: 0,
+  variant_public_from: null,
+  has_modifiers: false,
 };
 
 const latte: Product = {
@@ -67,9 +71,13 @@ const latte: Product = {
   sku: "LAT-001",
   name: "Latte",
   unit_price: "15.00",
+  public_unit_total: "17.40",
   tax_rate_bp: 1600,
   active: true,
   category_id: "c-1",
+  active_variants: 1,
+  variant_public_from: "17.40",
+  has_modifiers: true,
 };
 
 const variant = {
@@ -272,6 +280,53 @@ describe("SalesScreen", () => {
     });
   });
 
+  it("muestra el precio final al público en la tarjeta", async () => {
+    render(<Harness shift={shift} />);
+
+    const card = screen.getByRole("button", { name: /café americano, caf-001/i });
+    expect(within(card).getByText("$12.50")).toBeVisible();
+    // La aclaración de IVA vive en el encabezado, una sola vez.
+    expect(screen.getByText(/los precios ya incluyen iva/i)).toBeVisible();
+    expect(within(card).queryByText(/iva incluido/i)).not.toBeInTheDocument();
+    expect(within(card).queryByText(/\+ iva/i)).not.toBeInTheDocument();
+  });
+
+  it("usa «desde» con variantes y avisa de los extras", async () => {
+    render(<Harness shift={shift} products={[product, latte]} />);
+
+    const card = screen.getByRole("button", { name: /latte, lat-001/i });
+    expect(within(card).getByText("Desde $17.40")).toBeVisible();
+    expect(within(card).getByText(/1 variante · con extras/i)).toBeVisible();
+    expect(card).toHaveAccessibleName(/desde \$17\.40/i);
+  });
+
+  it("agrega un producto simple con una sola llamada a Rust", async () => {
+    render(<Harness shift={shift} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+
+    await waitFor(() => expect(api.configureProduct).toHaveBeenCalledTimes(1));
+    // Sin variantes ni modificadores no se consultan listas por producto.
+    expect(api.listProductVariants).not.toHaveBeenCalled();
+    expect(api.listModifierGroups).not.toHaveBeenCalled();
+  });
+
+  it("agrega con Enter el único resultado de la búsqueda", async () => {
+    render(<Harness shift={shift} />);
+    const user = userEvent.setup();
+
+    const search = screen.getByRole("textbox", { name: /buscar producto/i });
+    await user.type(search, "CAF-001{Enter}");
+
+    await waitFor(() => expect(api.configureProduct).toHaveBeenCalledTimes(1));
+    expect(api.configureProduct).toHaveBeenCalledWith({
+      product_id: "p-1",
+      variant_id: null,
+      selected_option_ids: [],
+    });
+  });
+
   it("configura variante y modificadores en un diálogo", async () => {
     api.listProductVariants.mockResolvedValue([variant]);
     api.listModifierGroups.mockResolvedValue([group]);
@@ -336,6 +391,21 @@ describe("SalesScreen", () => {
 
     expect(await screen.findByText(/abre un turno de caja para cobrar/i)).toBeVisible();
     expect(screen.getByRole("button", { name: /^cobrar \$/i })).toBeDisabled();
+  });
+
+  it("propone importes habituales sin cobrar por sí solo", async () => {
+    render(<Harness shift={shift} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+    await user.click(screen.getByRole("button", { name: /cobrar \$14\.50/i }));
+
+    const exact = await screen.findByRole("button", { name: /exacto \$14\.50/i });
+    expect(exact).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "$20.00" }));
+
+    expect(screen.getByText(/cambio estimado: \$5\.50/i)).toBeVisible();
+    expect(api.checkoutSale).not.toHaveBeenCalled();
   });
 
   it("cobra en efectivo y muestra el folio confirmado", async () => {
@@ -490,6 +560,14 @@ describe("SalesScreen", () => {
 
   it("descarta la configuración de un producto anterior", async () => {
     let resolveLatte: (value: ModifierGroup[]) => void = () => {};
+    // Ambos abren configuración: el segundo debe ganar aunque el primero
+    // responda después.
+    const capuchino: Product = {
+      ...latte,
+      id: "p-3",
+      sku: "CAP-001",
+      name: "Capuchino",
+    };
     api.listProductVariants.mockResolvedValue([variant]);
     api.listModifierGroups
       .mockImplementationOnce(
@@ -498,15 +576,15 @@ describe("SalesScreen", () => {
       .mockResolvedValue([group]);
     api.listModifierOptions.mockResolvedValue([extra]);
 
-    render(<Harness shift={shift} products={[product, latte]} />);
+    render(<Harness shift={shift} products={[capuchino, latte]} />);
     const user = userEvent.setup();
 
     // El primer producto tarda; el segundo responde antes.
     await user.click(screen.getByRole("button", { name: /latte, lat-001/i }));
-    await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+    await user.click(screen.getByRole("button", { name: /capuchino, cap-001/i }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByRole("heading", { name: /café americano/i })).toBeVisible();
+    expect(within(dialog).getByRole("heading", { name: /capuchino/i })).toBeVisible();
 
     resolveLatte([group]);
     await waitFor(() => {

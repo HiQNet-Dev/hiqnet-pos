@@ -12,7 +12,7 @@ vi.mock("../api", () => ({ api, IpcError: class IpcError extends Error { constru
 import { PurchasingScreen } from "./PurchasingScreen";
 
 const actor: Actor = { user_id: "u-1", organization_id: "o-1", branch_id: "b-1", display_name: "Ana", role: "owner", permissions: ["purchasing.manage"] };
-const product: Product = { id: "p-1", sku: "INS-01", name: "Insumo", unit_price: "10.00", tax_rate_bp: 0, active: true };
+const product: Product = { id: "p-1", sku: "INS-01", name: "Insumo", unit_price: "10.00", public_unit_total: "10.00", tax_rate_bp: 0, active: true, active_variants: 0, variant_public_from: null, has_modifiers: false };
 const supplier: Supplier = { id: "s-1", code: "SUP-1", name: "Proveedor Uno", contact: null, rfc: null, active: true };
 const order: PurchaseOrder = { id: "o-1", supplier_id: "s-1", folio: "OC-1", status: "ordered", created_at: "2026-11-04T00:00:00Z", lines: [{ id: "l-1", product_id: "p-1", quantity: "5", received_quantity: "0", unit_cost: "8.00" }] };
 
