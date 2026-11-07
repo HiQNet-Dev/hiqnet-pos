@@ -1,0 +1,101 @@
+name: Android (validación aparte)
+
+# La compilación Android es costosa y no debe dispararse en cada PR de
+# documentación o de escritorio. Se ejecuta:
+#   - manualmente (workflow_dispatch)
+#   - en PR etiquetados con `android` que toquen código compartido
+#
+# Primera ejecución pendiente de validar en CI; hasta entonces no se añade a los
+# gates obligatorios de `main`.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - "apps/pos-desktop/src-tauri/**"
+      - "plugins/tauri-plugin-saf-document/**"
+      - "frontend/**"
+      - "backend-rust/**"
+      - "rust-toolchain.toml"
+      - ".github/workflows/android.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NDK_VERSION: 30.0.16248370
+
+jobs:
+  apk:
+    name: APK ARM64 (debug)
+    runs-on: ubuntu-24.04
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'android')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Instalar NDK
+        run: sdkmanager "ndk;${NDK_VERSION}" "platform-tools"
+      - name: Toolchain fijado por rust-toolchain.toml
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel=$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' rust-toolchain.toml)
+          test -n "$channel" || { echo "::error::rust-toolchain.toml no declara channel"; exit 1; }
+          rustup toolchain install "$channel" --profile minimal
+          rustup override set "$channel"
+          rustup target add aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/pos-desktop/src-tauri
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Dependencias del frontend
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Configurar NDK para el target ARM64
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          ndk="$sdk/ndk/${NDK_VERSION}"
+          toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          test -d "$toolchain" || { echo "::error::NDK no encontrado en $ndk"; exit 1; }
+          {
+            echo "ANDROID_NDK_HOME=$ndk"
+            echo "NDK_HOME=$ndk"
+            echo "CC_aarch64_linux_android=$toolchain/aarch64-linux-android21-clang"
+            echo "AR_aarch64_linux_android=$toolchain/llvm-ar"
+            echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$toolchain/aarch64-linux-android21-clang"
+          } >> "$GITHUB_ENV"
+      - name: Inicializar proyecto Android si falta
+        working-directory: apps/pos-desktop/src-tauri
+        run: |
+          if [ ! -d gen/android ]; then
+            pnpm dlx @tauri-apps/cli@2 android init --ci --skip-targets-install
+          fi
+      - name: Compilar APK
+        working-directory: apps/pos-desktop/src-tauri
+        run: pnpm dlx @tauri-apps/cli@2 android build --target aarch64 --apk --debug
+      - name: Publicar evidencia
+        uses: actions/upload-artifact@v4
+        with:
+          name: hiqnet-pos-android-debug
+          path: apps/pos-desktop/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          retention-days: 7
