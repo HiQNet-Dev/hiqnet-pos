@@ -24,7 +24,7 @@ guarda los datos operativos en el equipo del comercio.
 | Gastos operativos y merma | Implementado y verificado |
 | Devoluciones de venta y reportes operativos | Implementado y verificado |
 | Auditoría append-only en la misma transacción | Implementado y verificado |
-| SQLite en `%LOCALAPPDATA%` con WAL y migraciones SQLx | Implementado y verificado |
+| SQLite local con WAL y migraciones SQLx (ruta por plataforma) | Implementado y verificado |
 | Respaldo verificado y restauración offline segura | Implementado y verificado (rechaza restaurar con la app abierta) |
 | Trial de 30 días y modo solo lectura al vencer | Implementado y verificado |
 | Verificación de licencias Ed25519 | Contrato y verificador implementados; emisión productiva **pendiente** |
@@ -63,9 +63,9 @@ backend-rust/
   migrations/local/                migraciones SQLite versionadas
 apps/pos-desktop/src-tauri/        entrypoint Tauri 2 e IPC tipado
 frontend/                          React + TypeScript + Vite
-tests/                             documentación de pruebas E2E
+docs/02-development/               bootstrap Windows, Linux y Android
 docs/                              arquitectura, contratos, ADR y operación
-tools/                             scripts de desarrollo
+tools/                             scripts de desarrollo y E2E
 .github/                           CI, plantillas y controles
 ```
 
@@ -75,48 +75,86 @@ propio `build.rs`; los crates de negocio comparten un workspace distinto. Ver
 
 ## Requisitos
 
-- Windows 10/11 con WebView2 (incluido en Windows 11).
+Comunes:
+
 - Rust 1.99.1 (fijado en `rust-toolchain.toml`).
-- Node.js 22 o superior y pnpm 11.
+- Node.js 24 (`.node-version`; mínimo soportado 22) y pnpm 11.24.0.
+- Opcional: `just` para los comandos de `justfile`.
+
+Windows 10/11:
+
+- WebView2 (incluido en Windows 11).
 - Visual Studio Build Tools con la carga de trabajo C++ para el toolchain MSVC.
-- Opcional: Docker, solo para HiQNet Platform.
+
+Arch Linux / Omarchy:
+
+- `webkit2gtk-4.1`, `gtk3`, `librsvg`, `libappindicator-gtk3`,
+  `appmenu-gtk-module`, `openssl` y `base-devel`.
+
+Android (opcional): SDK, NDK `30.0.16248370`, JDK 17 y el target
+`aarch64-linux-android`.
+
+Guías completas: [`docs/02-development/`](docs/02-development/README.md).
 
 ## Puesta en marcha
 
+Con `just`:
+
 ```bash
-# Dependencias del frontend
+just setup   # toolchain y dependencias del frontend
+just check   # formato, lints, tipos, pruebas y build
+just dev     # aplicación de escritorio en desarrollo
+```
+
+Equivalente sin `just`:
+
+```bash
 pnpm --dir frontend install --frozen-lockfile
 
-# Pruebas y validaciones del backend
-cargo test --manifest-path backend-rust/Cargo.toml --workspace
-cargo clippy --manifest-path backend-rust/Cargo.toml --workspace --all-targets -- -D warnings
 cargo fmt --manifest-path backend-rust/Cargo.toml --all -- --check
+cargo clippy --manifest-path backend-rust/Cargo.toml --workspace --all-targets -- -D warnings
+cargo test --manifest-path backend-rust/Cargo.toml --workspace
 
-# Validaciones del frontend
 pnpm --dir frontend run lint
 pnpm --dir frontend run typecheck
 pnpm --dir frontend run test
 pnpm --dir frontend run build
 
-# Aplicación de escritorio en desarrollo
 cd apps/pos-desktop/src-tauri
-cargo tauri dev
+pnpm dlx @tauri-apps/cli@2 dev
 ```
 
-La base local se crea en `%LOCALAPPDATA%\HiQNet\POS\data\hiqnet-pos.db`.
-Puedes usar otra ruta con `HIQNET_POS_DB_PATH` (útil en desarrollo y pruebas).
-**Nunca** se versiona el archivo de base de datos.
+La base local se crea fuera del repositorio:
+
+| Plataforma | Ruta |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\HiQNet\POS\data\hiqnet-pos.db` |
+| Linux | `$XDG_DATA_HOME/hiqnet-pos/data/hiqnet-pos.db` o `~/.local/share/hiqnet-pos/data/hiqnet-pos.db` |
+| Android | almacenamiento privado de la aplicación |
+
+`HIQNET_POS_DB_PATH` permite aislar la base en desarrollo y pruebas; la
+aplicación y la CLI de respaldo usan la misma resolución. **Nunca** se versiona
+el archivo de base de datos.
 
 ## Instalación piloto (interna)
 
+Windows:
+
 ```powershell
-cd apps/pos-desktop/src-tauri
-pnpm dlx @tauri-apps/cli@2 build --debug
-# Artefacto: target/debug/bundle/nsis/HiQNet POS_0.1.0_x64-setup.exe
+just build-windows
+# Artefacto: target/release/bundle/nsis/HiQNet POS_0.1.0_x64-setup.exe
 ```
 
-El instalador generado **no está firmado** y no debe distribuirse públicamente.
-El actualizador permanece deshabilitado. Consulta la lista de comprobación en
+Linux (host Linux con WebKitGTK 4.1):
+
+```bash
+just build-linux
+# Artefactos: target/release/bundle/deb/ y appimage/
+```
+
+El instalador Windows generado **no está firmado** y no debe distribuirse
+públicamente. El actualizador permanece deshabilitado. Consulta la lista de
+comprobación en
 [`docs/05-operations/pilot-checklist.md`](docs/05-operations/pilot-checklist.md) y
 la guía de instalación, rutas y actualización en
 [`docs/05-operations/windows-installation.md`](docs/05-operations/windows-installation.md).
@@ -127,10 +165,19 @@ Desde la aplicación (Owner): crear respaldo genera un archivo autocontenido con
 `VACUUM INTO` y lo verifica antes de ofrecerlo. La restauración se ejecuta con la
 aplicación **cerrada**, mediante la utilidad incluida en el mismo ejecutable:
 
-```powershell
-pos-desktop.exe --verify-backup <respaldo.db>
-pos-desktop.exe --restore-backup <respaldo.db> --database "%LOCALAPPDATA%\HiQNet\POS\data\hiqnet-pos.db"
+```bash
+# Verificar sin abrir la interfaz
+pos-desktop --verify-backup <respaldo.db>
+
+# Restaurar (la base destino se resuelve por plataforma)
+pos-desktop --restore-backup <respaldo.db>
+
+# Forzar una base concreta
+pos-desktop --restore-backup <respaldo.db> --database <hiqnet-pos.db>
 ```
+
+En Windows el binario es `pos-desktop.exe`; en Linux,
+`target/release/pos-desktop`. `--help-backup` muestra la ruta efectiva.
 
 La restauración verifica integridad, esquema y claves foráneas, rechaza bases de
 una versión posterior y cualquier conexión abierta (aplicación o herramienta

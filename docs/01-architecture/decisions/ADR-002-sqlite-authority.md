@@ -30,6 +30,12 @@ Internet y sin PostgreSQL.
 - Estrategia de respaldo programado y retención.
 - Definición de autoridad single-writer para sincronización Pro (D-05).
 
+## Actualización
+
+La ubicación por plataforma se define en
+[ADR-010](ADR-010-platform-data-paths.md). Windows conserva exactamente la ruta
+indicada arriba; Linux usa XDG.
+
 ## Consecuencias
 
 PostgreSQL no reemplaza SQLite al pasar a Pro. La sincronización futura agrega
