@@ -306,3 +306,21 @@ test("el diálogo no desplaza la raíz y devuelve el foco", async ({ page }) => 
   expect(state.focused).toBe("Cambiar mi contraseña");
   await expectNoHorizontalOverflow(page);
 });
+
+test("diálogo mantiene footer accesible con viewport reducido", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await loginThroughBridge(page);
+
+  await page.getByRole("button", { name: "Cambiar mi contraseña" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+
+  const footer = dialog.locator(".modal-footer");
+  await expect(footer).toBeVisible();
+  const box = await footer.boundingBox();
+  expect(box, "el footer debe existir").not.toBeNull();
+  expect(box!.y + box!.height, "el footer no debe quedar fuera del viewport").toBeLessThanOrEqual(844);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+});
