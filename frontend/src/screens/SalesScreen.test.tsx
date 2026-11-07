@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -12,6 +12,12 @@ import type {
   SaleView,
 } from "../contracts";
 import type { CartLine } from "../lib/cart";
+import {
+  loadPendingAttempt,
+  pendingAttemptStorageKey,
+  savePendingAttempt,
+  type PendingSaleAttempt,
+} from "../lib/pendingAttempt";
 
 const api = vi.hoisted(() => ({
   listProductVariants: vi.fn(),
@@ -142,7 +148,35 @@ interface HarnessProps {
   shift?: CashShift | null;
   initialCart?: CartLine[];
   onSaleCompleted?: (value: SaleView) => void;
+  pendingAttempt?: PendingSaleAttempt | null;
+  onPendingAttemptChange?: (attempt: PendingSaleAttempt | null) => void;
   loading?: boolean;
+}
+
+function PersistentSalesAttemptHarness({ storageKey }: { storageKey: string }) {
+  const [pendingAttempt, setPendingAttempt] = useState<PendingSaleAttempt | null>(() =>
+    loadPendingAttempt<PendingSaleAttempt["payload"]>(storageKey),
+  );
+  const [open, setOpen] = useState(true);
+  const updatePendingAttempt = (attempt: PendingSaleAttempt | null) => {
+    setPendingAttempt(attempt);
+    savePendingAttempt(storageKey, attempt);
+  };
+
+  return (
+    <>
+      <button type="button" onClick={() => setOpen((value) => !value)}>
+        {open ? "Ir a Catálogo" : "Ir a Ventas"}
+      </button>
+      {open && (
+        <Harness
+          shift={shift}
+          pendingAttempt={pendingAttempt}
+          onPendingAttemptChange={updatePendingAttempt}
+        />
+      )}
+    </>
+  );
 }
 
 function Harness({
@@ -152,6 +186,8 @@ function Harness({
   shift: activeShift = null,
   initialCart = [],
   onSaleCompleted = () => {},
+  pendingAttempt = null,
+  onPendingAttemptChange = () => {},
   loading = false,
 }: HarnessProps) {
   const [cart, setCart] = useState<CartLine[]>(initialCart);
@@ -170,6 +206,8 @@ function Harness({
       cart={cart}
       onCartChange={setCart}
       onSaleCompleted={onSaleCompleted}
+      pendingAttempt={pendingAttempt}
+      onPendingAttemptChange={onPendingAttemptChange}
       onOpenCatalog={() => {}}
       loading={loading}
     />
@@ -178,7 +216,10 @@ function Harness({
 
 describe("SalesScreen", () => {
   beforeEach(() => {
+    cleanup();
+    document.body.replaceChildren();
     vi.clearAllMocks();
+    window.localStorage.clear();
     api.listProductVariants.mockResolvedValue([]);
     api.listModifierGroups.mockResolvedValue([]);
     api.listModifierOptions.mockResolvedValue([]);
@@ -299,6 +340,72 @@ describe("SalesScreen", () => {
     expect(within(dialog).getByText(/\$14\.50/)).toBeVisible();
     expect(api.checkoutSale).toHaveBeenCalledTimes(1);
     expect(completed).toHaveBeenCalledWith(sale);
+  });
+
+  it("conserva y recupera un cobro incierto con el mismo borrador después de navegar", async () => {
+    const { IpcError } = await import("../api");
+    api.checkoutSale
+      .mockRejectedValueOnce(new IpcError("unknown_error", "respuesta perdida"))
+      .mockResolvedValueOnce(sale);
+    const storageKey = pendingAttemptStorageKey("sale", owner);
+    render(<PersistentSalesAttemptHarness storageKey={storageKey} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+    await user.click(await screen.findByRole("button", { name: /^cobrar \$/i }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: /confirmar cobro/i }),
+    );
+
+    expect(await screen.findByRole("heading", { name: /cobro pendiente de confirmar/i })).toBeVisible();
+    const original = api.checkoutSale.mock.calls[0]?.[0];
+    expect(loadPendingAttempt(storageKey)?.payload).toEqual(original);
+
+    await user.click(screen.getByRole("button", { name: "Ir a Catálogo" }));
+    await user.click(screen.getByRole("button", { name: "Ir a Ventas" }));
+    expect(screen.getByRole("button", { name: /café americano, caf-001/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /recuperar cobro pendiente/i })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: /recuperar cobro pendiente/i }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: /^recuperar cobro$/i }),
+    );
+    await waitFor(() => expect(api.checkoutSale).toHaveBeenCalledTimes(2));
+    expect(api.checkoutSale.mock.calls[1]?.[0]).toEqual(original);
+    expect(await screen.findByText(/venta v-abc123/i)).toBeVisible();
+    expect(loadPendingAttempt(storageKey)).toBeNull();
+  });
+
+  it("recupera el cobro pendiente al iniciar una nueva aplicación", async () => {
+    const storageKey = pendingAttemptStorageKey("sale", owner);
+    const pending: PendingSaleAttempt = {
+      fingerprint: "checkout pendiente",
+      payload: {
+        shift_id: "sh-1",
+        idempotency_key: "sale-pending-1",
+        items: [
+          {
+            product_id: "p-1",
+            variant_id: null,
+            quantity: "1",
+            selected_option_ids: [],
+          },
+        ],
+        cash_received: "20.00",
+      },
+    };
+    savePendingAttempt(storageKey, pending);
+    render(<PersistentSalesAttemptHarness storageKey={storageKey} />);
+
+    expect(await screen.findByText(/hay un cobro pendiente de confirmar/i)).toBeVisible();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /recuperar cobro pendiente/i }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: /^recuperar cobro$/i }),
+    );
+
+    await waitFor(() => expect(api.checkoutSale).toHaveBeenCalledWith(pending.payload));
+    expect(loadPendingAttempt(storageKey)).toBeNull();
   });
 
   it("impide bajar la cantidad por debajo de uno", async () => {

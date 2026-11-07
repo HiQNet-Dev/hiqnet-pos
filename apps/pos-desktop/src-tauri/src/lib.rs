@@ -32,6 +32,10 @@ struct AppState {
     pool: sqlx::SqlitePool,
     service: PosService,
     session: RwLock<Option<Actor>>,
+    /// Se mantiene vivo mientras la aplicación corre: la restauración offline
+    /// se niega si otra instancia tiene la base bloqueada.
+    #[allow(dead_code)]
+    database_lock: pos_storage_sqlite::DatabaseLock,
 }
 
 #[derive(Debug, Serialize)]
@@ -657,8 +661,19 @@ pub fn run() {
                 .or_else(|| std::env::var_os("HIQNET_POS_DB_PATH").map(PathBuf::from))
                 .unwrap_or_else(pos_storage_sqlite::default_database_path);
 
-            let pool = tauri::async_runtime::block_on(pos_storage_sqlite::open(&db_path))
-                .map_err(|error| Box::<dyn std::error::Error>::from(error.to_string()))?;
+            let (pool, database_lock) =
+                tauri::async_runtime::block_on(pos_storage_sqlite::open_locked(&db_path)).map_err(
+                    |error| {
+                        let message = match error {
+                            pos_storage_sqlite::StorageError::DatabaseInUse => {
+                                "HiQNet POS ya está abierto en este equipo. Cierra la otra ventana antes de continuar."
+                                    .to_string()
+                            }
+                            other => other.to_string(),
+                        };
+                        Box::<dyn std::error::Error>::from(message)
+                    },
+                )?;
 
             let store: SharedStore = Arc::new(SqliteStore::new(pool.clone()));
             let hasher: SharedHasher = Arc::new(Argon2idHasher::new());
@@ -670,6 +685,7 @@ pub fn run() {
                 pool,
                 service,
                 session: RwLock::new(None),
+                database_lock,
             });
             Ok(())
         })

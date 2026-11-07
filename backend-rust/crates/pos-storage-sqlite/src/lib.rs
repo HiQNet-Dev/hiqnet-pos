@@ -10,10 +10,31 @@ use sqlx::{ConnectOptions, SqlitePool};
 use std::time::Duration;
 
 pub mod backup;
+pub mod lock;
 pub mod uow;
 
-pub use backup::{backup_to, restore_from_backup, verify_backup};
+pub use backup::{RestoreReport, backup_to, open_read_only, restore_from_backup, verify_backup};
+pub use lock::{DatabaseLock, lock_path, try_lock};
 pub use uow::SqliteStore;
+
+/// Abre la base manteniendo el bloqueo exclusivo del proceso.
+///
+/// La aplicación de escritorio debe conservar el guard mientras esté en
+/// ejecución: es lo que impide que la utilidad de restauración reemplace el
+/// archivo por debajo de una instancia abierta.
+pub async fn open_locked(
+    path: impl AsRef<Path>,
+) -> Result<(SqlitePool, DatabaseLock), StorageError> {
+    let path = path.as_ref();
+    let guard = lock::try_lock(path)?;
+    match open(path).await {
+        Ok(pool) => Ok((pool, guard)),
+        Err(error) => {
+            drop(guard);
+            Err(error)
+        }
+    }
+}
 
 /// Error propio del adaptador, sin filtrar detalles hacia la UI.
 #[derive(Debug, thiserror::Error)]
@@ -32,6 +53,39 @@ pub enum StorageError {
 
     #[error("no fue posible restaurar el respaldo")]
     Restore,
+
+    #[error("la base de datos pertenece a una versión más reciente de HiQNet POS")]
+    IncompatibleSchema,
+
+    #[error("la base de datos local está dañada")]
+    Corrupt,
+
+    #[error("cierra HiQNet POS antes de restaurar un respaldo")]
+    DatabaseInUse,
+
+    #[error(
+        "restauración incompleta: la base no pudo verificarse y tampoco se pudo volver al estado previo. Conserva estos archivos y contacta a soporte — base: {database}; copia de recuperación: {recovery}; temporal: {staged}"
+    )]
+    RestoreCritical {
+        database: String,
+        recovery: String,
+        staged: String,
+    },
+}
+
+/// Última versión de migración conocida por este ejecutable.
+pub fn latest_schema_version() -> i64 {
+    embedded_migrations()
+        .iter()
+        .map(|migration| migration.version)
+        .max()
+        .unwrap_or(0)
+}
+
+/// Migraciones embebidas en el binario. Son la referencia de checksum para
+/// validar respaldos e historiales de esquema.
+pub(crate) fn embedded_migrations() -> sqlx::migrate::Migrator {
+    sqlx::migrate!("../../migrations/local")
 }
 
 /// Abre (y crea si es necesario) la base local, aplica migraciones embebidas y
@@ -62,6 +116,33 @@ pub async fn open(path: impl AsRef<Path>) -> Result<SqlitePool, StorageError> {
             StorageError::Open
         })?;
 
+    // Detección temprana de corrupción: `quick_check` es barato frente a
+    // `integrity_check` y evita arrancar sobre un archivo dañado.
+    let verdict: String = sqlx::query_scalar("PRAGMA quick_check")
+        .fetch_one(&pool)
+        .await
+        .map_err(|error| {
+            tracing::error!(error = %error, "la base local no pudo verificarse");
+            StorageError::Corrupt
+        })?;
+    if verdict != "ok" {
+        tracing::error!(verdict = %verdict, "la base local está dañada");
+        return Err(StorageError::Corrupt);
+    }
+
+    // Rechazar una base creada por una versión posterior: revertir el ejecutable
+    // no revierte la base y las migraciones desconocidas no deben ignorarse.
+    if let Some(applied) = applied_schema_version(&pool).await?
+        && applied > latest_schema_version()
+    {
+        tracing::error!(
+            applied,
+            supported = latest_schema_version(),
+            "la base local usa un esquema más reciente"
+        );
+        return Err(StorageError::IncompatibleSchema);
+    }
+
     sqlx::migrate!("../../migrations/local")
         .run(&pool)
         .await
@@ -71,6 +152,22 @@ pub async fn open(path: impl AsRef<Path>) -> Result<SqlitePool, StorageError> {
         })?;
 
     Ok(pool)
+}
+
+async fn applied_schema_version(pool: &SqlitePool) -> Result<Option<i64>, StorageError> {
+    let exists: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '_sqlx_migrations'",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|_| StorageError::Corrupt)?;
+    if exists == 0 {
+        return Ok(None);
+    }
+    sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")
+        .fetch_one(pool)
+        .await
+        .map_err(|_| StorageError::Corrupt)
 }
 
 /// Ruta por defecto de la base local, fuera del repositorio.

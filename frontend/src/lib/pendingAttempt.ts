@@ -10,6 +10,7 @@ export interface PendingAttempt<T> {
   payload: T;
 }
 
+export type PendingSaleAttempt = PendingAttempt<import("../contracts").CheckoutDraft>;
 export type PendingExpenseAttempt = PendingAttempt<import("../contracts").ExpenseDraft>;
 export type PendingWasteAttempt = PendingAttempt<import("../contracts").WasteDraft>;
 export type PendingReturnAttempt = PendingAttempt<import("../contracts").SaleReturnDraft>;
@@ -19,7 +20,7 @@ export type PendingReturnAttempt = PendingAttempt<import("../contracts").SaleRet
  * organización o sucursal no recupera intentos de otra identidad.
  */
 export function pendingAttemptStorageKey(
-  kind: "expense" | "waste" | "return",
+  kind: "sale" | "expense" | "waste" | "return",
   actor: Actor,
 ): string {
   return `hiqnet.pending-${kind}.${actor.organization_id}.${actor.branch_id ?? "sin-sucursal"}.${actor.user_id}`;

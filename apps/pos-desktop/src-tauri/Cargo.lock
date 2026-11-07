@@ -2852,6 +2852,7 @@ name = "pos-storage-sqlite"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "libc",
  "pos-application",
  "pos-core",
  "serde",
@@ -2862,6 +2863,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
