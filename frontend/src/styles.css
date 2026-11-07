@@ -1653,14 +1653,20 @@ select {
   z-index: 60;
   display: grid;
   place-items: center;
+  /* Mantiene el diálogo dentro del viewport visible, también con teclado. */
+  align-items: center;
+  overflow: auto;
   padding: var(--space-5);
+  padding-bottom: max(var(--space-5), env(safe-area-inset-bottom));
   background: rgb(16 20 28 / 45%);
   animation: fade-in 120ms ease;
 }
 
 .modal {
   width: min(480px, 100%);
+  /* dvh refleja la altura visible con teclado virtual; vh queda como respaldo. */
   max-height: min(84vh, 760px);
+  max-height: min(84dvh, 760px);
   display: flex;
   flex-direction: column;
   background: var(--color-surface);
@@ -1679,6 +1685,7 @@ select {
 }
 
 .modal-header {
+  flex-shrink: 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -1694,6 +1701,7 @@ select {
 }
 
 .modal-body {
+  flex: 1 1 auto;
   padding: var(--space-4);
   display: grid;
   gap: var(--space-4);
@@ -1702,6 +1710,7 @@ select {
 }
 
 .modal-footer {
+  flex-shrink: 0;
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
