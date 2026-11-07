@@ -25,12 +25,15 @@ fn value_after(args: &[String], flag: &str) -> Option<String> {
 fn run_backup_cli(args: &[String]) {
     let database = value_after(args, "--database")
         .map(PathBuf::from)
-        .unwrap_or_else(pos_storage_sqlite::default_database_path);
+        .unwrap_or_else(pos_storage_sqlite::resolved_database_path);
 
     if args.iter().any(|value| value == "--help-backup") {
         println!("Uso:");
-        println!("  pos-desktop.exe --verify-backup <respaldo.db>");
-        println!("  pos-desktop.exe --restore-backup <respaldo.db> [--database <hiqnet-pos.db>]");
+        println!("  pos-desktop --verify-backup <respaldo.db>");
+        println!("  pos-desktop --restore-backup <respaldo.db> [--database <hiqnet-pos.db>]");
+        println!();
+        println!("Sin --database se usa {}.", database.display());
+        println!("En desarrollo y QA puede aislarse con la variable HIQNET_POS_DB_PATH.");
         println!();
         println!("Cierra HiQNet POS antes de restaurar. La restauración crea una copia");
         println!("de recuperación junto a la base actual.");
