@@ -44,6 +44,10 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+        with:
+          # cmdline-tools 16 ya no publica el paquete `tools`; el default de la
+          # acción intenta instalarlo y falla.
+          packages: "platform-tools"
       - name: Instalar NDK
         run: sdkmanager "ndk;${NDK_VERSION}" "platform-tools"
       - name: Toolchain fijado por rust-toolchain.toml
