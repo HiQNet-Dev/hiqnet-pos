@@ -42,7 +42,7 @@ debe bloquear PR de documentación o escritorio.
   - `required_status_checks` — los cinco checks de arriba, con
     `strict_required_status_checks_policy: true` (la rama debe estar al día).
   - `required_conversation_resolution: true`.
-  - `required_linear_history: true` (opcional; no impide squash).
+  - (no `required_linear_history`): compatible con merge commits.
 - `bypass_actors`: vacío. Si el propietario necesita emergencias, añadir solo su
   rol de administrador de forma explícita y temporal.
 - `enforcement: active`.
@@ -50,7 +50,8 @@ debe bloquear PR de documentación o escritorio.
 ## Ruleset para tags de release
 
 - Target: `refs/tags/pos-v*`.
-- Reglas: `deletion`, `update`, `creation`.
+- Reglas: `deletion`, `update`. No se incluye `creation`, para no
+  impedir tags autorizados sin un mecanismo de excepci�n definido.
 - Objetivo: que un tag publicado no se mueva ni se borre, y que solo los
   mantenedores creen tags.
 - Complementario: publicar el release desde un entorno protegido con revisores

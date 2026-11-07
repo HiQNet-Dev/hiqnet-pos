@@ -10,8 +10,7 @@
   },
   "rules": [
     { "type": "deletion" },
-    { "type": "update" },
-    { "type": "creation" }
+    { "type": "update" }
   ],
   "bypass_actors": []
 }

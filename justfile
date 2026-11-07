@@ -20,6 +20,9 @@ check-toolchain:
     node tools/check-toolchain.mjs
 
 # Verifica el toolchain y prepara las dependencias del frontend.
+check-rulesets:
+    node tools/check-rulesets.mjs
+
 setup: check-toolchain
     rustup show active-toolchain
     pnpm --dir frontend install --frozen-lockfile
@@ -54,7 +57,7 @@ test-e2e:
 test: test-rust test-frontend
 
 # Validación completa previa a un PR.
-check: check-toolchain lint-rust lint-frontend test
+check: check-toolchain check-rulesets lint-rust lint-frontend test
     pnpm --dir frontend run build
 
 # Ejecuta el POS en modo desarrollo.
