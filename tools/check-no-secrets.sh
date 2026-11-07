@@ -7,7 +7,7 @@ status=0
 
 # 1. Archivos que nunca deben versionarse.
 forbidden=$(git ls-files --cached --others --exclude-standard \
-  | grep -Ei '\.(db|db-wal|db-shm|sqlite|sqlite3|dump)$|^\.env$|^secrets/|^signing/|\.(pem|key|p12|pfx)$' || true)
+  | grep -Ei '\.(db|db-wal|db-shm|sqlite|sqlite3|dump)$|^\.env$|^secrets/|^signing/|\.(pem|key|p12|pfx|jks|keystore|apk|aab|idsig)$' || true)
 if [[ -n "${forbidden}" ]]; then
   echo "Archivos prohibidos detectados:"
   echo "${forbidden}"
