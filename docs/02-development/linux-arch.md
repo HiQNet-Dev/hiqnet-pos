@@ -45,13 +45,13 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup show          # instala el canal de rust-toolchain.toml
 ```
 
-Node 24 (elige un gestor de versiones; no dependas del Node del sistema):
+Node 24.18.0 (elige un gestor de versiones; no dependas del Node del sistema):
 
 ```bash
 # fnm
-fnm install 24 && fnm use
+fnm install 24.18.0 && fnm use
 # o mise
-mise install node@24 && mise use node@24
+mise install node@24.18.0 && mise use node@24.18.0
 ```
 
 pnpm:

@@ -89,7 +89,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Compilar aplicación de escritorio
         working-directory: apps/pos-desktop/src-tauri
-        run: pnpm dlx @tauri-apps/cli@2 build --debug --no-bundle
+        run: pnpm dlx @tauri-apps/cli@2.12.4 build --debug --no-bundle
 
   desktop-linux:
     name: Tauri Linux (compilación real)
@@ -134,7 +134,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Compilar aplicación de escritorio
         working-directory: apps/pos-desktop/src-tauri
-        run: pnpm dlx @tauri-apps/cli@2 build --debug --no-bundle
+        run: pnpm dlx @tauri-apps/cli@2.12.4 build --debug --no-bundle
       - name: Smoke nativo de la CLI offline
         working-directory: apps/pos-desktop/src-tauri
         run: ./target/debug/pos-desktop --help-backup

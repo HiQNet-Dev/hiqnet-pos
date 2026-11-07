@@ -15,7 +15,7 @@ nivel de prueba. Para arquitectura y reglas de negocio ver
 | Rust estático | `cd backend-rust && cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings` | Formato y lints del dominio, aplicación y persistencia |
 | Rust pruebas | `cd backend-rust && cargo test --workspace` | Reglas de negocio, migraciones, transacciones y auditoría con SQLite real |
 | E2E nativo Windows | `powershell -File tools/windows-native-e2e/run-e2e.ps1 -Script …` | Ejecutable real con WebView2, base SQLite aislada y capturas |
-| Compilación escritorio | `cd apps/pos-desktop/src-tauri && pnpm dlx @tauri-apps/cli@2 build --debug --no-bundle` | Que el paquete de escritorio se construya con el frontend vigente |
+| Compilación escritorio | `cd apps/pos-desktop/src-tauri && pnpm dlx @tauri-apps/cli@2.12.4 build --debug --no-bundle` | Que el paquete de escritorio se construya con el frontend vigente |
 | Compilación Linux | CI `desktop-linux` (Ubuntu 24.04 + WebKitGTK 4.1) | Que Tauri compile fuera de Windows |
 
 Los mismos niveles se agrupan en `just test`, `just check` y

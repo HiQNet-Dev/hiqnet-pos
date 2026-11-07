@@ -76,7 +76,7 @@ Para la app de escritorio:
 
 ```bash
 cd apps/pos-desktop/src-tauri
-pnpm dlx @tauri-apps/cli@2 build --debug --no-bundle
+pnpm dlx @tauri-apps/cli@2.12.4 build --debug --no-bundle
 ```
 
 ## Portabilidad

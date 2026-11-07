@@ -43,7 +43,7 @@ aprobar firma, custodia de claves y política de actualización.
 
 ```powershell
 cd apps/pos-desktop/src-tauri
-pnpm dlx @tauri-apps/cli@2 build --debug
+pnpm dlx @tauri-apps/cli@2.12.4 build --debug
 ```
 
 Genera `target/debug/bundle/nsis/HiQNet POS_0.1.0_x64-setup.exe`.

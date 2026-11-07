@@ -78,7 +78,7 @@ propio `build.rs`; los crates de negocio comparten un workspace distinto. Ver
 Comunes:
 
 - Rust 1.99.1 (fijado en `rust-toolchain.toml`).
-- Node.js 24 (`.node-version`; mínimo soportado 22) y pnpm 11.24.0.
+- Node.js 24.18.0 (`.node-version`; mínimo soportado 22) y pnpm 11.24.0.
 - Opcional: `just` para los comandos de `justfile`.
 
 Windows 10/11:
@@ -121,7 +121,7 @@ pnpm --dir frontend run test
 pnpm --dir frontend run build
 
 cd apps/pos-desktop/src-tauri
-pnpm dlx @tauri-apps/cli@2 dev
+pnpm dlx @tauri-apps/cli@2.12.4 dev
 ```
 
 La base local se crea fuera del repositorio:

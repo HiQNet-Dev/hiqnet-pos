@@ -7,15 +7,21 @@
 #              `sudo pacman -S just` (Arch/Omarchy),
 #              `brew install just` (macOS).
 
+# `just` usa `sh` por defecto; en Windows se fuerza cmd.exe para no depender de
+# Git Bash. En Linux/macOS `sh` está disponible por el sistema.
+set shell := ["sh", "-cu"]
+set windows-shell := ["cmd.exe", "/c"]
+
 default:
     @just --list
 
+# Verifica que Rust, Node, pnpm y el CLI de Tauri coincidan con lo fijado.
+check-toolchain:
+    node tools/check-toolchain.mjs
+
 # Verifica el toolchain y prepara las dependencias del frontend.
-setup:
+setup: check-toolchain
     rustup show active-toolchain
-    cargo --version
-    node --version
-    pnpm --version
     pnpm --dir frontend install --frozen-lockfile
     @echo "Entorno listo. Siguiente paso: just dev"
 
@@ -48,31 +54,31 @@ test-e2e:
 test: test-rust test-frontend
 
 # Validación completa previa a un PR.
-check: lint-rust lint-frontend test
+check: check-toolchain lint-rust lint-frontend test
     pnpm --dir frontend run build
 
 # Ejecuta el POS en modo desarrollo.
 dev:
-    cd apps/pos-desktop/src-tauri && pnpm dlx @tauri-apps/cli@2 dev
+    cd apps/pos-desktop/src-tauri && pnpm dlx @tauri-apps/cli@2.12.4 dev
 
 # Compila el escritorio sin empaquetar, útil como verificación rápida.
 build-desktop:
-    cd apps/pos-desktop/src-tauri && pnpm dlx @tauri-apps/cli@2 build --debug --no-bundle
+    cd apps/pos-desktop/src-tauri && pnpm dlx @tauri-apps/cli@2.12.4 build --debug --no-bundle
 
 # Construye el instalador NSIS. Requiere un host Windows.
 build-windows:
     @echo "{{ if os() == "windows" { "Host Windows detectado." } else { error("build-windows requiere un host Windows; host actual: " + os()) } }}"
-    cd apps/pos-desktop/src-tauri && pnpm dlx @tauri-apps/cli@2 build
+    cd apps/pos-desktop/src-tauri && pnpm dlx @tauri-apps/cli@2.12.4 build
 
 # Construye deb y AppImage. Requiere un host Linux con WebKitGTK 4.1.
 build-linux:
     @echo "{{ if os() == "linux" { "Host Linux detectado." } else { error("build-linux requiere un host Linux; host actual: " + os()) } }}"
-    cd apps/pos-desktop/src-tauri && pnpm dlx @tauri-apps/cli@2 build
+    cd apps/pos-desktop/src-tauri && pnpm dlx @tauri-apps/cli@2.12.4 build
 
 # Construye la APK ARM64. Requiere SDK/NDK y el target de Rust.
 build-android:
     @echo "{{ if env_var_or_default("ANDROID_HOME", env_var_or_default("ANDROID_SDK_ROOT", "")) == "" { error("Define ANDROID_HOME (o ANDROID_SDK_ROOT) antes de build-android.") } else { "SDK Android detectado." } }}"
-    cd apps/pos-desktop/src-tauri && pnpm dlx @tauri-apps/cli@2 android build --target aarch64 --apk
+    cd apps/pos-desktop/src-tauri && pnpm dlx @tauri-apps/cli@2.12.4 android build --target aarch64 --apk
 
 # Verifica que el árbol no contiene bases, secretos ni artefactos de firma.
 audit-repo:

@@ -88,11 +88,11 @@ jobs:
         working-directory: apps/pos-desktop/src-tauri
         run: |
           if [ ! -d gen/android ]; then
-            pnpm dlx @tauri-apps/cli@2 android init --ci --skip-targets-install
+            pnpm dlx @tauri-apps/cli@2.12.4 android init --ci --skip-targets-install
           fi
       - name: Compilar APK
         working-directory: apps/pos-desktop/src-tauri
-        run: pnpm dlx @tauri-apps/cli@2 android build --target aarch64 --apk --debug
+        run: pnpm dlx @tauri-apps/cli@2.12.4 android build --target aarch64 --apk --debug
       - name: Publicar evidencia
         uses: actions/upload-artifact@v4
         with:

@@ -86,7 +86,7 @@ jobs:
       - working-directory: frontend
         run: pnpm install --frozen-lockfile
       - working-directory: apps/pos-desktop/src-tauri
-        run: pnpm dlx @tauri-apps/cli@2 build
+        run: pnpm dlx @tauri-apps/cli@2.12.4 build
       - name: Subir artefactos
         uses: actions/upload-artifact@v4
         with:
@@ -135,7 +135,7 @@ jobs:
       - working-directory: frontend
         run: pnpm install --frozen-lockfile
       - working-directory: apps/pos-desktop/src-tauri
-        run: pnpm dlx @tauri-apps/cli@2 build
+        run: pnpm dlx @tauri-apps/cli@2.12.4 build
       - name: Subir artefactos
         uses: actions/upload-artifact@v4
         with:

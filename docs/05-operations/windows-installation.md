@@ -22,7 +22,7 @@ Se construye desde la raíz del repositorio con:
 
 ```powershell
 cd apps/pos-desktop/src-tauri
-pnpm dlx @tauri-apps/cli@2 build --bundles nsis
+pnpm dlx @tauri-apps/cli@2.12.4 build --bundles nsis
 ```
 
 El resultado queda en `target/release/bundle/nsis/`.

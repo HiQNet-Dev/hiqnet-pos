@@ -10,7 +10,7 @@ Soportado: Windows 10/11 x64 con WebView2 (incluido en Windows 11).
    el escritorio con C++* (toolchain MSVC y Windows SDK).
 3. **WebView2 Runtime**. En Windows 11 viene instalado; en Windows 10 puede
    requerir el bootstrapper oficial.
-4. **Node.js 24** (ver `.node-version`). Con fnm/mise/nvm:
+4. **Node.js 24.18.0** (ver `.node-version`). Con fnm/mise/nvm:
    `fnm use` o `nvm use`.
 5. **pnpm 11.24.0**: `corepack enable` o `npm install -g pnpm@11.24.0`.
 6. Opcional: **just** (`winget install Casey.Just`).
@@ -38,7 +38,7 @@ pnpm --dir frontend run lint
 pnpm --dir frontend run typecheck
 pnpm --dir frontend run test
 cd apps/pos-desktop/src-tauri
-pnpm dlx @tauri-apps/cli@2 dev
+pnpm dlx @tauri-apps/cli@2.12.4 dev
 ```
 
 ## Datos locales

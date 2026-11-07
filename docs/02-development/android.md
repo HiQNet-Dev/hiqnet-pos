@@ -38,7 +38,7 @@ Linux o cualquier host con SDK/NDK:
 ```bash
 just build-android
 # equivale a:
-# pnpm dlx @tauri-apps/cli@2 android build --target aarch64 --apk
+# pnpm dlx @tauri-apps/cli@2.12.4 android build --target aarch64 --apk
 ```
 
 `gen/android` es generado y está excluido de Git; `cargo tauri android init` se
