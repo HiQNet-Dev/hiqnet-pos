@@ -3,9 +3,10 @@
 Objetivo: que un checkout limpio compile, arranque y opere en Arch Linux sin
 pasos manuales no documentados.
 
-> **Estado:** los comandos de este documento están definidos y revisados, pero
-> la ejecución nativa completa (arranque, login, IPC, SQLite, venta,
-> backup/restore) **todavía no se ha validado en un host Arch real**. No se
+> **Estado:** los comandos de este documento están definidos y la compilación
+> equivalente ya está verde en CI (Ubuntu 24.04 + WebKitGTK 4.1, con smoke de la
+> CLI offline). La ejecución nativa completa en un host Arch real (arranque,
+> login, IPC, SQLite, venta, backup/restore) **todavía no se ha validado**. No se
 > declara Linux aprobado hasta completar esa lista.
 
 ## Prerrequisitos

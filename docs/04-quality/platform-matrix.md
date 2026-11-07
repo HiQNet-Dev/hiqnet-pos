@@ -12,7 +12,7 @@ WebKitGTK.
 | Plataforma | Desarrollo | Build | Operación | Nota |
 | --- | --- | --- | --- | --- |
 | Windows 10/11 x64 (WebView2) | VERIFICADO | VERIFICADO (NSIS) | VERIFICADO | Entorno histórico y de referencia |
-| Arch Linux / Omarchy | PARCIAL | PARCIAL (configurado) | PENDIENTE | Guía y CI definidos; falta ejecución nativa completa |
+| Arch Linux / Omarchy | PARCIAL | PARCIAL (CI verde; falta host Arch) | PENDIENTE | Guía y CI definidos; falta ejecución nativa completa |
 | Android ARM64 | PARCIAL | PARCIAL (APK debug) | PARCIAL | SAF y navegación requieren prueba en dispositivo |
 | macOS | BLOQUEADO | BLOQUEADO | BLOQUEADO | Sin decisión de producto ni validación |
 
@@ -26,7 +26,7 @@ WebKitGTK.
 | `pnpm lint` / `typecheck` / `vitest` / `build` | VERIFICADO | PENDIENTE (host) | Compartido | VERIFICADO (ubuntu) |
 | Playwright (navegador) | VERIFICADO | PENDIENTE (host) | N/A | No ejecutado en Actions |
 | E2E nativo Windows | VERIFICADO (manual) | N/A | N/A | No automatizado |
-| Compilación Tauri | VERIFICADO | PENDIENTE (primer CI) | PARCIAL | Linux añadido en CI |
+| Compilación Tauri | VERIFICADO | VERIFICADO (CI Ubuntu 24.04) | PARCIAL | `desktop-linux` verde con smoke de CLI |
 | APK ARM64 | VERIFICADO (manual) | PENDIENTE (host) | — | Workflow opt-in sin ejecutar |
 
 ## Rutas de datos
@@ -39,7 +39,8 @@ WebKitGTK.
 
 ## Pendiente para declarar Linux soportado
 
-1. Primera ejecución verde del job `desktop-linux` en CI.
+1. Ejecutar la compilación y el arranque en un host Arch real (la compilación
+   equivalente ya está verde en CI sobre Ubuntu 24.04).
 2. Arranque nativo en Arch (Wayland y X11) con login, IPC y SQLite.
 3. Flujo comercial representativo y backup/restore.
 4. Paquete `deb`/AppImage instalado en una máquina limpia.
