@@ -14,6 +14,7 @@ import {
   inventoryMovementSchema,
   productSchema,
   productPricePreviewSchema,
+  restorePreviewSchema,
   modifierConfigurationSchema,
   modifierGroupSchema,
   modifierOptionSchema,
@@ -33,6 +34,7 @@ import {
   type Product,
   type ProductDraft,
   type ProductPricePreview,
+  type RestorePreview,
   type InventoryMovement,
   type InventoryMovementDraft,
   type CashCloseShiftDraft,
@@ -311,4 +313,16 @@ export const api = {
     call<CommercialState>("commercial_state", undefined, commercialStateSchema),
 
   backupDatabase: () => call<string>("backup_database", undefined, z.string()),
+
+  safBackupAvailable: () => call<boolean>("saf_backup_available", undefined, z.boolean()),
+
+  exportSafBackup: () => call<boolean>("export_saf_backup", undefined, z.boolean()),
+
+  importSafBackup: () =>
+    call<RestorePreview | null>("import_saf_backup", undefined, restorePreviewSchema.nullable()),
+
+  scheduleSafRestore: () => call<null>("schedule_saf_restore", undefined, z.null()),
+
+  restoreStartupNotice: () =>
+    call<string | null>("restore_startup_notice", undefined, z.string().nullable()),
 };

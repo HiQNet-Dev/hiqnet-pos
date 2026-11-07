@@ -112,6 +112,12 @@ describe("CatalogScreen", () => {
     api.createModifierGroup.mockResolvedValue(group);
     api.createModifierOption.mockResolvedValue(option);
     api.assignProductCategory.mockResolvedValue(product);
+    api.previewProductPrice.mockResolvedValue({
+      unit_price: "12.50",
+      tax: "2.00",
+      public_unit_total: "14.50",
+      tax_rate_bp: 1600,
+    });
   });
 
   it("lista productos y muestra la configuración del seleccionado", async () => {

@@ -25,6 +25,7 @@ pos-security = { path = "../../../backend-rust/crates/pos-security" }
 pos-licensing = { path = "../../../backend-rust/crates/pos-licensing" }
 tauri = { version = "2", features = [] }
 tauri-plugin-updater = "2"
+tauri-plugin-saf-document = { path = "../../../plugins/tauri-plugin-saf-document" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }

@@ -13,7 +13,11 @@ pub mod backup;
 pub mod lock;
 pub mod uow;
 
-pub use backup::{RestoreReport, backup_to, open_read_only, restore_from_backup, verify_backup};
+pub use backup::{
+    PendingRestoreOutcome, RestorePreview, RestoreReport, backup_to, cleanup_saf_staging,
+    consume_pending_restore, open_read_only, preview_restore_candidate, restore_from_backup,
+    saf_workspace, schedule_pending_restore, verify_backup,
+};
 pub use lock::{DatabaseLock, lock_path, try_lock};
 pub use uow::SqliteStore;
 
@@ -37,7 +41,7 @@ pub async fn open_locked(
 }
 
 /// Error propio del adaptador, sin filtrar detalles hacia la UI.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum StorageError {
     #[error("no fue posible abrir la base de datos local")]
     Open,
@@ -56,6 +60,17 @@ pub enum StorageError {
 
     #[error("la base de datos pertenece a una versión más reciente de HiQNet POS")]
     IncompatibleSchema,
+
+    #[error("el respaldo pertenece a otra instalación u organización")]
+    RestoreIdentityMismatch,
+
+    #[error(
+        "no se puede restaurar este respaldo porque su estado de licencia requiere una verificación no disponible en HiQNet POS Local 0.1.0"
+    )]
+    RestoreLicensePolicy,
+
+    #[error("la recuperación pendiente no es válida o fue modificada")]
+    PendingRestore,
 
     #[error("la base de datos local está dañada")]
     Corrupt,

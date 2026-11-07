@@ -101,6 +101,11 @@ export const auditEventSchema = z.object({
   occurred_at: z.string(),
 });
 
+export const restorePreviewSchema = z.object({
+  backup_valid_until: z.string(),
+  preserves_commercial_state: z.boolean(),
+});
+
 export const ipcErrorSchema = z.object({
   code: z.string(),
   message: z.string(),
@@ -112,6 +117,7 @@ export type Actor = z.infer<typeof actorSchema>;
 export type BootstrapResult = z.infer<typeof bootstrapResultSchema>;
 export type Product = z.infer<typeof productSchema>;
 export type ProductPricePreview = z.infer<typeof productPricePreviewSchema>;
+export type RestorePreview = z.infer<typeof restorePreviewSchema>;
 export type Category = z.infer<typeof categorySchema>;
 export type CategoryDraft = z.infer<typeof categoryDraftSchema>;
 

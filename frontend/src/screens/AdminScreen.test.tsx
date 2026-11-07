@@ -10,6 +10,11 @@ const api = vi.hoisted(() => ({
   resetUserPassword: vi.fn(),
   listAuditEvents: vi.fn(),
   backupDatabase: vi.fn(),
+  safBackupAvailable: vi.fn(),
+  exportSafBackup: vi.fn(),
+  importSafBackup: vi.fn(),
+  scheduleSafRestore: vi.fn(),
+  restoreStartupNotice: vi.fn(),
 }));
 
 vi.mock("../api", () => ({
@@ -79,6 +84,8 @@ describe("AdminScreen · usuarios", () => {
     api.createUser.mockResolvedValue({ ...cashier, id: "u-3", username: "nuevo" });
     api.setUserActive.mockResolvedValue({ ...cashier, active: false });
     api.resetUserPassword.mockResolvedValue(null);
+    api.safBackupAvailable.mockResolvedValue(false);
+    api.restoreStartupNotice.mockResolvedValue(null);
   });
 
   it("lista las cuentas con rol y estado", async () => {
@@ -187,5 +194,31 @@ describe("AdminScreen · usuarios", () => {
     const fila = screen.getByText("Luis Cajero").closest("tr")!;
     expect(within(fila).getByRole("button", { name: /^contraseña$/i })).toBeDisabled();
     expect(within(fila).getByRole("button", { name: /^desactivar$/i })).toBeDisabled();
+  });
+
+  it("solo muestra SAF cuando Android lo informa disponible", async () => {
+    api.safBackupAvailable.mockResolvedValue(true);
+    renderScreen();
+
+    expect(await screen.findByRole("button", { name: /exportar respaldo/i })).toBeVisible();
+    expect(screen.getByRole("button", { name: /importar respaldo/i })).toBeVisible();
+  });
+
+  it("requiere confirmación antes de programar la restauración", async () => {
+    api.safBackupAvailable.mockResolvedValue(true);
+    api.importSafBackup.mockResolvedValue({
+      backup_valid_until: "2026-11-30T00:00:00Z",
+      preserves_commercial_state: true,
+    });
+    renderScreen();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /importar respaldo/i }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/datos posteriores/i)).toBeVisible();
+    expect(api.scheduleSafRestore).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("button", { name: /restaurar y reiniciar/i }));
+    await waitFor(() => expect(api.scheduleSafRestore).toHaveBeenCalledTimes(1));
   });
 });

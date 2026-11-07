@@ -2814,6 +2814,7 @@ dependencies = [
  "sqlx",
  "tauri",
  "tauri-build",
+ "tauri-plugin-saf-document",
  "tauri-plugin-updater",
  "time",
  "tokio",
@@ -2858,6 +2859,7 @@ dependencies = [
  "pos-core",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "thiserror 2.0.21",
  "time",
@@ -4327,6 +4329,16 @@ dependencies = [
  "serde_json",
  "tauri-utils",
  "walkdir",
+]
+
+[[package]]
+name = "tauri-plugin-saf-document"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

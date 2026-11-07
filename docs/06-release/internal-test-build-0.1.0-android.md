@@ -2,6 +2,14 @@
 
 Build interno de pruebas. **No es una release comercial** y no se publica.
 
+> El historial de artefactos se conserva abajo. La evidencia nueva de SAF vive en la rama
+> aislada `feat/android-saf-internal-backup`; no sustituye la aprobación de una APK firmada ni
+> una prueba instalada. Al verificar localmente el archivo histórico disponible
+> `hiqnet-pos-0.1.0-internal-arm64.signed.apk`, `apksigner` devolvió `DOES NOT VERIFY` / `Missing
+> META-INF/MANIFEST.MF`; ese archivo no se puede usar como prueba de continuidad del certificado.
+> El JKS histórico sigue fuera de Git, pero la firma queda bloqueada hasta que un operador aporte
+> la credencial mediante un canal seguro.
+
 ## Artefactos
 
 | Artefacto | ABI | Bytes | SHA-256 |
@@ -257,3 +265,191 @@ persistencia tras reinicio. La tarjeta de Ventas publica el precio al público
 
 **Android no se declara terminado por completo**: Back, navegación, modales y
 tecleado están verificados en emulador; SAF y hardware ARM64 siguen pendientes.
+
+## SAF en la rama aislada `feat/android-saf-internal-backup` (2026-11-06)
+
+Esta pasada no modifica `src-tauri/gen/android`: el transporte SAF vive en el plugin local
+versionado `plugins/tauri-plugin-saf-document` (Rust + Kotlin) y Rust conserva la autoridad sobre
+snapshots, validación, identidad, estado comercial y sustitución de la base.
+
+### Artefacto compilado
+
+| Artefacto | ABI | Bytes | SHA-256 |
+| --- | --- | ---: | --- |
+| `app-universal-release-unsigned.apk` | `arm64-v8a` | 12 057 633 | `6A02DAD9B741DEFAC4763D860ED4CBB27642D3B9628899870610D1F62782D023` |
+
+- `aapt2 dump badging` → `package=com.hiqnet.pos`, `versionName=0.1.0`,
+  `targetSdkVersion=37`, `native-code: 'arm64-v8a'`.
+- **Sin firma.** `apksigner` no puede verificarla; no es una entrega instalable.
+- El binario Windows de esta misma pasada se generó como NSIS:
+  `HiQNet POS_0.1.0_x64-setup.exe`, 3 918 388 bytes, SHA-256
+  `2DD5E0F6C02BD854C8CF3509D8C2345D55B9AF2D8659DEB8979D2F27BC502616`.
+
+### Verificación en emulador desechable
+
+AVD nuevo `hiqnet_saf_test` (Android 17, `x86_64`, 2560×1600 @ 320 dpi), creado desde
+`system-images;android-37.0;google_apis;x86_64`. La instalación firmada preexistente de
+`hiqnet_tablet` **no** se desinstaló ni se sobrescribió. La app de prueba usa la clave debug
+estándar solo en este AVD y no se publica.
+
+Ciclo ejecutado dos veces, con datos sintéticos y árbol de accesibilidad en cada paso:
+
+1. onboarding real y bootstrap;
+2. **Exportar respaldo** → selector `ACTION_CREATE_DOCUMENT` → `Downloads/hiqnet-pos-*.db`
+   (442 368 bytes). El temporal privado se eliminó después de escribir;
+3. el archivo se extrajo y se verificó con `pos-desktop.exe --verify-backup` → `resultado=OK`;
+4. se creó un producto posterior al respaldo;
+5. **Importar respaldo** → selector `ACTION_OPEN_DOCUMENT` → validación Rust → diálogo de
+   confirmación con vigencia y «Se conserva el estado vigente»;
+6. **Restaurar y reiniciar** → la app se cierra (sin `pid`),
+7. nuevo arranque en frío consume el marcador antes de abrir SQLite, exige login y muestra
+   «El respaldo se restauró correctamente.»;
+8. el producto posterior ya no existe y el Trial conserva su vencimiento.
+
+Casos adversariales en el mismo dispositivo:
+
+| Caso | Resultado | Detalle |
+| --- | --- | --- |
+| Archivo corrupto | PASS | «el respaldo no es válido»; app viva, sin reinicio |
+| `installation_id` ajeno | PASS | «el respaldo pertenece a otra instalación u organización» |
+| Temporales | PASS | export eliminado; import del ciclo 2 eliminado tras restaurar |
+| Abortos nativos | PASS | 0 `FORTIFY`, `Fatal signal`, `pthread_mutex_lock`, `panic` |
+
+Evidencia local en `.devkit/artifacts/android-saf/` (capturas `01`–`25` y árboles `ui-01`–`ui-32`).
+
+### Firma: BLOCKED
+
+El keystore histórico existe fuera del repositorio
+(`~/HiQNet-Internal-Test-5262880/android/keystore/hiqnet-test.jks`), pero esta sesión no dispone de
+la credencial autorizada y no se adivinan contraseñas. Comprobar el archivo histórico
+`hiqnet-pos-0.1.0-internal-arm64.signed.apk` con `apksigner` devolvió
+`DOES NOT VERIFY: Missing META-INF/MANIFEST.MF`, así que tampoco sirve para confirmar la
+continuidad del certificado. **No hay APK firmada de esta pasada.**
+
+### Estado por etapa
+
+- `ANDROID BUILD VALIDADO`: sí (release ARM64 sin firmar).
+- `ANDROID FIRMA VALIDADA`: **no** (BLOCKED).
+- `ANDROID E2E EMULADOR APROBADO`: sí, sobre el build de depuración instalado en el AVD aislado.
+- `ANDROID BACKUP/RESTORE SAF APROBADO`: sí en emulador; no en APK firmada de distribución.
+- `ANDROID HARDWARE ARM64 PENDIENTE`: sí.
+
+## Bloqueos restantes
+
+- Firma interna v2/v3: requiere la contraseña del JKS por un canal seguro.
+- Hardware ARM64 físico: sin dispositivo disponible.
+- SAF en la APK firmada: depende de la firma y de una instalación autorizada.
+- Scroll Android con desbordamiento real en dispositivo: no forzado.
+
+## Cierre de firma, release E2E y actualización (2026-11-06)
+
+### Firma interna recuperada
+
+El keystore histórico se usó **sin copiarlo al repositorio** y sin imprimir la contraseña. El APK
+final verifica con esquemas **v2 y v3** y certificado
+`CN=HiQNet Internal Test, OU=QA, O=HiQNet`, SHA-256
+`3A522CD050CF0728268F71855521CBAF2718CC88123D1EF5E1153FD0619EA072`.
+
+| Artefacto | ABI | Bytes | SHA-256 |
+| --- | --- | ---: | --- |
+| `hiqnet-pos-0.1.0-internal-arm64.apk` | `arm64-v8a` | 12 122 640 | `82AD7A9163594B0FEB1E55A1C7C9503DD9112C463D16052A087DD4C7ED08E32F` |
+| `hiqnet-pos-0.1.0-internal-x86_64-emulador.apk` (solo actualización en AVD) | `x86_64` | 12 970 509 | `04EDE9A6C21E1B4BDC600E3B55E14C49611DA851DA2BE2E5E513243DDFBF9F0B` |
+| `hiqnet-pos-0.1.0-avd-test-x86_64.apk` (clave aislada, no entregable) | `x86_64` | 12 970 511 | `6275C09B05D98DE39F838FBB5B8942321B83DAD18E3F28F03DA0F140C1570E03` |
+
+`zipalign -c -p 4` pasa y `aapt2` confirma `native-code: 'arm64-v8a'` y `targetSdk 37`. La APK
+ARM64 se ubica en `~/HiQNet-Internal-Test-saf/android/` junto con los dos artefactos de emulador.
+El NSIS de esta misma pasada es `HiQNet POS_0.1.0_x64-setup.exe`, 3 918 937 bytes, SHA-256
+`81989E2133E7821F121EBE9AAD7D8F0E53778A2885AB687D848A37159A8B5BCC`.
+
+Procedimiento: `tools/android/sign-internal-apk.ps1`. Solicita la contraseña con `SecureString`,
+la expone solo en variables de entorno del proceso, firma con `--v2-signing-enabled` y
+`--v3-signing-enabled`, y falla si el SHA-256 del certificado no coincide con el histórico.
+
+> La contraseña del keystore se rotó tras la exposición: storepass y keypass son distintos y
+> viven en `%LOCALAPPDATA%\HiQNet\credentials\internal-keystore.clixml` protegidos por DPAPI.
+> `LEEME.txt` ya no contiene contraseñas. El par de claves y el certificado no cambiaron.
+
+### E2E sobre APK release (AVD desechable)
+
+AVD `hiqnet_saf_test`, Android 17, `x86_64`, 2560×1600. La APK de E2E se firmó con una identidad
+**aislada** (`CN=HiQNet AVD Test`), distinta de la interna, para no confundirla con una entrega.
+
+| Paso | Resultado |
+| --- | --- |
+| Instalación limpia y arranque en frío | PASS (967 ms) |
+| Onboarding y bootstrap | PASS |
+| Cierre de sesión y login | PASS |
+| Categoría y producto | PASS (CAF-001) |
+| Precio público con IVA | PASS ($11.60; IVA $1.60) |
+| Entrada de existencias | PASS (20) |
+| Caja y turno con fondo inicial | PASS ($100.00) |
+| Venta en efectivo | PASS (folio V-D4C85A24F4; total $11.60; cambio $8.40 con $20.00) |
+| Persistencia tras `force-stop` | PASS (venta en auditoría) |
+| Exportación SAF | PASS (442 368 bytes; `--verify-backup` → `resultado=OK`) |
+| Importación + reinicio | PASS (aviso correcto; producto posterior revertido) |
+| Integridad y Trial | PASS (`integrity_check=ok`, mismo vencimiento) |
+| Back en modal y en raíz | PASS (cierra solo el modal; el proceso sigue vivo) |
+| Teclado virtual | PASS (campo visible; Back oculta el IME y conserva el modal) |
+| Scroll con desbordamiento real | PASS (61 productos; «Producto 60» visible y agregado al ticket) |
+| Suspensión y reanudación | PASS (ticket conservado) |
+| Operación sin Internet | PASS (Wi-Fi y datos desactivados; login y catálogo locales) |
+| Abortos nativos | PASS (0 `FORTIFY`/`Fatal signal`/`panic`) |
+
+### Actualización entre APK
+
+La APK histórica `hiqnet-pos-0.1.0-internal-x86_64-emulador.apk` (commit `5262880`) **sí** verifica
+con el certificado interno. Sobre el mismo AVD se instaló esa versión, se creó el producto
+`UPD-001` y se aplicó la nueva APK con `adb install -r`, sin desinstalar.
+
+| Comprobación | Resultado |
+| --- | --- |
+| Instalación de actualización con la misma clave | PASS (`Success`) |
+| Datos previos | PASS (UPD-001 conserva nombre y SKU) |
+| Nuevo precio público | PASS ($14.50 para 12.50 + 16 %) |
+| Migraciones tras actualizar | PASS (11/11, `max=11`) |
+| Integridad y claves foráneas | PASS (`integrity_check=ok`, 0 violaciones) |
+| SAF tras actualizar | PASS (exportación y verificación) |
+
+### Concurrencia y robustez del plugin
+
+Se corrigieron riesgos reproducibles en `SafDocumentPlugin`:
+
+- el turno se mantiene tomado hasta terminar la copia (antes se liberaba al volver del selector);
+- executor compartido y daemon, sin acumular hilos al recrear la Activity;
+- `ContentResolver` del contexto de aplicación, no de la Activity que abrió el selector;
+- excepción al abrir el selector capturada y traducida a error recuperable;
+- copia en streaming con tope de 512 MiB, sin cargar el archivo en memoria;
+- borrado best-effort del documento parcial si la escritura falla;
+- respuestas ignoradas si el proceso ya no escucha.
+
+Cubierto por 7 pruebas JVM (`OperationGateTest`, `DocumentIoTest`) ejecutadas con
+`:tauri-plugin-saf-document:testDebugUnitTest`.
+
+### Instalador Windows en Sandbox (esta pasada)
+
+Ejecución aislada en Windows Sandbox con la red activa solo durante la instalación (para que el
+instalador obtenga WebView2) y desactivada antes del arranque:
+
+| Comprobación | Resultado |
+| --- | --- |
+| Instalación silenciosa desde cero | PASS (`install_exit=0`) |
+| Archivos, desinstalador y versión `0.1.0` | PASS |
+| Arranque offline | PASS |
+| Base creada | PASS (11 migraciones, `ok`, 0 FK) |
+| Desinstalación | PASS (programa eliminado) |
+| Datos tras desinstalar y reinstalar | PASS (conservados) |
+| Firma de editor | `NotSigned` (declarado) |
+
+No se modificó la instalación real del host. Un rebuild desde el árbol congelado y la nueva
+contraseña produjo exactamente los mismos SHA-256, lo que confirma el build reproducible.
+
+El informe completo está en `docs/04-quality/internal-pilot-acceptance-0.1.0.md`.
+
+### Estado por etapa (esta pasada)
+
+- `ANDROID BUILD VALIDADO`: sí (release ARM64 y x86_64).
+- `ANDROID FIRMA VALIDADA`: sí, v2/v3 con el certificado histórico.
+- `ANDROID E2E EMULADOR APROBADO`: sí, sobre APK **release**.
+- `ANDROID BACKUP/RESTORE SAF APROBADO`: sí en release sobre AVD.
+- `ACTUALIZACIÓN DE APK PRESERVANDO DATOS`: sí en emulador `x86_64`.
+- `ANDROID HARDWARE ARM64 PENDIENTE`: sí; no se declara validación física.
