@@ -909,7 +909,8 @@ pub fn run() {
             #[cfg(not(target_os = "android"))]
             let db_path = automation_database_path()
                 .or_else(pos_storage_sqlite::database_path_from_env)
-                .unwrap_or_else(pos_storage_sqlite::default_database_path);
+                .map(Ok)
+                .unwrap_or_else(pos_storage_sqlite::default_database_path)?;
 
             let restore_notice = match tauri::async_runtime::block_on(
                 pos_storage_sqlite::consume_pending_restore(&db_path),

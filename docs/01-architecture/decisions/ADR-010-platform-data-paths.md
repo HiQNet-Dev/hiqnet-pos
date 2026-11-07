@@ -28,8 +28,9 @@ Reglas:
 
 1. `HIQNET_POS_DB_PATH` tiene prioridad y se comparte entre aplicación y CLI.
 2. `XDG_DATA_HOME` relativo se ignora, como exige la especificación XDG.
-3. Si falta el directorio base se usa el temporal: la app arranca y nunca
-   escribe dentro del repositorio.
+3. Si falta el directorio persistente se aborta el arranque con un diagnóstico;
+   nunca se crea una base definitiva en el directorio temporal. `HIQNET_POS_DB_PATH`
+   sigue siendo la salida explícita para desarrollo, QA y casos de recuperación.
 4. Windows no cambia de ubicación; no se migran bases existentes.
 5. La automatización de escritorio conserva su ruta explícita por encima de la
    variable de entorno.

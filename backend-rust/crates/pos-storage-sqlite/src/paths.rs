@@ -4,12 +4,25 @@
 //! respaldo/restauración, las pruebas y los instaladores. Windows conserva la
 //! ubicación histórica; Linux respeta XDG; Android resuelve su almacenamiento
 //! privado desde Tauri y no pasa por aquí.
+//!
+//! Si no se puede determinar un directorio persistente se devuelve un error en
+//! lugar de crear una base definitiva en el directorio temporal.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 /// Variable de entorno para aislar la base en desarrollo y QA.
 pub const DATABASE_PATH_ENV: &str = "HIQNET_POS_DB_PATH";
+
+/// No existe un directorio persistente fiable para la base.
+#[derive(Debug, thiserror::Error)]
+pub enum DatabasePathError {
+    #[error(
+        "No se pudo determinar un directorio de datos persistente para la base ({platform}). \
+         Define HIQNET_POS_DB_PATH o corrige las variables de entorno del usuario."
+    )]
+    NoPersistentDataDirectory { platform: &'static str },
+}
 
 /// Plataforma lógica usada al resolver la ruta.
 ///
@@ -42,6 +55,15 @@ impl HostPlatform {
             Self::Other
         }
     }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Windows => "windows",
+            Self::Linux => "linux",
+            Self::MacOs => "macos",
+            Self::Other => "plataforma no soportada",
+        }
+    }
 }
 
 /// Ruta por defecto de la base local, fuera del repositorio.
@@ -51,14 +73,10 @@ impl HostPlatform {
 ///   `~/.local/share/hiqnet-pos/data/hiqnet-pos.db`.
 /// - macOS: `~/Library/Application Support/hiqnet-pos/data/hiqnet-pos.db`.
 ///
-/// Si la variable de plataforma no existe se usa el directorio temporal, que
-/// mantiene la aplicación arrancable sin escribir dentro del repositorio.
-pub fn default_database_path() -> PathBuf {
-    resolve_default_database_path(
-        HostPlatform::current(),
-        |name| std::env::var_os(name),
-        std::env::temp_dir(),
-    )
+/// Nunca cae al directorio temporal: una instalación operativa debe abortar con
+/// un diagnóstico si el sistema no ofrece un directorio persistente.
+pub fn default_database_path() -> Result<PathBuf, DatabasePathError> {
+    resolve_default_database_path(HostPlatform::current(), |name| std::env::var_os(name))
 }
 
 /// Base indicada por [`DATABASE_PATH_ENV`], si define una ruta no vacía.
@@ -70,53 +88,57 @@ pub fn database_path_from_env() -> Option<PathBuf> {
 ///
 /// El orden es: variable de entorno explícita y, si no existe, la ruta de la
 /// plataforma. La automatización de escritorio antepone su propia ruta.
-pub fn resolved_database_path() -> PathBuf {
-    database_path_from_env().unwrap_or_else(default_database_path)
+pub fn resolved_database_path() -> Result<PathBuf, DatabasePathError> {
+    match database_path_from_env() {
+        Some(path) => Ok(path),
+        None => default_database_path(),
+    }
 }
 
-fn resolve_default_database_path<F>(platform: HostPlatform, env: F, temp_dir: PathBuf) -> PathBuf
+fn resolve_default_database_path<F>(
+    platform: HostPlatform,
+    env: F,
+) -> Result<PathBuf, DatabasePathError>
 where
     F: Fn(&str) -> Option<OsString>,
 {
-    match platform {
+    let missing = || DatabasePathError::NoPersistentDataDirectory {
+        platform: platform.as_str(),
+    };
+
+    let base = match platform {
         HostPlatform::Windows => {
-            let base = non_empty(env("LOCALAPPDATA"))
-                .or_else(|| non_empty(env("USERPROFILE")))
-                .map(PathBuf::from)
-                .unwrap_or_else(|| temp_dir.clone());
+            let base = absolute_dir(env("LOCALAPPDATA"))
+                .or_else(|| absolute_dir(env("USERPROFILE")))
+                .ok_or_else(missing)?;
             // Ruta histórica: no debe cambiar para no perder bases existentes.
-            base.join("HiQNet")
+            return Ok(base
+                .join("HiQNet")
                 .join("POS")
                 .join("data")
-                .join("hiqnet-pos.db")
+                .join("hiqnet-pos.db"));
         }
-        HostPlatform::Linux => {
-            let base = absolute_path(env("XDG_DATA_HOME"))
-                .or_else(|| {
-                    non_empty(env("HOME")).map(|home| PathBuf::from(home).join(".local/share"))
-                })
-                .unwrap_or_else(|| temp_dir.clone());
-            base.join("hiqnet-pos").join("data").join("hiqnet-pos.db")
-        }
-        HostPlatform::MacOs => {
-            let base = non_empty(env("HOME"))
-                .map(|home| PathBuf::from(home).join("Library/Application Support"))
-                .unwrap_or_else(|| temp_dir.clone());
-            base.join("hiqnet-pos").join("data").join("hiqnet-pos.db")
-        }
-        HostPlatform::Other => temp_dir
-            .join("hiqnet-pos")
-            .join("data")
-            .join("hiqnet-pos.db"),
-    }
+        HostPlatform::Linux => absolute_dir(env("XDG_DATA_HOME"))
+            .or_else(|| absolute_dir(env("HOME")).map(|home| home.join(".local/share")))
+            .ok_or_else(missing)?,
+        HostPlatform::MacOs => absolute_dir(env("HOME"))
+            .map(|home| home.join("Library/Application Support"))
+            .ok_or_else(missing)?,
+        HostPlatform::Other => return Err(missing()),
+    };
+
+    Ok(base.join("hiqnet-pos").join("data").join("hiqnet-pos.db"))
 }
 
 fn non_empty(value: Option<OsString>) -> Option<OsString> {
     value.filter(|value| !value.is_empty())
 }
 
-/// La especificación XDG ignora rutas relativas en `XDG_DATA_HOME`.
-fn absolute_path(value: Option<OsString>) -> Option<PathBuf> {
+/// Directorio absoluto utilizable como raíz de datos.
+///
+/// La especificación XDG ignora rutas relativas; se aplica el mismo criterio a
+/// las demás plataformas para no escribir la base dentro del directorio actual.
+fn absolute_dir(value: Option<OsString>) -> Option<PathBuf> {
     non_empty(value)
         .map(PathBuf::from)
         .filter(|path| path.is_absolute() && path != Path::new("/"))
@@ -127,21 +149,53 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    fn resolver(platform: HostPlatform, vars: &[(&str, &str)], temp: &str) -> PathBuf {
+    fn resolver(
+        platform: HostPlatform,
+        vars: &[(&str, &str)],
+    ) -> Result<PathBuf, DatabasePathError> {
         let map: HashMap<String, OsString> = vars
             .iter()
             .map(|(key, value)| ((*key).to_string(), OsString::from(value)))
             .collect();
-        resolve_default_database_path(platform, |name| map.get(name).cloned(), PathBuf::from(temp))
+        resolve_default_database_path(platform, |name| map.get(name).cloned())
+    }
+
+    fn dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(name)
+    }
+
+    fn expect_error(result: Result<PathBuf, DatabasePathError>) -> DatabasePathError {
+        match result {
+            Ok(path) => panic!("se esperaba error de ruta, se obtuvo {path:?}"),
+            Err(error) => error,
+        }
     }
 
     #[test]
-    fn windows_conserva_la_ruta_historica() {
+    fn windows_conserva_la_estructura_historica() {
+        let base = dir("hiqnet-localappdata");
+        let path = resolver(
+            HostPlatform::Windows,
+            &[("LOCALAPPDATA", &base.to_string_lossy())],
+        )
+        .expect("LOCALAPPDATA absoluto");
+        assert_eq!(
+            path,
+            base.join("HiQNet")
+                .join("POS")
+                .join("data")
+                .join("hiqnet-pos.db")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_ruta_literal_historica() {
         let path = resolver(
             HostPlatform::Windows,
             &[("LOCALAPPDATA", r"C:\Users\ana\AppData\Local")],
-            r"C:\Temp",
-        );
+        )
+        .expect("ruta Windows válida");
         assert_eq!(
             path,
             PathBuf::from(r"C:\Users\ana\AppData\Local")
@@ -153,26 +207,28 @@ mod tests {
     }
 
     #[test]
-    fn windows_cae_al_perfil_y_luego_al_temporal() {
-        let perfil = resolver(
-            HostPlatform::Windows,
-            &[("USERPROFILE", r"C:\Users\ana")],
-            r"C:\Temp",
-        );
-        assert!(perfil.starts_with(PathBuf::from(r"C:\Users\ana")));
+    fn windows_sin_directorio_persistente_falla() {
+        let error = expect_error(resolver(HostPlatform::Windows, &[]));
+        assert!(error.to_string().contains("HIQNET_POS_DB_PATH"));
+    }
 
-        let temporal = resolver(HostPlatform::Windows, &[], r"C:\Temp");
-        assert!(temporal.starts_with(PathBuf::from(r"C:\Temp")));
+    #[test]
+    fn windows_ignora_rutas_relativas() {
+        let error = expect_error(resolver(
+            HostPlatform::Windows,
+            &[("LOCALAPPDATA", "datos-relativos")],
+        ));
+        let _ = error;
     }
 
     #[test]
     fn linux_usa_xdg_data_home_absoluto() {
-        let xdg = std::env::temp_dir().join("hiqnet-xdg-data");
+        let xdg = dir("hiqnet-xdg-data");
         let path = resolver(
             HostPlatform::Linux,
             &[("XDG_DATA_HOME", &xdg.to_string_lossy())],
-            "/tmp",
-        );
+        )
+        .expect("XDG absoluto");
         assert_eq!(
             path,
             xdg.join("hiqnet-pos").join("data").join("hiqnet-pos.db")
@@ -181,15 +237,15 @@ mod tests {
 
     #[test]
     fn linux_ignora_xdg_relativo_y_prefiere_home() {
-        let home = std::env::temp_dir().join("hiqnet-home");
+        let home = dir("hiqnet-home");
         let path = resolver(
             HostPlatform::Linux,
             &[
                 ("XDG_DATA_HOME", "datos-relativos"),
                 ("HOME", &home.to_string_lossy()),
             ],
-            "/tmp",
-        );
+        )
+        .expect("HOME absoluto");
         assert_eq!(
             path,
             home.join(".local")
@@ -201,23 +257,19 @@ mod tests {
     }
 
     #[test]
-    fn linux_sin_home_usa_el_temporal() {
-        let temp = std::env::temp_dir().join("hiqnet-temp-linux");
-        let path = resolver(HostPlatform::Linux, &[], &temp.to_string_lossy());
-        assert_eq!(
-            path,
-            temp.join("hiqnet-pos").join("data").join("hiqnet-pos.db")
-        );
+    fn linux_sin_directorio_persistente_falla_sin_usar_temporal() {
+        let error = expect_error(resolver(HostPlatform::Linux, &[]));
+        assert!(matches!(
+            error,
+            DatabasePathError::NoPersistentDataDirectory { platform: "linux" }
+        ));
     }
 
     #[test]
     fn macos_usa_application_support() {
-        let home = std::env::temp_dir().join("hiqnet-home-macos");
-        let path = resolver(
-            HostPlatform::MacOs,
-            &[("HOME", &home.to_string_lossy())],
-            "/tmp",
-        );
+        let home = dir("hiqnet-home-macos");
+        let path = resolver(HostPlatform::MacOs, &[("HOME", &home.to_string_lossy())])
+            .expect("HOME absoluto");
         assert_eq!(
             path,
             home.join("Library")
@@ -229,20 +281,24 @@ mod tests {
     }
 
     #[test]
-    fn plataforma_desconocida_no_escribe_en_el_repositorio() {
-        let temp = std::env::temp_dir().join("hiqnet-temp-other");
-        let home = std::env::temp_dir().join("hiqnet-home-other");
-        let path = resolver(
+    fn macos_sin_home_falla() {
+        let _ = expect_error(resolver(HostPlatform::MacOs, &[("HOME", "")]));
+    }
+
+    #[test]
+    fn plataforma_desconocida_falla() {
+        let error = expect_error(resolver(
             HostPlatform::Other,
-            &[("HOME", &home.to_string_lossy())],
-            &temp.to_string_lossy(),
-        );
-        assert!(path.starts_with(&temp));
+            &[("HOME", &dir("hiqnet-home-other").to_string_lossy())],
+        ));
+        assert!(matches!(
+            error,
+            DatabasePathError::NoPersistentDataDirectory { .. }
+        ));
     }
 
     #[test]
     fn la_variable_de_entorno_no_vacia_gana_sobre_la_plataforma() {
-        // Se prueba el contrato de `non_empty`, que es la base del override.
         assert_eq!(non_empty(Some(OsString::from(""))), None);
         assert_eq!(
             non_empty(Some(OsString::from("/datos/qa.db"))),
@@ -251,12 +307,16 @@ mod tests {
     }
 
     #[test]
-    fn la_ruta_por_defecto_no_vive_dentro_del_repositorio() {
-        let path = default_database_path();
+    fn la_ruta_por_defecto_no_usa_el_directorio_temporal() {
+        let path = default_database_path().expect("este host tiene directorio persistente");
         assert!(
             path.is_absolute(),
             "la base debe resolverse absoluta: {path:?}"
         );
         assert!(path.ends_with("hiqnet-pos.db"));
+        assert!(
+            !path.starts_with(std::env::temp_dir()),
+            "la base no debe resolverse en el temporal: {path:?}"
+        );
     }
 }

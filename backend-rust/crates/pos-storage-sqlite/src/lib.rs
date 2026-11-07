@@ -21,8 +21,8 @@ pub use backup::{
 };
 pub use lock::{DatabaseLock, lock_path, try_lock};
 pub use paths::{
-    DATABASE_PATH_ENV, HostPlatform, database_path_from_env, default_database_path,
-    resolved_database_path,
+    DATABASE_PATH_ENV, DatabasePathError, HostPlatform, database_path_from_env,
+    default_database_path, resolved_database_path,
 };
 pub use uow::SqliteStore;
 
