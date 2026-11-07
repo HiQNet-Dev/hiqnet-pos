@@ -1,13 +1,14 @@
 # Protección de `main` y tags de release — propuesta
 
 > **No aplicado.** Requiere autorización del propietario y permisos de
-> administración del repositorio. Verificado hoy: `main` **no está protegida**
-> (`GET /branches/main/protection` → 404), por lo que nada impide push directo,
+> administración del repositorio. Verificado el 2026-11-07 tras integrar
+> #17–#22: `main` **sigue sin protección** (`GET /branches/main/protection` →
+> 404) y no hay rulesets (`GET /rulesets` → `[]`). Nada impide push directo,
 > force push o borrado.
 
 ## Estado actual del repositorio
 
-- `main`: sin protección.
+- `main`: sin protección; CI verde en `455718f` con los cinco jobs.
 - Tags: sin ruleset; `pos-v*` dispara el workflow de release.
 - Permisos de workflows: `contents: read` en CI; `contents: write` solo en
   release.
@@ -16,7 +17,8 @@
 
 ## Checks obligatorios propuestos
 
-Deben existir en `main` antes de exigirlos. Tras fusionar #22 existirán todos.
+Ya existen en `main` (CI verde en `455718f`), así que pueden exigirse sin dejar
+PR bloqueados por un check inexistente.
 
 | Check | Workflow |
 | --- | --- |
@@ -57,7 +59,7 @@ debe bloquear PR de documentación o escritorio.
 ## Aplicación (cuando se autorice)
 
 ```bash
-# Tras fusionar #22 y comprobar que los checks existen en main
+# Los checks ya existen en main; no hace falta esperar a otro merge
 gh api --method POST repos/HiQNet-Dev/hiqnet-pos/rulesets \
   --input docs/07-maintenance/ruleset-main.json
 
