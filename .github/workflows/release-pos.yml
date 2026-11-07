@@ -28,21 +28,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Toolchain fijado por rust-toolchain.toml
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel=$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' rust-toolchain.toml)
+          test -n "$channel" || { echo "::error::rust-toolchain.toml no declara channel"; exit 1; }
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
+          rustup override set "$channel"
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend-rust
       - run: cargo fmt --manifest-path backend-rust/Cargo.toml --all -- --check
-      - run: cargo clippy --manifest-path backend-rust/Cargo.toml --workspace --all-targets -- -D warnings
-      - run: cargo test --manifest-path backend-rust/Cargo.toml --workspace
+      - run: cargo clippy --locked --manifest-path backend-rust/Cargo.toml --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path backend-rust/Cargo.toml --workspace
       - uses: pnpm/action-setup@v4
         with:
           version: 11.24.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - working-directory: frontend
@@ -59,7 +64,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Toolchain fijado por rust-toolchain.toml
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel=$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' rust-toolchain.toml)
+          test -n "$channel" || { echo "::error::rust-toolchain.toml no declara channel"; exit 1; }
+          rustup toolchain install "$channel" --profile minimal
+          rustup override set "$channel"
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/pos-desktop/src-tauri
@@ -68,13 +80,13 @@ jobs:
           version: 11.24.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - working-directory: frontend
         run: pnpm install --frozen-lockfile
       - working-directory: apps/pos-desktop/src-tauri
-        run: pnpm dlx @tauri-apps/cli@2 build
+        run: pnpm dlx @tauri-apps/cli@2.12.4 build
       - name: Subir artefactos
         uses: actions/upload-artifact@v4
         with:
@@ -82,16 +94,66 @@ jobs:
           path: apps/pos-desktop/src-tauri/target/release/bundle/**
           retention-days: 30
 
+  build-linux:
+    name: Paquetes Linux (deb/AppImage)
+    needs: validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencias de Tauri 2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            libayatana-appindicator3-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential \
+            file \
+            patchelf
+      - name: Toolchain fijado por rust-toolchain.toml
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel=$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' rust-toolchain.toml)
+          test -n "$channel" || { echo "::error::rust-toolchain.toml no declara channel"; exit 1; }
+          rustup toolchain install "$channel" --profile minimal
+          rustup override set "$channel"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/pos-desktop/src-tauri
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - working-directory: apps/pos-desktop/src-tauri
+        run: pnpm dlx @tauri-apps/cli@2.12.4 build
+      - name: Subir artefactos
+        uses: actions/upload-artifact@v4
+        with:
+          name: hiqnet-pos-linux
+          path: |
+            apps/pos-desktop/src-tauri/target/release/bundle/deb/**
+            apps/pos-desktop/src-tauri/target/release/bundle/appimage/**
+          retention-days: 30
+
   release:
     name: Publicar GitHub Release
-    needs: [validate, build-windows]
+    needs: [validate, build-windows, build-linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Descargar artefactos
         uses: actions/download-artifact@v4
         with:
-          name: hiqnet-pos-windows
           path: artifacts
       - name: Calcular hashes
         run: |
@@ -106,5 +168,5 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           files: |
-            artifacts/**
+            artifacts/**/*
             SHA256SUMS.txt

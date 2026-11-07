@@ -16,6 +16,10 @@ Reglas para agentes automatizados que trabajan en este repositorio. Complementan
 6. No commitees ni hagas push a `main` sin PR y CI verde.
 7. No inventes precios, límites de plan, plazos de gracia ni resultados de
    pruebas.
+8. No fijes rutas de sistema operativo fuera de `pos-storage-sqlite::paths`:
+   Windows conserva `%LOCALAPPDATA%`, Linux usa XDG y Android `app_data_dir`.
+9. No versiones APK/AAB, ejecutables, keystores, `.jks`, `.keystore` ni
+   credenciales de firma.
 
 ## Capas
 
@@ -32,6 +36,18 @@ pos-core <- pos-application <- pos-storage-sqlite
 - `pos-security`: Argon2id.
 - `pos-licensing`: verificación Ed25519 y contrato de licencia.
 - `apps/pos-desktop`: composición e IPC.
+
+## Portabilidad
+
+- Windows y Arch Linux/Omarchy son entornos de desarrollo soportados. No
+  introduzcas dependencias accidentales de Windows en código compartido.
+- `justfile` es la interfaz de comandos; si añades uno, documéntalo en
+  `docs/02-development/README.md` y evita ocultar errores.
+- Los scripts de shell usan LF. Un script específico de plataforma debe abortar
+  con un diagnóstico claro en el host equivocado.
+- La versión de Rust se toma de `rust-toolchain.toml`; no la dupliques en CI.
+- No declares Linux ni Android validados sin ejecutar la lista de
+  `docs/04-quality/platform-matrix.md` en esa plataforma.
 
 ## Flujo de trabajo
 

@@ -36,7 +36,29 @@ Una funcionalidad requiere: invariantes identificadas, prueba de dominio,
 prueba de integración SQLite, autorización, auditoría cuando aplique, contrato
 IPC actualizado, UI usable, errores en español y documentación.
 
+## Entorno
+
+El procedimiento soportado está en
+[`docs/02-development/`](docs/02-development/README.md):
+
+- Rust según `rust-toolchain.toml` (no instales `stable` a mano).
+- Node según `.node-version` y pnpm según `packageManager`.
+- Windows requiere WebView2 y Build Tools C++; Arch Linux requiere
+  `webkit2gtk-4.1` y GTK 3.
+
+`just setup` deja el checkout listo. El inventario de ramas y las operaciones de
+mantenimiento viven en
+[`docs/07-maintenance/branch-inventory.md`](docs/07-maintenance/branch-inventory.md).
+
 ## Validaciones locales
+
+```bash
+just check          # formato, lints, tipos, pruebas y build
+just test-rust      # cargo test --workspace
+just test-frontend  # vitest
+```
+
+Equivalente manual:
 
 ```bash
 cargo fmt --manifest-path backend-rust/Cargo.toml --all -- --check
@@ -54,8 +76,18 @@ Para la app de escritorio:
 
 ```bash
 cd apps/pos-desktop/src-tauri
-cargo tauri build --debug --no-bundle
+pnpm dlx @tauri-apps/cli@2.12.4 build --debug --no-bundle
 ```
+
+## Portabilidad
+
+- El código de negocio no conoce rutas del sistema operativo. La base se
+  resuelve en `pos-storage-sqlite::paths`.
+- Un script nuevo debe funcionar en Windows y Linux o declarar su host y
+  abortar con un diagnóstico (ver `justfile`).
+- No fijes `stable` en CI: la versión vive en `rust-toolchain.toml`.
+- No versiones APK/AAB, keystores, `.jks`, bases ni respaldos.
+- Las migraciones SQL conservan LF; no cambies sus finales de línea.
 
 ## Datos
 

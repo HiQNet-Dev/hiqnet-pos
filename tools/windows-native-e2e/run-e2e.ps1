@@ -59,7 +59,7 @@ if (-not [System.IO.Path]::IsPathRooted($Script)) {
 }
 
 if (-not (Test-Path -LiteralPath $AppPath -PathType Leaf)) {
-    throw "No existe el ejecutable: $AppPath. Compílalo con 'pnpm dlx @tauri-apps/cli@2 build --debug --no-bundle'."
+    throw "No existe el ejecutable: $AppPath. Compílalo con 'pnpm dlx @tauri-apps/cli@2.12.4 build --debug --no-bundle'."
 }
 if (-not (Test-Path -LiteralPath $Script -PathType Leaf)) {
     throw "No existe el guion: $Script"

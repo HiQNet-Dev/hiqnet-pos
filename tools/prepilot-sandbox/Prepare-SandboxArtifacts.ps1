@@ -34,7 +34,7 @@ if (-not $Installer) {
         Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
 }
 if (-not $Installer -or -not (Test-Path -LiteralPath $Installer -PathType Leaf)) {
-    throw "No se encontró el instalador candidato. Compílalo con: pnpm dlx @tauri-apps/cli@2 build --bundles nsis"
+    throw "No se encontró el instalador candidato. Compílalo con: pnpm dlx @tauri-apps/cli@2.12.4 build --bundles nsis"
 }
 
 $artifacts = Join-Path $OutputRoot "artifacts"

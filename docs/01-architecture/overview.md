@@ -74,7 +74,9 @@ sobre el mismo archivo **no** está soportada todavía.
 ## Datos
 
 - La base real **nunca** vive en el repositorio.
-- Ruta por defecto: `%LOCALAPPDATA%\HiQNet\POS\data\hiqnet-pos.db`.
+- Ruta por defecto: Windows `%LOCALAPPDATA%\HiQNet\POS\data\hiqnet-pos.db`;
+  Linux `$XDG_DATA_HOME/hiqnet-pos/data/hiqnet-pos.db`. La resolución vive en
+  `pos-storage-sqlite::paths` y está cubierta por pruebas.
 - Migraciones: `backend-rust/migrations/local/*.sql` (SQLx).
 - Importes en centavos (`Money`) y cantidades en milésimas (`Quantity`).
 

@@ -3,7 +3,7 @@
 //! La aplicación nunca ve SQL. Toda mutación auditable se ejecuta en una sola
 //! transacción `BEGIN IMMEDIATE` con su evento de auditoría.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{ConnectOptions, SqlitePool};
@@ -11,6 +11,7 @@ use std::time::Duration;
 
 pub mod backup;
 pub mod lock;
+pub mod paths;
 pub mod uow;
 
 pub use backup::{
@@ -19,6 +20,10 @@ pub use backup::{
     saf_workspace, schedule_pending_restore, verify_backup,
 };
 pub use lock::{DatabaseLock, lock_path, try_lock};
+pub use paths::{
+    DATABASE_PATH_ENV, DatabasePathError, HostPlatform, database_path_from_env,
+    default_database_path, resolved_database_path,
+};
 pub use uow::SqliteStore;
 
 /// Abre la base manteniendo el bloqueo exclusivo del proceso.
@@ -184,18 +189,4 @@ async fn applied_schema_version(pool: &SqlitePool) -> Result<Option<i64>, Storag
         .fetch_one(pool)
         .await
         .map_err(|_| StorageError::Corrupt)
-}
-
-/// Ruta por defecto de la base local, fuera del repositorio.
-///
-/// Windows: `%LOCALAPPDATA%\HiQNet\POS\data\hiqnet-pos.db`.
-pub fn default_database_path() -> PathBuf {
-    let base = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
-        .unwrap_or_else(std::env::temp_dir);
-    base.join("HiQNet")
-        .join("POS")
-        .join("data")
-        .join("hiqnet-pos.db")
 }

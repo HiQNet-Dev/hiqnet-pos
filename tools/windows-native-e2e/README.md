@@ -58,7 +58,7 @@ secas genera un binario que apunta a `devUrl` y el IPC falla con
 
 ```powershell
 cd apps/pos-desktop/src-tauri
-pnpm dlx @tauri-apps/cli@2 build --debug --no-bundle
+pnpm dlx @tauri-apps/cli@2.12.4 build --debug --no-bundle
 ```
 
 ## Ejecución

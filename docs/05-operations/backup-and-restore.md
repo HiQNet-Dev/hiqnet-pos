@@ -18,10 +18,11 @@ respaldo**. El comando:
 3. Si la verificación falla, borra el artefacto y no lo ofrece como respaldo.
 4. Registra `backup.created` en auditoría y devuelve la ruta.
 
-Destino por defecto:
+Destino por defecto (junto a la base de datos):
 
 ```text
-%LOCALAPPDATA%\HiQNet\POS\data\backups\hiqnet-pos-<epoch>.db
+Windows: %LOCALAPPDATA%\HiQNet\POS\data\backups\hiqnet-pos-<epoch>.db
+Linux:   ${XDG_DATA_HOME:-$HOME/.local/share}/hiqnet-pos/data/backups/hiqnet-pos-<epoch>.db
 ```
 
 > **Nunca copies a mano `hiqnet-pos.db` mientras la aplicación está abierta.**
@@ -54,8 +55,8 @@ rutas de archivo.
 
 Sin abrir la aplicación:
 
-```powershell
-pos-desktop.exe --verify-backup <respaldo.db>
+```bash
+pos-desktop --verify-backup <respaldo.db>
 ```
 
 Salida: `resultado=OK` (código 0) o `resultado=ERROR` (código 2). Se rechazan:
@@ -70,14 +71,16 @@ Salida: `resultado=OK` (código 0) o `resultado=ERROR` (código 2). Se rechazan:
 La restauración se ejecuta **con HiQNet POS cerrado**, usando el mismo ejecutable
 en modo utilidad:
 
-```powershell
+```bash
 # 1. Cierra la aplicación por completo.
 # 2. Verifica el respaldo.
-pos-desktop.exe --verify-backup D:\respaldos\hiqnet-pos-1700000000.db
+pos-desktop --verify-backup /ruta/respaldos/hiqnet-pos-1700000000.db
 
-# 3. Restaura indicando la base destino (por defecto usa %LOCALAPPDATA%).
-pos-desktop.exe --restore-backup D:\respaldos\hiqnet-pos-1700000000.db `
-    --database "$env:LOCALAPPDATA\HiQNet\POS\data\hiqnet-pos.db"
+# 3. Restaura. Sin --database usa la ruta de la plataforma.
+pos-desktop --restore-backup /ruta/respaldos/hiqnet-pos-1700000000.db
+
+# Windows: el binario es pos-desktop.exe y la ruta por defecto es
+# %LOCALAPPDATA%\HiQNet\POS\data\hiqnet-pos.db
 ```
 
 La utilidad:

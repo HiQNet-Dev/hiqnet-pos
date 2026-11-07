@@ -12,10 +12,10 @@
 *.dump
 *.sql
 !backend-rust/migrations/**/*.sql
-backups/
 !backend-rust/migrations/**/README.md
+backups/
 
-# --- Secretos y claves ---
+# --- Secretos, firmas y credenciales ---
 .env
 .env.*
 !.env.example
@@ -23,8 +23,13 @@ backups/
 *.key
 *.p12
 *.pfx
+*.jks
+*.keystore
+keystore.properties
+*.clixml
 secrets/
 signing/
+play-account*.json
 
 # --- Toolchain / builds ---
 target/
@@ -35,26 +40,44 @@ coverage/
 *.tsbuildinfo
 apps/pos-desktop/src-tauri/gen/
 apps/pos-desktop/src-tauri/target/
+apps/pos-desktop/src-tauri/android/
+apps/pos-desktop/src-tauri/ios/
+
+# --- Artefactos de Android ---
+*.apk
+*.aab
+*.ap_
+*.idsig
+local.properties
+.gradle/
+.kotlin/
+captures/
+
+# --- Pruebas y reportes generados ---
 test-results/
 playwright-report/
+playwright/.cache/
+/flow-report.json
+/*-report.json
+/layout-drift*.json
+/tauri-driver*.log
+/artifacts/
+/bundle/
+
+# --- Capturas sueltas en la raÃ­z (la evidencia vive en docs/04-quality) ---
+/[0-9][0-9]-*.png
 
 # --- Entorno local ---
 .worktrees/
 .serena/
 .zed/
+.devkit/
 .dev-data/
 *.log
 __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
-
-# --- Herramientas de diseño instaladas localmente ---
-.github/skills/impeccable/
-.github/agents/impeccable-*.agent.md
-
-# Contexto agéntico local (privado)
-.devkit/
 
 # --- Herramientas de diseÃ±o instaladas localmente ---
 .github/skills/impeccable/

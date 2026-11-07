@@ -2,11 +2,22 @@
 # Deben conservarse en LF en Windows para que el hash no cambie al hacer checkout.
 backend-rust/migrations/**/*.sql text eol=lf
 
+# Los scripts se ejecutan igual en Windows, Linux y CI; LF evita fallos de
+# intérprete cuando el checkout se hace en un host distinto al de autoría.
+*.sh text eol=lf
+*.py text eol=lf
+*.ps1 text eol=lf
+
 *.png binary
 *.jpg binary
 *.jpeg binary
 *.gif binary
 *.webp binary
 *.ico binary
+*.icns binary
 *.exe binary
 *.dll binary
+*.apk binary
+*.aab binary
+*.jks binary
+*.keystore binary
