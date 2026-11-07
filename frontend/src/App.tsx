@@ -4,12 +4,20 @@ import type { Actor, AppStatus } from "./contracts";
 import { LoginScreen } from "./screens/LoginScreen";
 import { OnboardingScreen } from "./screens/OnboardingScreen";
 import { AppShell } from "./shell/AppShell";
+import { loadInitialStatus } from "./lib/startup";
+import { installViewportGuard } from "./lib/viewportGuard";
+import { installAndroidBackGuard } from "./lib/backNavigation";
+import { BrandMark } from "./shell/icons";
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [actor, setActor] = useState<Actor | null>(null);
   const [loading, setLoading] = useState(true);
   const [fatal, setFatal] = useState<string | null>(null);
+
+  useEffect(() => installViewportGuard(), []);
+  // Un solo listener nativo para todo el ciclo de vida de la aplicación.
+  useEffect(() => installAndroidBackGuard(), []);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -28,7 +36,7 @@ export default function App() {
 
     async function load() {
       try {
-        const current = await api.status();
+        const current = await loadInitialStatus();
         if (cancelled) return;
         setStatus(current);
         if (current.initialized) {
@@ -88,9 +96,7 @@ export default function App() {
     return (
       <div className="auth-layout">
         <div className="auth-brand">
-          <span className="brand-mark" aria-hidden="true">
-            HQ
-          </span>
+          <BrandMark className="brand-mark" />
           <div>
             <p className="brand-name">HiQNet POS</p>
             <p className="brand-branch">Configuración inicial</p>
@@ -111,9 +117,7 @@ export default function App() {
     return (
       <div className="auth-layout">
         <div className="auth-brand">
-          <span className="brand-mark" aria-hidden="true">
-            HQ
-          </span>
+          <BrandMark className="brand-mark" />
           <div>
             <p className="brand-name">HiQNet POS</p>
             <p className="brand-branch">Punto de venta local-first</p>

@@ -238,11 +238,11 @@ pub fn configure(
     }
 
     let tax_rate_bp = product.tax_rate_bp;
-    // Política provisional: precios netos e impuesto sumado por separado, con
-    // redondeo half-up a centavos por unidad. Variantes y modificadores usan la
-    // tasa del producto padre (ADR-003 y ADR-006).
-    let tax = tax_amount(base_price, tax_rate_bp)?
-        .checked_add(tax_amount(modifiers_total, tax_rate_bp)?)?;
+    // Política única de impuestos (`crate::pricing`): precios netos, impuesto
+    // sumado por separado con redondeo half-up a centavos por unidad. Variantes
+    // y modificadores usan la tasa del producto padre (ADR-003 y ADR-006).
+    let tax = crate::pricing::unit_tax(base_price, tax_rate_bp)?
+        .checked_add(crate::pricing::unit_tax(modifiers_total, tax_rate_bp)?)?;
     let total = base_price.checked_add(modifiers_total)?.checked_add(tax)?;
 
     Ok(ModifierConfiguration {
@@ -257,22 +257,6 @@ pub fn configure(
         total_minor: total.minor_units(),
         tax_rate_bp,
     })
-}
-
-fn tax_amount(price: Money, tax_rate_bp: u16) -> DomainResult<Money> {
-    let base = i128::from(price.minor_units()) * i128::from(tax_rate_bp);
-    let tax = div_round_half_up(base, 10_000)?;
-    Money::from_minor_units(i64::try_from(tax).map_err(|_| DomainError::AmountOverflow)?)
-}
-
-fn div_round_half_up(numerator: i128, denominator: i128) -> DomainResult<i128> {
-    let quotient = numerator / denominator;
-    let remainder = numerator % denominator;
-    if remainder.abs() * 2 >= denominator {
-        Ok(quotient + numerator.signum())
-    } else {
-        Ok(quotient)
-    }
 }
 
 #[cfg(test)]

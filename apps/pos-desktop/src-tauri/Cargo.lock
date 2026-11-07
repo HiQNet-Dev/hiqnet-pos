@@ -2808,6 +2808,7 @@ dependencies = [
  "pos-licensing",
  "pos-security",
  "pos-storage-sqlite",
+ "rustls",
  "serde",
  "serde_json",
  "sqlx",

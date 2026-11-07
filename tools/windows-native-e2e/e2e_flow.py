@@ -27,6 +27,10 @@ from selenium.webdriver.support.ui import Select, WebDriverWait
 
 PRECIO_PRODUCTO = "10.00"
 PRECIO_VARIANTE = "12.00"
+# Precio al público con IVA 16 % calculado por Rust: 10.00 → 11.60 y
+# 12.00 → 13.92 (la tarjeta publica la variante más barata).
+PRECIO_PUBLICO_BASE = "11.60"
+PRECIO_PUBLICO_VARIANTE = "13.92"
 DELTA_EXTRA = "2.00"
 CANTIDAD = 2
 FONDO_INICIAL = "100.00"
@@ -215,7 +219,7 @@ def crear_producto(app: App):
     app.wait_xpath(DIALOG)
     app.fill(DIALOG, "SKU", "CAF-001")
     app.fill(DIALOG, "Nombre", "Café E2E")
-    app.fill(DIALOG, "Precio (MXN)", PRECIO_PRODUCTO)
+    app.fill(DIALOG, "Precio base, sin IVA", PRECIO_PRODUCTO)
     app.fill(DIALOG, "IVA (%)", "16")
     app.select(DIALOG, "Categoría (opcional)", "Bebidas")
     app.click_xpath(f"{DIALOG}//button[normalize-space()='Agregar producto']")
@@ -227,7 +231,7 @@ def crear_variante(app: App):
     app.click_xpath("//button[normalize-space()='CAF-001']")
     detail = "//aside[@aria-label='Detalle del producto']"
     app.fill(detail, "Nueva variante", "Grande")
-    app.fill(detail, "Precio", PRECIO_VARIANTE)
+    app.fill(detail, "Precio neto", PRECIO_VARIANTE)
     app.click_xpath("//button[normalize-space()='Crear variante']")
     app.wait_text("Variante Grande creada")
 
@@ -320,6 +324,13 @@ def vender(app: App) -> str:
     app.wait_text_gone("Abre un turno de caja para cobrar")
     app.screenshot("ventas-catalogo")
 
+    # La tarjeta publica el precio final con IVA, no el neto ni «+ IVA».
+    tarjeta = "//button[contains(@class,'product-card')][contains(.,'CAF-001')]"
+    app.wait_xpath(tarjeta)
+    precio_publico = app.text_of(f"{tarjeta}//*[contains(@class,'product-card-price')]")
+    assert precio_publico == f"Desde ${PRECIO_PUBLICO_VARIANTE}", (
+        f"la tarjeta no publica el precio final con IVA: {precio_publico}"
+    )
     app.click_xpath("//button[contains(@class,'product-card')][contains(.,'Café E2E')]")
     dialog = app.wait_xpath(DIALOG)
     app.wait_xpath(f"{DIALOG}//label[contains(.,'Grande')]//input")

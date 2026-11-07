@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, IpcError } from "../api";
 import type {
   Actor,
@@ -60,13 +60,18 @@ export function ReturnsScreen({
   const [selections, setSelections] = useState<Record<string, Selection>>({});
   const [reason, setReason] = useState("");
   const [previewTotal, setPreviewTotal] = useState<string | null>(null);
+  const [previewFingerprint, setPreviewFingerprint] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const previewRequestRef = useRef(0);
   const [history, setHistory] = useState<SaleReturn[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const locked = pendingAttempt !== null;
+  const previewCurrent =
+    previewTotal !== null && previewFingerprint === linesFingerprint(buildLines());
   // Se compara el texto monetario para no hacer aritmética en React.
-  const zeroRefund = previewTotal !== null && /^0+(\.0+)?$/.test(previewTotal);
+  const zeroRefund = previewCurrent && /^0+(\.0+)?$/.test(previewTotal);
 
   useEffect(() => {
     if (!canReturn) return;
@@ -103,13 +108,24 @@ export function ReturnsScreen({
       }));
   }
 
+  function linesFingerprint(lines: SaleReturnLineDraft[]): string {
+    return JSON.stringify(lines);
+  }
+
+  function invalidatePreview() {
+    previewRequestRef.current += 1;
+    setPreviewing(false);
+    setPreviewTotal(null);
+    setPreviewFingerprint(null);
+  }
+
   async function search(event: React.FormEvent) {
     event.preventDefault();
     if (!folio.trim()) return;
     setBusy(true);
     setError(null);
     setNotice(null);
-    setPreviewTotal(null);
+    invalidatePreview();
     try {
       const found = await api.findSaleForReturn(folio.trim());
       setSale(found);
@@ -134,16 +150,24 @@ export function ReturnsScreen({
       setError("Indica al menos una cantidad a devolver.");
       return;
     }
-    setBusy(true);
+    const fingerprint = linesFingerprint(lines);
+    const request = ++previewRequestRef.current;
+    setPreviewing(true);
+    setPreviewTotal(null);
+    setPreviewFingerprint(null);
     setError(null);
     try {
       const result = await api.previewSaleReturn({ sale_id: sale.id, lines });
+      if (request !== previewRequestRef.current || fingerprint !== linesFingerprint(buildLines())) return;
       setPreviewTotal(result.refund_total);
+      setPreviewFingerprint(fingerprint);
     } catch (cause) {
+      if (request !== previewRequestRef.current) return;
       setPreviewTotal(null);
+      setPreviewFingerprint(null);
       setError(messageOf(cause, "No fue posible calcular el reembolso."));
     } finally {
-      setBusy(false);
+      if (request === previewRequestRef.current) setPreviewing(false);
     }
   }
 
@@ -152,6 +176,7 @@ export function ReturnsScreen({
     setBusy(true);
     setError(null);
     setNotice(null);
+    invalidatePreview();
     onPendingAttemptChange(attempt);
     try {
       const created = await api.createSaleReturn(attempt.payload);
@@ -159,7 +184,6 @@ export function ReturnsScreen({
       setNotice(
         `Devolución de ${attempt.payload.lines.length} partida(s) registrada. Reembolso $${created.refund_total}.`,
       );
-      setPreviewTotal(null);
       setReason("");
       setSelections((current) =>
         Object.fromEntries(
@@ -198,6 +222,10 @@ export function ReturnsScreen({
     }
     if (!reason.trim()) {
       setError("Indica el motivo de la devolución.");
+      return;
+    }
+    if (previewTotal === null || previewFingerprint !== linesFingerprint(lines)) {
+      setError("Calcula el reembolso de las partidas seleccionadas antes de confirmar.");
       return;
     }
     const payload: SaleReturnDraft = {
@@ -330,15 +358,16 @@ export function ReturnsScreen({
                         inputMode="decimal"
                         aria-label={`Cantidad a devolver ${item.product_name}`}
                         value={selections[item.id]?.quantity ?? "0"}
-                        onChange={(event) =>
+                        onChange={(event) => {
                           setSelections((current) => ({
                             ...current,
                             [item.id]: {
                               quantity: event.target.value,
                               disposition: current[item.id]?.disposition ?? "restock",
                             },
-                          }))
-                        }
+                          }));
+                          invalidatePreview();
+                        }}
                         disabled={locked || Number(item.returnable_quantity) === 0}
                       />
                     </td>
@@ -346,15 +375,16 @@ export function ReturnsScreen({
                       <select
                         aria-label={`Destino ${item.product_name}`}
                         value={selections[item.id]?.disposition ?? "restock"}
-                        onChange={(event) =>
+                        onChange={(event) => {
                           setSelections((current) => ({
                             ...current,
                             [item.id]: {
                               quantity: current[item.id]?.quantity ?? "0",
                               disposition: event.target.value as SaleReturnDisposition,
                             },
-                          }))
-                        }
+                          }));
+                          invalidatePreview();
+                        }}
                         disabled={locked || Number(item.returnable_quantity) === 0}
                       >
                         <option value="restock">Reintegrar a inventario</option>
@@ -389,7 +419,11 @@ export function ReturnsScreen({
               <p className="metric-strong">
                 Reembolso calculado por Rust:{" "}
                 <span className="mono">
-                  {previewTotal === null ? "—" : `$${previewTotal}`}
+                  {previewing
+                    ? "Calculando…"
+                    : previewTotal === null
+                      ? "Calcula antes de confirmar"
+                      : `$${previewTotal}`}
                 </span>
               </p>
             </div>
@@ -400,12 +434,12 @@ export function ReturnsScreen({
                 onClick={() => void preview()}
                 disabled={busy || locked}
               >
-                Calcular reembolso
+                {previewing ? "Recalcular reembolso" : "Calcular reembolso"}
               </button>
               <button
                 type="submit"
                 className="button button-primary"
-                disabled={busy || readOnly || locked || (!shift && !zeroRefund)}
+                disabled={busy || previewing || readOnly || locked || !previewCurrent || (!shift && !zeroRefund)}
               >
                 {busy ? "Registrando…" : "Confirmar devolución"}
               </button>

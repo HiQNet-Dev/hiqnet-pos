@@ -19,6 +19,8 @@ extremo.
 | `restore_multiphase_check.py` | Sobre una base ya generada: snapshot `VACUUM INTO`, restauración con la utilidad real, comparación por hash SHA-256 de 27 tablas, `integrity_check`, `foreign_key_check` y deshacer de un cambio posterior |
 | `perf_smoke.py` | Medición local: arranque, 200 checkouts por IPC, consultas y reportes |
 | `e2e_smoke.py` | Comprobación mínima de que el driver puede abrir la aplicación |
+| `e2e_layout_drift.py` | Estrés de la interfaz real: navegación repetida, diálogos, Tab, desplazamiento interno, movimiento y redimensionado de la ventana, ciclos maximizar/restaurar y rueda con Ctrl. Falla si la raíz del documento se desplaza, si `.app` deja de cubrir el viewport o si los contenedores del shell dejan de recortar con `overflow: clip` |
+| `e2e_zoom_guard.py` | Verifica que los atajos de zoom no alteran el viewport ni el factor de escala del WebView |
 
 `run-e2e.ps1` orquesta todo: crea un directorio temporal único, arranca
 `tauri-driver` con una base SQLite aislada, ejecuta el guion y limpia.

@@ -50,8 +50,12 @@ const product: Product = {
   sku: "CAF-001",
   name: "Café americano",
   unit_price: "12.50",
+  public_unit_total: "12.50",
   tax_rate_bp: 1600,
   active: true,
+  active_variants: 0,
+  variant_public_from: null,
+  has_modifiers: false,
 };
 
 const movement: InventoryMovement = {
@@ -151,8 +155,26 @@ describe("InventoryScreen", () => {
     await user.selectOptions(screen.getByLabelText("Producto"), "p-1");
 
     expect(await screen.findByText("20", { selector: ".stock-figure" })).toBeVisible();
+    expect(screen.getByText("Al público")).toBeVisible();
+    expect(screen.getByText("$12.50")).toBeVisible();
     expect(await screen.findByText(/sin motivo/i)).toBeVisible();
     expect(api.listInventoryMovements).toHaveBeenCalledWith("p-1", 50);
+  });
+
+  it("repetir la misma selección no deja la lectura en curso", async () => {
+    renderScreen();
+    const user = userEvent.setup();
+    const select = screen.getByLabelText("Producto");
+
+    await user.selectOptions(select, "p-1");
+    expect(await screen.findByText("20", { selector: ".stock-figure" })).toBeVisible();
+
+    // Volver a elegir la misma opción no debe vaciar el panel ni dejar "…".
+    await user.selectOptions(select, "p-1");
+
+    expect(screen.getByText("20", { selector: ".stock-figure" })).toBeVisible();
+    expect(screen.queryByText("…")).not.toBeInTheDocument();
+    expect(api.currentStock).toHaveBeenCalledTimes(1);
   });
 
   it("registra una entrada y refresca existencias", async () => {

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -149,6 +149,14 @@ async function prepareReturn(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText("Motivo"), "producto en buen estado");
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
 describe("ReturnsScreen", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -180,6 +188,55 @@ describe("ReturnsScreen", () => {
     expect(draft.idempotency_key).toBeTruthy();
     expect(onCashChanged).toHaveBeenCalled();
     expect(await screen.findByText(/reembolso \$11.60/i)).toBeVisible();
+  });
+
+  it("invalida la vista previa cuando cambian las partidas", async () => {
+    renderScreen();
+    const user = userEvent.setup();
+    await prepareReturn(user);
+    await user.click(screen.getByRole("button", { name: /calcular reembolso/i }));
+    await waitFor(() => expect(screen.getAllByText("$11.60").length).toBeGreaterThan(0));
+    expect(screen.getByRole("button", { name: /confirmar devolución/i })).toBeEnabled();
+
+    await user.clear(screen.getByLabelText("Cantidad a devolver Café"));
+    await user.type(screen.getByLabelText("Cantidad a devolver Café"), "2");
+
+    expect(screen.getByText("Calcula antes de confirmar")).toBeVisible();
+    expect(screen.getByRole("button", { name: /confirmar devolución/i })).toBeDisabled();
+    expect(api.createSaleReturn).not.toHaveBeenCalled();
+  });
+
+  it("ignora una respuesta de preview obsoleta cuando se recalculan las partidas", async () => {
+    const first = deferred<{ refund_total: string }>();
+    const second = deferred<{ refund_total: string }>();
+    api.previewSaleReturn.mockReset();
+    api.previewSaleReturn.mockImplementationOnce(() => first.promise);
+    api.previewSaleReturn.mockImplementationOnce(() => second.promise);
+    renderScreen();
+    const user = userEvent.setup();
+    await prepareReturn(user);
+
+    await user.click(screen.getByRole("button", { name: /calcular reembolso/i }));
+    await waitFor(() => expect(api.previewSaleReturn).toHaveBeenCalledTimes(1));
+
+    await user.clear(screen.getByLabelText("Cantidad a devolver Café"));
+    await user.type(screen.getByLabelText("Cantidad a devolver Café"), "2");
+    await user.click(screen.getByRole("button", { name: /calcular reembolso/i }));
+    await waitFor(() => expect(api.previewSaleReturn).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      first.resolve({ refund_total: "11.60" });
+      await first.promise;
+    });
+    expect(screen.getByText("Calculando…")).toBeVisible();
+    expect(screen.getByRole("button", { name: /confirmar devolución/i })).toBeDisabled();
+
+    await act(async () => {
+      second.resolve({ refund_total: "23.20" });
+      await second.promise;
+    });
+    await waitFor(() => expect(screen.getByText("$23.20")).toBeVisible());
+    expect(screen.getByRole("button", { name: /confirmar devolución/i })).toBeEnabled();
   });
 
   it("bloquea el cobro sin turno abierto", async () => {
@@ -218,6 +275,7 @@ describe("ReturnsScreen", () => {
     render(<ReturnHarness storageKey={key} />);
     const user = userEvent.setup();
     await prepareReturn(user);
+    await user.click(screen.getByRole("button", { name: /calcular reembolso/i }));
     await user.click(screen.getByRole("button", { name: /confirmar devolución/i }));
     expect(await screen.findByText(/devolución pendiente de confirmar/i)).toBeVisible();
     const first = api.createSaleReturn.mock.calls[0]?.[0] as SaleReturnDraft;
@@ -240,6 +298,7 @@ describe("ReturnsScreen", () => {
     const first = render(<ReturnHarness storageKey={key} />);
     const user = userEvent.setup();
     await prepareReturn(user);
+    await user.click(screen.getByRole("button", { name: /calcular reembolso/i }));
     await user.click(screen.getByRole("button", { name: /confirmar devolución/i }));
     await screen.findByText(/devolución pendiente de confirmar/i);
     const original = api.createSaleReturn.mock.calls[0]?.[0] as SaleReturnDraft;

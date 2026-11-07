@@ -87,7 +87,7 @@ export const SECTIONS: SectionDefinition[] = [
   {
     id: "returns",
     label: "Devoluciones",
-    shortLabel: "Devol.",
+    shortLabel: "Devoluciones",
     title: "Devoluciones de venta",
     description: "Reembolsos desde caja y restitución de inventario.",
     permissions: ["sales.return"],
@@ -96,7 +96,7 @@ export const SECTIONS: SectionDefinition[] = [
   {
     id: "cash",
     label: "Cajas y turnos",
-    shortLabel: "Caja",
+    shortLabel: "Cajas",
     title: "Caja y turnos",
     description: "Apertura, movimientos, arqueo y cierre.",
     permissions: ["cash.shift.view", "cash.register.manage"],

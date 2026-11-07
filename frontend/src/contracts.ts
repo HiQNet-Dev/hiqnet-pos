@@ -40,10 +40,24 @@ export const productSchema = z.object({
   id: z.string(),
   sku: z.string(),
   name: z.string(),
+  /** Precio neto sin impuesto. */
   unit_price: z.string(),
+  /** Precio final al público de una unidad, con impuesto incluido (Rust). */
+  public_unit_total: z.string(),
   tax_rate_bp: z.number().int().min(0).max(10_000),
   active: z.boolean(),
   category_id: z.string().nullable().optional(),
+  /** Variantes activas y su precio final al público más bajo. */
+  active_variants: z.number().int().min(0).default(0),
+  variant_public_from: z.string().nullable().default(null),
+  has_modifiers: z.boolean().default(false),
+});
+
+export const productPricePreviewSchema = z.object({
+  unit_price: z.string(),
+  tax: z.string(),
+  public_unit_total: z.string(),
+  tax_rate_bp: z.number().int(),
 });
 
 export const categorySchema = z.object({
@@ -97,6 +111,7 @@ export type AppStatus = z.infer<typeof appStatusSchema>;
 export type Actor = z.infer<typeof actorSchema>;
 export type BootstrapResult = z.infer<typeof bootstrapResultSchema>;
 export type Product = z.infer<typeof productSchema>;
+export type ProductPricePreview = z.infer<typeof productPricePreviewSchema>;
 export type Category = z.infer<typeof categorySchema>;
 export type CategoryDraft = z.infer<typeof categoryDraftSchema>;
 

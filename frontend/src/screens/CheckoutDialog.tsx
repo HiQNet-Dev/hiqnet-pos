@@ -27,6 +27,24 @@ function isUncertain(cause: unknown): boolean {
   return code === undefined || ["storage_error", "unknown_error", "contract_mismatch"].includes(code);
 }
 
+/** Siguiente múltiplo exacto en centavos; aritmética entera, sin flotantes. */
+function roundUpTo(minor: number, step: number): number {
+  return Math.ceil(minor / step) * step;
+}
+
+/**
+ * Importes habituales que el cajero suele recibir. No cobra nada: solo
+ * rellena el campo para que el cambio se vea de inmediato.
+ */
+function cashSuggestions(totalMinor: number): number[] {
+  const values = new Set<number>([totalMinor]);
+  for (const step of [2_000, 5_000, 10_000]) {
+    const rounded = roundUpTo(totalMinor, step);
+    if (rounded > totalMinor) values.add(rounded);
+  }
+  return [...values].slice(0, 4);
+}
+
 /**
  * Cobro en efectivo. Los importes definitivos los confirma Rust; lo mostrado
  * antes de confirmar es una estimación de la misma aritmética entera.
@@ -49,6 +67,7 @@ export function CheckoutDialog({
 
   const change = estimatedChange(cashReceived, totals.totalMinor);
   const insufficient = change !== null && change < 0;
+  const suggestions = cashSuggestions(totals.totalMinor);
   const canConfirm =
     !busy &&
     !readOnly &&
@@ -240,10 +259,26 @@ export function CheckoutDialog({
           inputMode="decimal"
           value={cashReceived}
           onChange={(event) => setCashReceived(event.target.value)}
+          onFocus={(event) => event.target.select()}
           autoFocus
           required
         />
       </label>
+
+      {suggestions.length > 1 && (
+        <div className="chips chips-amounts" role="group" aria-label="Importes habituales">
+          {suggestions.map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={value === totals.totalMinor ? "chip chip-active" : "chip"}
+              onClick={() => setCashReceived(formatMinor(value))}
+            >
+              {value === totals.totalMinor ? `Exacto $${formatMinor(value)}` : `$${formatMinor(value)}`}
+            </button>
+          ))}
+        </div>
+      )}
 
       <p className={insufficient ? "alert alert-warning" : "muted"}>
         {change === null

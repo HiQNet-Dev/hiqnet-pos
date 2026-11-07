@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   createCategory: vi.fn(),
   assignProductCategory: vi.fn(),
   configureProduct: vi.fn(),
+  previewProductPrice: vi.fn(),
 }));
 
 vi.mock("../api", () => ({
@@ -45,9 +46,13 @@ const product: Product = {
   sku: "CAF-001",
   name: "Café americano",
   unit_price: "12.50",
+  public_unit_total: "12.50",
   tax_rate_bp: 1600,
   active: true,
   category_id: "c-1",
+  active_variants: 0,
+  variant_public_from: null,
+  has_modifiers: false,
 };
 
 const variant = {
@@ -155,7 +160,7 @@ describe("CatalogScreen", () => {
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText("SKU"), "LAT-001");
     await user.type(within(dialog).getByLabelText(/^nombre$/i), "Latte");
-    await user.type(within(dialog).getByLabelText(/precio \(mxn\)/i), "18.00");
+    await user.type(within(dialog).getByLabelText(/precio base, sin iva/i), "18.00");
     await user.selectOptions(within(dialog).getByLabelText(/categoría/i), "c-1");
     await user.click(within(dialog).getByRole("button", { name: /agregar producto/i }));
 
@@ -171,12 +176,32 @@ describe("CatalogScreen", () => {
     expect(onDataChanged).toHaveBeenCalled();
   });
 
+  it("muestra el precio final al público que calcula Rust en el formulario", async () => {
+    api.previewProductPrice.mockResolvedValue({
+      unit_price: "100.00",
+      tax: "16.00",
+      public_unit_total: "116.00",
+      tax_rate_bp: 1600,
+    });
+    renderScreen();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /nuevo producto/i }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/precio base, sin iva/i), "100.00");
+
+    await waitFor(() => expect(api.previewProductPrice).toHaveBeenCalledWith("100.00", 1600));
+    const preview = await within(dialog).findByText("$116.00");
+    expect(preview).toBeVisible();
+    expect(within(dialog).getByText(/IVA 16%: \$16\.00/)).toBeVisible();
+  });
+
   it("crea una variante para el producto seleccionado", async () => {
     const { onDataChanged } = renderScreen();
     const user = userEvent.setup();
 
     await user.type(await screen.findByLabelText(/nueva variante/i), "Mediano");
-    await user.type(screen.getByLabelText(/^precio$/i), "14.00");
+    await user.type(screen.getByLabelText(/^precio neto$/i), "14.00");
     await user.click(screen.getByRole("button", { name: /crear variante/i }));
 
     await waitFor(() =>

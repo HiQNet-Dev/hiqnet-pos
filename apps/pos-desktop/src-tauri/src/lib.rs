@@ -14,11 +14,12 @@ use pos_application::{
     ExpenseCategoryView, ExpenseDraft, ExpenseView, InventoryMovementDraft, InventoryMovementView,
     LoginRequest, ModifierConfigurationDraft, ModifierConfigurationView, ModifierGroupDraft,
     ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PosService, ProductDraft,
-    ProductVariantDraft, ProductVariantView, ProductView, PurchaseOrderDraft, PurchaseOrderView,
-    PurchaseReceiptDraft, ReportsQuery, ReportsView, ResetUserPasswordDraft, ReturnableSaleView,
-    SaleReturnDraft, SaleReturnPreviewDraft, SaleReturnPreviewView, SaleReturnView, SaleView,
-    SetUserActiveDraft, SharedClock, SharedHasher, SharedStore, StockLevelView, SupplierDraft,
-    SupplierView, SystemClock, UserDraft, UserView, WasteDraft, WasteView,
+    ProductPricePreviewView, ProductVariantDraft, ProductVariantView, ProductView,
+    PurchaseOrderDraft, PurchaseOrderView, PurchaseReceiptDraft, ReportsQuery, ReportsView,
+    ResetUserPasswordDraft, ReturnableSaleView, SaleReturnDraft, SaleReturnPreviewDraft,
+    SaleReturnPreviewView, SaleReturnView, SaleView, SetUserActiveDraft, SharedClock, SharedHasher,
+    SharedStore, StockLevelView, SupplierDraft, SupplierView, SystemClock, UserDraft, UserView,
+    WasteDraft, WasteView,
 };
 use pos_core::identity::{Actor, Permission};
 use pos_core::ids::{BranchId, ProductId, PurchaseOrderId};
@@ -63,6 +64,7 @@ type IpcResult<T> = Result<T, IpcError>;
 
 /// El driver WebView no propaga las variables de entorno al binario de la app.
 /// Esta ruta solo se acepta desde el proceso que Tauri marcó para automatización.
+#[cfg(not(target_os = "android"))]
 fn automation_database_path() -> Option<PathBuf> {
     if std::env::var_os("TAURI_WEBVIEW_AUTOMATION")?.as_os_str() != "true" {
         return None;
@@ -200,6 +202,20 @@ async fn create_product(state: State<'_, AppState>, draft: ProductDraft) -> IpcR
 async fn list_products(state: State<'_, AppState>) -> IpcResult<Vec<ProductView>> {
     let actor = authenticated(&state).await?;
     Ok(state.service.list_products(&actor).await?)
+}
+
+/// Vista previa del precio al público para formularios de catálogo. Solo
+/// calcula con la política del dominio: no escribe ni abre transacción.
+#[tauri::command(rename_all = "snake_case")]
+async fn preview_product_price(
+    state: State<'_, AppState>,
+    price: String,
+    tax_rate_bp: u16,
+) -> IpcResult<ProductPricePreviewView> {
+    let actor = authenticated(&state).await?;
+    Ok(state
+        .service
+        .preview_product_price(&actor, &price, tax_rate_bp)?)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -647,6 +663,7 @@ async fn backup_database(state: State<'_, AppState>) -> IpcResult<String> {
     Ok(target.to_string_lossy().to_string())
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
@@ -654,9 +671,25 @@ pub fn run() {
         )
         .try_init();
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_updater::Builder::new().build())
+    #[cfg(target_os = "android")]
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .ok();
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build());
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let builder = tauri::Builder::default();
+
+    builder
         .setup(|app| {
+            #[cfg(target_os = "android")]
+            let db_path = app
+                .path()
+                .app_data_dir()
+                .map(|directory| directory.join("data").join("hiqnet-pos.db"))?;
+
+            #[cfg(not(target_os = "android"))]
             let db_path = automation_database_path()
                 .or_else(|| std::env::var_os("HIQNET_POS_DB_PATH").map(PathBuf::from))
                 .unwrap_or_else(pos_storage_sqlite::default_database_path);
@@ -730,6 +763,7 @@ pub fn run() {
             close_cash_shift,
             create_product,
             list_products,
+            preview_product_price,
             assign_product_category,
             create_category,
             create_modifier_group,

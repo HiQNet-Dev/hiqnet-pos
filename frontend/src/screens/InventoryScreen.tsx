@@ -190,13 +190,17 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
           <select
             value={productId}
             onChange={(event) => {
+              const next = event.target.value;
+              // Repetir la misma opción no cambia la selección: sin esta guarda el
+              // panel se quedaba mostrando "…" porque no se disparaba la lectura.
+              if (next === productId) return;
               requestRef.current += 1;
-              setProductId(event.target.value);
+              setProductId(next);
               setStock(null);
               setMovements([]);
               setError(null);
               setNotice(null);
-              setLoadingDetail(Boolean(event.target.value));
+              setLoadingDetail(Boolean(next));
             }}
           >
             <option value="">Selecciona un producto</option>
@@ -282,11 +286,11 @@ export function InventoryScreen({ actor, readOnly, products, loading, onStockCha
                 <dd className="mono">{selectedProduct.sku}</dd>
               </div>
               <div>
-                <dt>Precio neto</dt>
-                <dd className="mono">${selectedProduct.unit_price}</dd>
+                <dt>Al público</dt>
+                <dd className="mono">${selectedProduct.public_unit_total}</dd>
               </div>
               <div>
-                <dt>Impuesto</dt>
+                <dt>IVA</dt>
                 <dd className="mono">{(selectedProduct.tax_rate_bp / 100).toFixed(2)}%</dd>
               </div>
             </dl>

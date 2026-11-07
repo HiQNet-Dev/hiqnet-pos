@@ -44,6 +44,8 @@ playwright-report/
 .zed/
 .dev-data/
 *.log
+__pycache__/
+*.pyc
 .DS_Store
 Thumbs.db
 

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { CloseIcon } from "../shell/icons";
+import { registerBackHandler } from "../lib/backNavigation";
 
 interface Props {
   title: string;
@@ -22,13 +23,30 @@ export function Modal({ title, subtitle, onClose, children, footer, size = "md" 
   const titleId = useId();
   const container = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  // Se captura en el primer render, no en el efecto: un campo con `autoFocus`
+  // mueve el foco durante el montaje y el efecto ya no vería el control que
+  // abrió el diálogo, dejando el foco en el `body` al cerrar.
+  const opener = useRef<HTMLElement | null>(null);
+  if (opener.current === null) {
+    opener.current = document.activeElement as HTMLElement | null;
+  }
 
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
 
+  // Back de Android cierra este diálogo, y solo este, con el mismo cierre que
+  // usan la X, «Cancelar» y Escape.
+  useEffect(
+    () =>
+      registerBackHandler(() => {
+        onCloseRef.current();
+        return true;
+      }),
+    [],
+  );
+
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
     const node = container.current;
     const first = node?.querySelector<HTMLElement>(FOCUSABLE);
     (first ?? node)?.focus();
@@ -56,12 +74,14 @@ export function Modal({ title, subtitle, onClose, children, footer, size = "md" 
     }
 
     document.addEventListener("keydown", handleKey, true);
-    const { overflow } = document.body.style;
-    document.body.style.overflow = "hidden";
+    // No se toca `document.body.style.overflow`: el shell ya recorta el documento
+    // (ver `styles.css`). Cambiarlo aquí convertía la raíz en un contenedor
+    // desplazable mientras el diálogo estaba abierto, y el foco podía desplazar
+    // la interfaz completa al abrir y cerrar diálogos repetidamente.
     return () => {
       document.removeEventListener("keydown", handleKey, true);
-      document.body.style.overflow = overflow;
-      previous?.focus?.();
+      // Devolver el foco sin arrastrar la pantalla de fondo.
+      opener.current?.focus?.({ preventScroll: true });
     };
   }, []);
 

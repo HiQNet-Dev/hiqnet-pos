@@ -2,6 +2,7 @@ import { useState } from "react";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { handleBackButton } from "../lib/backNavigation";
 import type {
   Actor,
   CashShift,
@@ -56,9 +57,13 @@ const product: Product = {
   sku: "CAF-001",
   name: "Café americano",
   unit_price: "12.50",
+  public_unit_total: "12.50",
   tax_rate_bp: 1600,
   active: true,
   category_id: "c-1",
+  active_variants: 0,
+  variant_public_from: null,
+  has_modifiers: false,
 };
 
 const latte: Product = {
@@ -66,9 +71,13 @@ const latte: Product = {
   sku: "LAT-001",
   name: "Latte",
   unit_price: "15.00",
+  public_unit_total: "17.40",
   tax_rate_bp: 1600,
   active: true,
   category_id: "c-1",
+  active_variants: 1,
+  variant_public_from: "17.40",
+  has_modifiers: true,
 };
 
 const variant = {
@@ -236,6 +245,23 @@ describe("SalesScreen", () => {
     expect(screen.getByText(/sin artículos/i)).toBeVisible();
   });
 
+  it("Back devuelve del ticket al catálogo sin tocar las partidas", async () => {
+    render(<Harness shift={shift} />);
+    const user = userEvent.setup();
+    const root = document.querySelector(".sales")!;
+
+    await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+    await user.click(screen.getByRole("button", { name: /ver ticket/i }));
+    expect(root).toHaveAttribute("data-view", "ticket");
+
+    expect(handleBackButton()).toBe(true);
+    await waitFor(() => expect(root).toHaveAttribute("data-view", "catalog"));
+
+    // La partida sigue en el ticket: Back solo cambia la vista.
+    const ticket = screen.getByRole("complementary", { name: /ticket actual/i });
+    expect(within(ticket).getByText(/1 artículo/i)).toBeVisible();
+  });
+
   it("agrega un producto simple al ticket con el precio de Rust", async () => {
     render(<Harness shift={shift} />);
     const user = userEvent.setup();
@@ -247,6 +273,98 @@ describe("SalesScreen", () => {
       expect(within(ticket).getAllByText("$14.50").length).toBeGreaterThan(0),
     );
     expect(within(ticket).getByText(/1 artículo/i)).toBeVisible();
+    expect(api.configureProduct).toHaveBeenCalledWith({
+      product_id: "p-1",
+      variant_id: null,
+      selected_option_ids: [],
+    });
+  });
+
+  it("muestra el precio final al público en la tarjeta", async () => {
+    render(<Harness shift={shift} />);
+
+    const card = screen.getByRole("button", { name: /café americano, caf-001/i });
+    expect(within(card).getByText("$12.50")).toBeVisible();
+    // La aclaración de IVA vive en el encabezado, una sola vez.
+    expect(screen.getByText(/los precios ya incluyen iva/i)).toBeVisible();
+    expect(within(card).queryByText(/iva incluido/i)).not.toBeInTheDocument();
+    expect(within(card).queryByText(/\+ iva/i)).not.toBeInTheDocument();
+  });
+
+  it("permite explorar y seleccionar cualquier producto de un catálogo de 10k sin montar todo el DOM", async () => {
+    const products = Array.from({ length: 10_000 }, (_, offset): Product => {
+      const position = offset + 1;
+      return {
+        ...product,
+        id: `bulk-${position}`,
+        sku: `SKU-${position.toString().padStart(5, "0")}`,
+        name: `Producto ${position.toString().padStart(5, "0")}`,
+      };
+    });
+    render(<Harness shift={shift} products={products} />);
+    const user = userEvent.setup();
+
+    expect(screen.getAllByRole("button", { name: /producto \d+, sku-/i })).toHaveLength(200);
+    expect(screen.getByRole("button", { name: /producto 00001, sku-00001/i })).toBeVisible();
+    expect(screen.getByRole("button", { name: /producto 00199, sku-00199/i })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /producto 00201, sku-00201/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/mostrando 200 de 10000 productos/i)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: /mostrar 200 más/i }));
+    expect(screen.getAllByRole("button", { name: /producto \d+, sku-/i })).toHaveLength(400);
+    expect(screen.getByRole("button", { name: /producto 00201, sku-00201/i })).toBeVisible();
+
+    const search = screen.getByRole("textbox", { name: /buscar producto/i });
+    await user.type(search, "Producto 05000");
+    expect(screen.getByRole("button", { name: /producto 05000, sku-05000/i })).toBeVisible();
+
+    await user.clear(search);
+    await user.type(search, "SKU-10000{Enter}");
+    await waitFor(() =>
+      expect(api.configureProduct).toHaveBeenCalledWith({
+        product_id: "bulk-10000",
+        variant_id: null,
+        selected_option_ids: [],
+      }),
+    );
+
+    await user.clear(search);
+    await user.click(screen.getByRole("button", { name: "Bebidas" }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: /producto \d+, sku-/i })).toHaveLength(200),
+    );
+    expect(screen.getByText(/mostrando 200 de 10000 productos/i)).toBeVisible();
+  }, 15_000);
+
+  it("usa «desde» con variantes y avisa de los extras", async () => {
+    render(<Harness shift={shift} products={[product, latte]} />);
+
+    const card = screen.getByRole("button", { name: /latte, lat-001/i });
+    expect(within(card).getByText("Desde $17.40")).toBeVisible();
+    expect(within(card).getByText(/1 variante · con extras/i)).toBeVisible();
+    expect(card).toHaveAccessibleName(/desde \$17\.40/i);
+  });
+
+  it("agrega un producto simple con una sola llamada a Rust", async () => {
+    render(<Harness shift={shift} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+
+    await waitFor(() => expect(api.configureProduct).toHaveBeenCalledTimes(1));
+    // Sin variantes ni modificadores no se consultan listas por producto.
+    expect(api.listProductVariants).not.toHaveBeenCalled();
+    expect(api.listModifierGroups).not.toHaveBeenCalled();
+  });
+
+  it("agrega con Enter el único resultado de la búsqueda", async () => {
+    render(<Harness shift={shift} />);
+    const user = userEvent.setup();
+
+    const search = screen.getByRole("textbox", { name: /buscar producto/i });
+    await user.type(search, "CAF-001{Enter}");
+
+    await waitFor(() => expect(api.configureProduct).toHaveBeenCalledTimes(1));
     expect(api.configureProduct).toHaveBeenCalledWith({
       product_id: "p-1",
       variant_id: null,
@@ -318,6 +436,21 @@ describe("SalesScreen", () => {
 
     expect(await screen.findByText(/abre un turno de caja para cobrar/i)).toBeVisible();
     expect(screen.getByRole("button", { name: /^cobrar \$/i })).toBeDisabled();
+  });
+
+  it("propone importes habituales sin cobrar por sí solo", async () => {
+    render(<Harness shift={shift} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+    await user.click(screen.getByRole("button", { name: /cobrar \$14\.50/i }));
+
+    const exact = await screen.findByRole("button", { name: /exacto \$14\.50/i });
+    expect(exact).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "$20.00" }));
+
+    expect(screen.getByText(/cambio estimado: \$5\.50/i)).toBeVisible();
+    expect(api.checkoutSale).not.toHaveBeenCalled();
   });
 
   it("cobra en efectivo y muestra el folio confirmado", async () => {
@@ -472,6 +605,14 @@ describe("SalesScreen", () => {
 
   it("descarta la configuración de un producto anterior", async () => {
     let resolveLatte: (value: ModifierGroup[]) => void = () => {};
+    // Ambos abren configuración: el segundo debe ganar aunque el primero
+    // responda después.
+    const capuchino: Product = {
+      ...latte,
+      id: "p-3",
+      sku: "CAP-001",
+      name: "Capuchino",
+    };
     api.listProductVariants.mockResolvedValue([variant]);
     api.listModifierGroups
       .mockImplementationOnce(
@@ -480,15 +621,15 @@ describe("SalesScreen", () => {
       .mockResolvedValue([group]);
     api.listModifierOptions.mockResolvedValue([extra]);
 
-    render(<Harness shift={shift} products={[product, latte]} />);
+    render(<Harness shift={shift} products={[capuchino, latte]} />);
     const user = userEvent.setup();
 
     // El primer producto tarda; el segundo responde antes.
     await user.click(screen.getByRole("button", { name: /latte, lat-001/i }));
-    await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+    await user.click(screen.getByRole("button", { name: /capuchino, cap-001/i }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByRole("heading", { name: /café americano/i })).toBeVisible();
+    expect(within(dialog).getByRole("heading", { name: /capuchino/i })).toBeVisible();
 
     resolveLatte([group]);
     await waitFor(() => {

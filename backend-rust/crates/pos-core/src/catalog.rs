@@ -50,11 +50,20 @@ impl Product {
     }
 
     /// Impuesto que corresponde a una unidad, calculado sobre su precio neto a
-    /// la tasa del producto (política provisional de ADR-003/ADR-006).
+    /// la tasa del producto (política de `crate::pricing`).
     pub fn unit_tax(&self) -> DomainResult<Money> {
-        let base = i128::from(self.unit_price.minor_units()) * i128::from(self.tax_rate_bp);
-        let tax = div_round_half_up(base, 10_000)?;
-        Money::from_minor_units(i64::try_from(tax).map_err(|_| DomainError::AmountOverflow)?)
+        crate::pricing::unit_tax(self.unit_price, self.tax_rate_bp)
+    }
+
+    /// Precio final al público de una unidad, con el impuesto incluido.
+    pub fn public_unit_total(&self) -> DomainResult<Money> {
+        crate::pricing::public_unit_total(self.unit_price, self.tax_rate_bp)
+    }
+
+    /// Precio final al público de una variante: la variante aporta el importe
+    /// neto y el producto padre la tasa, igual que al configurar una venta.
+    pub fn variant_public_unit_total(&self, variant: &ProductVariant) -> DomainResult<Money> {
+        crate::pricing::public_unit_total(variant.unit_price, self.tax_rate_bp)
     }
 }
 
@@ -134,16 +143,6 @@ impl ProductVariant {
             sort_order,
             created_at: time::OffsetDateTime::now_utc(),
         })
-    }
-}
-
-fn div_round_half_up(numerator: i128, denominator: i128) -> DomainResult<i128> {
-    let quotient = numerator / denominator;
-    let remainder = numerator % denominator;
-    if remainder.abs() * 2 >= denominator {
-        Ok(quotient + numerator.signum())
-    } else {
-        Ok(quotient)
     }
 }
 

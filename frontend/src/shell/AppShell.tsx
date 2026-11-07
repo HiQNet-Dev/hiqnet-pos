@@ -45,6 +45,25 @@ function messageOf(cause: unknown, fallback: string): string {
   return cause instanceof IpcError ? cause.message : fallback;
 }
 
+/** Preferencia de navegación por instalación. No contiene datos personales. */
+const NAV_COLLAPSED_KEY = "hiqnet.nav.collapsed";
+
+function loadNavPreference(): boolean {
+  try {
+    return window.localStorage.getItem(NAV_COLLAPSED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveNavPreference(collapsed: boolean): void {
+  try {
+    window.localStorage.setItem(NAV_COLLAPSED_KEY, collapsed ? "true" : "false");
+  } catch {
+    // Sin almacenamiento la preferencia vive solo en memoria.
+  }
+}
+
 function receiptAttemptStorageKey(actor: Actor): string {
   return `hiqnet.pending-receipt.${actor.organization_id}.${actor.branch_id}.${actor.user_id}`;
 }
@@ -76,7 +95,11 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
   const sections = useMemo(() => availableSections(actor), [actor]);
   const initialSection = defaultSection(actor);
   const [section, setSection] = useState<SectionId>(initialSection ?? "sales");
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState<boolean>(loadNavPreference);
+
+  useEffect(() => {
+    saveNavPreference(collapsed);
+  }, [collapsed]);
 
   const canSell = actor.permissions.includes("sales.sell");
   const canViewCash =

@@ -200,10 +200,31 @@ pub struct ProductView {
     pub id: ProductId,
     pub sku: String,
     pub name: String,
+    /// Precio neto, sin impuesto. Es el importe que se guarda y cobra.
     pub unit_price: String,
+    /// Precio final al público de una unidad, con impuesto incluido.
+    pub public_unit_total: String,
     pub tax_rate_bp: u16,
     pub active: bool,
     pub category_id: Option<String>,
+    /// Variantes activas publicadas con precio (solo en el listado de catálogo).
+    pub active_variants: u32,
+    /// Precio final al público más bajo entre las variantes activas.
+    pub variant_public_from: Option<String>,
+    /// Si el producto tiene al menos un grupo de modificadores activo.
+    pub has_modifiers: bool,
+}
+
+/// Vista previa del precio de un producto o variante todavía no guardado.
+///
+/// La calcula el dominio con la misma política que la venta: la interfaz nunca
+/// multiplica por la tasa. No abre transacción ni escribe nada.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProductPricePreviewView {
+    pub unit_price: String,
+    pub tax: String,
+    pub public_unit_total: String,
+    pub tax_rate_bp: u16,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -265,17 +286,43 @@ impl From<&ProductVariant> for ProductVariantView {
     }
 }
 
-impl From<&Product> for ProductView {
-    fn from(product: &Product) -> Self {
-        Self {
+impl ProductView {
+    /// Vista de un producto suelto: sin variantes ni modificadores conocidos.
+    fn of(product: &Product) -> AppResult<Self> {
+        Self::with_configuration(product, &[], false)
+    }
+
+    /// Vista con la configuración comercial del producto. `variants` contiene
+    /// solo las variantes activas y `has_modifiers` indica si algún grupo activo
+    /// obliga a configurar la venta.
+    fn with_configuration(
+        product: &Product,
+        variants: &[&ProductVariant],
+        has_modifiers: bool,
+    ) -> AppResult<Self> {
+        let public_unit_total = product.public_unit_total().map_err(AppError::Domain)?;
+        let variant_public_from = variants
+            .iter()
+            .map(|variant| product.variant_public_unit_total(variant))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::Domain)?
+            .into_iter()
+            .min()
+            .map(|total| total.to_string());
+
+        Ok(Self {
             id: product.id,
             sku: product.sku.clone(),
             name: product.name.clone(),
             unit_price: product.unit_price.to_string(),
+            public_unit_total: public_unit_total.to_string(),
             tax_rate_bp: product.tax_rate_bp,
             active: product.active,
             category_id: product.category_id.map(|id| id.to_string()),
-        }
+            active_variants: u32::try_from(variants.len()).unwrap_or(u32::MAX),
+            variant_public_from,
+            has_modifiers,
+        })
     }
 }
 
@@ -1170,6 +1217,26 @@ impl PosService {
         }
     }
 
+    /// Vista previa del precio al público de un importe neto todavía no
+    /// guardado. Solo calcula: no abre transacción, no escribe y no audita.
+    pub fn preview_product_price(
+        &self,
+        actor: &Actor,
+        price: &str,
+        tax_rate_bp: u16,
+    ) -> AppResult<ProductPricePreviewView> {
+        actor.require(pos_core::identity::Permission::ManageCatalog)?;
+        let unit_price: Money = price.trim().parse()?;
+        let tax = pos_core::pricing::unit_tax(unit_price, tax_rate_bp)?;
+        let public_unit_total = pos_core::pricing::public_unit_total(unit_price, tax_rate_bp)?;
+        Ok(ProductPricePreviewView {
+            unit_price: unit_price.to_string(),
+            tax: tax.to_string(),
+            public_unit_total: public_unit_total.to_string(),
+            tax_rate_bp,
+        })
+    }
+
     pub async fn create_product(
         &self,
         actor: &Actor,
@@ -1222,7 +1289,7 @@ impl PosService {
         .await?;
         tx.commit().await?;
 
-        Ok(ProductView::from(&product))
+        ProductView::of(&product)
     }
 
     pub async fn assign_product_category(
@@ -1272,15 +1339,41 @@ impl PosService {
             .await?
             .ok_or(pos_core::DomainError::ProductNotFound)?;
         tx.commit().await?;
-        Ok(ProductView::from(&product))
+        ProductView::of(&product)
     }
 
     pub async fn list_products(&self, actor: &Actor) -> AppResult<Vec<ProductView>> {
         actor.require(pos_core::identity::Permission::Sell)?;
         let mut tx = self.store.begin().await?;
         let products = tx.list_products(actor.organization_id).await?;
+        let configuration = tx.list_catalog_configuration(actor.organization_id).await?;
         tx.rollback().await?;
-        Ok(products.iter().map(ProductView::from).collect())
+
+        // Las variantes se agrupan una vez: el catálogo completo se presenta sin
+        // una consulta ni una llamada IPC por producto.
+        let mut variants_by_product: std::collections::HashMap<ProductId, Vec<&ProductVariant>> =
+            std::collections::HashMap::new();
+        for variant in &configuration.variants {
+            variants_by_product
+                .entry(variant.product_id)
+                .or_default()
+                .push(variant);
+        }
+
+        products
+            .iter()
+            .map(|product| {
+                let variants = variants_by_product
+                    .get(&product.id)
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
+                ProductView::with_configuration(
+                    product,
+                    variants,
+                    configuration.products_with_modifiers.contains(&product.id),
+                )
+            })
+            .collect()
     }
 
     pub async fn create_category(

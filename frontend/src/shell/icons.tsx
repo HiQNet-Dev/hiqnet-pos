@@ -163,3 +163,28 @@ export function AlertIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/**
+ * Marca de la aplicación. Es el mismo dibujo que `public/favicon.svg` y que los
+ * iconos del instalador, para que el icono del sistema y la cabecera no muestren
+ * dos logotipos distintos. El color sale del token de acento.
+ */
+export function BrandMark({ size = 32, ...rest }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+      {...rest}
+    >
+      <rect width="24" height="24" rx="5.4" fill="var(--color-accent)" />
+      <g fill="#fff">
+        <rect x="5.5" y="4.5" width="4" height="15" />
+        <rect x="14.5" y="4.5" width="4" height="15" />
+        <rect x="9.5" y="10" width="5" height="4" />
+      </g>
+    </svg>
+  );
+}

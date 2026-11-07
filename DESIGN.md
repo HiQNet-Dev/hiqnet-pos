@@ -143,12 +143,44 @@ Reglas:
 - Los encabezados de tabla sí pueden ir en mayúsculas pequeñas con tracking
   porque funcionan como columnas de datos, no como kickers.
 
+## Precios
+
+- Todo precio guardado en el catálogo y en las variantes es **neto**. El
+  impuesto se calcula por unidad con redondeo half-up a centavos en
+  `pos_core::pricing`; es la única implementación de la política.
+- Lo que ve el operador es el **precio al público**: neto + impuesto. Nunca
+  «$100 + IVA» cuando necesita saber cuánto cobra.
+- Con tasa 0 % el precio al público coincide con el neto y no se añade ninguna
+  etiqueta de impuesto.
+- Con variantes se publica «Desde $X» con la variante activa más barata; no un
+  precio fijo que solo aplica a una presentación.
+- La interfaz no multiplica, no suma IVA y no redondea importes: presenta lo que
+  devuelve Rust. Un cálculo en React es un defecto, no una optimización.
+- Los formularios que capturan un neto muestran la vista previa del precio al
+  público por IPC (`preview_product_price`), nunca con aritmética local.
+- Importes con números tabulares y dos decimales fijos.
+
 ## Layout
 
 - Shell de escritorio: barra superior de 56 px, navegación lateral persistente y
   un área de trabajo con scroll interno.
-- Navegación: 216 px con etiquetas; 72 px con etiquetas cortas por debajo de
-  1080 px. No se ocultan las etiquetas en tablet.
+- Navegación lateral, tres estados deliberados:
+
+  | Estado | Ancho | Cuándo | Etiquetas | Control |
+  | --- | --- | --- | --- | --- |
+  | Expandida | 216 px | Escritorio, preferencia del usuario | Nombre completo | “Contraer navegación” |
+  | Colapsada | 72 px | Escritorio, preferencia del usuario | Ninguna; tooltip con el nombre completo al pasar el puntero o enfocar | “Expandir navegación” |
+  | Riel compacto | 88 px | ≤ 1080 px | Etiqueta corta bajo el icono | Ninguno: el colapso no tendría efecto |
+
+  El colapso es una transición de layout (la columna del `grid` cambia en
+  160 ms) y respeta `prefers-reduced-motion`. El contador del ticket se
+  posiciona sobre el icono y se abrevia como `99+` cuando excede dos dígitos.
+  La preferencia se guarda por instalación en `localStorage`
+  (`hiqnet.nav.collapsed`) y nunca contiene datos personales.
+- Barra superior: la identidad y las acciones de cuenta no se comprimen. En
+  ventanas estrechas cede primero la etiqueta del chip de caja, después el sello
+  del plan (≤ 980 px), el nombre de usuario (≤ 720 px) y el texto del chip de
+  caja, que queda como icono con nombre accesible.
 - Ventas en escritorio: catálogo a la izquierda y ticket a la derecha
   (360–430 px). El ticket nunca sale de la pantalla; sus totales y “Cobrar” viven
   en un pie fijo.
@@ -156,10 +188,25 @@ Reglas:
   conserva el total y el cobro.
 - Inventario y caja usan una columna principal y un panel lateral en escritorio;
   se apilan por debajo de 960 px.
-- Breakpoints: 1360, 1180, 1080, 960 y 720 px. El comportamiento responsive es
-  estructural, no tipográfico.
+- Breakpoints: 1360, 1180, 1080, 980, 960 y 720 px. El comportamiento responsive
+  es estructural, no tipográfico.
 - No hay scroll global: el `body` no scrollea; cada pantalla gestiona su propio
   desbordamiento.
+- Los contenedores del shell (`.app`, `.app-body`, `.app-content`) y el `body`
+  usan `overflow: clip`, no `hidden`: `hidden` sigue siendo un contenedor
+  desplazable y el foco, `scrollIntoView` o el anclaje de scroll podían moverlo,
+  desplazando el diseño hacia una esquina y dejando el resto de la ventana vacío.
+  Los diálogos no alternan `body.style.overflow` por la misma razón, y devuelven
+  el foco con `preventScroll`. Lo vigila `tools/windows-native-e2e/e2e_layout_drift.py`.
+- Autenticación: el grupo se centra con márgenes automáticos, no con
+  `justify-content: center`, para que con el teclado virtual abierto o una
+  ventana baja el formulario se alinee arriba y sus campos sigan siendo
+  alcanzables mediante scroll.
+- Back de Android: un único listener (`lib/backNavigation.ts`) resuelve por capas
+  —teclado del sistema, diálogo, vista de ticket, raíz— y en la raíz consume el
+  evento sin finalizar la Activity. Un diálogo se cierra con el mismo `onClose`
+  que la X, «Cancelar» y Escape; el Back nunca altera el ticket. Un componente
+  nuevo que sea descartable con Escape debe registrar también esa capa.
 
 ## Elevation & Depth
 
@@ -178,6 +225,22 @@ Sistema tonal y de bordes, no de sombras decorativas.
 - Chips, badges y etiquetas usan radio de píldora.
 - Los bordes son de 1 px; no se usan bordes laterales de color como decoración.
 
+## Marca
+
+Un solo dibujo de marca en todo el producto: cuadrado redondeado con el acento
+`#1d4ed8` y una «H» geométrica en blanco.
+
+- Fuente normativa: `apps/pos-desktop/src-tauri/app-icon.svg` (1024 px) y
+  `frontend/public/favicon.svg` (24 px). Los iconos del instalador se generan
+  desde ese SVG.
+- En la interfaz, `BrandMark` (`frontend/src/shell/icons.tsx`) dibuja el mismo
+  glifo con `var(--color-accent)`; se usa en la barra superior y en las pantallas
+  de onboarding y de acceso.
+- La marca no lleva texto («HQ»): a 16 px el texto deja de ser legible y el
+  icono del sistema terminaba sin parecido con la cabecera.
+- La marca no se recolorea, no lleva degradados ni sombras y no convive con un
+  segundo logotipo.
+
 ## Components
 
 - **Botón primario**: fondo `accent`, texto blanco, 36 px de alto; deshabilitado
@@ -185,15 +248,52 @@ Sistema tonal y de bordes, no de sombras decorativas.
 - **Botón secundario**: superficie blanca y borde `border-strong`.
 - **Botón de peligro**: solo para acciones destructivas confirmadas.
 - **Campo**: borde `control-border`, 36 px de alto, etiqueta de 12 px arriba.
+- **Campos con estado**: `:disabled` usa `surface-muted` y cursor inerte;
+  `[readonly]` añade borde discontinuo; `[aria-invalid="true"]` cambia el borde a
+  `danger`. Toda variante nueva debe reutilizar estos tres estados, no inventar
+  colores propios.
+- **Fecha**: `input[type="date"]` conserva el selector nativo (teclado y
+  accesibilidad del sistema) pero comparte altura, borde, radio y tipografía con
+  el resto de campos.
+- **Casilla y opción**: `checkbox-field` da 36 px de alto, 16 px de control y
+  `accent-color: var(--color-accent)`; la etiqueta es parte del objetivo táctil.
+- **Momento de precio**: un importe monetario se escribe como «Precio base, sin
+  IVA» y, cuando importa el resultado, se acompaña de una vista previa
+  «Precio final al público» calculada por Rust (`preview_product_price`). La
+  interfaz nunca multiplica por la tasa.
 - **Tabla**: encabezado fijo, filas de 36–44 px, importes alineados a la derecha,
   identificadores sin partirse.
-- **Tarjeta de producto**: nombre, SKU, precio y disponibilidad; la tarjeta
-  completa es el objetivo de clic; “Agotado” es un estado explícito.
+- **Tarjeta de producto**: nombre, SKU, precio **al público** con IVA incluido y
+  disponibilidad; la tarjeta completa es el objetivo de clic; “Agotado” es un
+  estado explícito. Con variantes se muestra «Desde $X» con el precio más bajo
+  publicado por Rust, más «N variantes» y «con extras» cuando corresponde. La
+  aclaración «los precios ya incluyen IVA» vive una sola vez en el encabezado:
+  repetirla en cada tarjeta es ruido. Con más de 200 coincidencias, Ventas
+  representa un primer bloque de 200 tarjetas y ofrece «Mostrar N más» para
+  continuar explorando resultados; búsqueda y filtros siguen evaluando el
+  catálogo cargado completo para evitar miles de controles simultáneos.
 - **Ticket**: partidas con cantidad editable, total por línea y eliminación
   explícita. La cantidad no baja de 1; para quitar una partida se usa el botón de
   papelera. “Vaciar” exige confirmación.
 - **Navegación**: el elemento activo usa `accent-soft` y `accent`; el contador
-  del ticket se anuncia con singular o plural correcto.
+  del ticket se anuncia con singular o plural correcto. El nombre accesible de
+  cada entrada es explícito (`aria-label`), de modo que no depende de qué
+  etiqueta esté visible en cada ancho.
+- **Búsqueda y filtros**: el campo de búsqueda cede ancho antes que los chips de
+  categoría; los chips conservan su tamaño natural y pasan a una fila propia
+  cuando no caben junto a la búsqueda, en lugar de quedar cortados a media
+  palabra.
+- **Acción destructiva secundaria**: `.button-quiet-danger` conserva el peso de
+  una acción discreta de fila, pero usa el color de peligro para no confundirse
+  con la acción neutra vecina. La confirmación y el botón de peligro pleno viven
+  en el diálogo.
+- **Auditoría**: cada evento se muestra con una frase en español; la clave
+  técnica vive en `data-action` y nunca en pantalla. La meta de cada fila es la
+  fecha y una referencia corta del registro, sin repetir el sustantivo que ya
+  lleva la acción.
+- **Historial lateral**: `.ledger-history` para las listas de dos columnas (texto
+  y arqueo). No reutiliza la rejilla de cuatro columnas del libro de movimientos;
+  compartir contenedor no significa compartir composición.
 - **Estado**: éxito, advertencia, error e información tienen su propio par de
   color y fondo. Un cierre de caja con diferencia es advertencia, no éxito.
 - **Carga**: esqueletos en la rejilla de venta; texto breve en paneles pequeños.
@@ -217,7 +317,9 @@ Sistema tonal y de bordes, no de sombras decorativas.
 
 - No añadas kickers, eyebrows ni etiquetas en mayúsculas sobre títulos.
 - No uses degradados, brillos, glassmorphism ni sombras duras como decoración.
-- No ocultes las etiquetas de navegación en tablet.
+- No ocultes las etiquetas de navegación en tablet: usa la etiqueta corta.
+- No dejes el control de colapso visible cuando el ancho lo vuelve inoperante.
+- No dejes una etiqueta de navegación visible dentro de la columna colapsada.
 - No muestres identificadores técnicos (`sale.completed`, `active`,
   `inventory_movement`) al usuario; tradúcelos.
 - No reduzcas el texto a iconos sin nombre accesible.

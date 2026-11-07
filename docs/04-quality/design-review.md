@@ -1,5 +1,11 @@
 # Revisión de diseño — shell operativo de HiQNet POS
 
+> Actualización 2026-11-05: esta revisión describe el estado del shell antes de
+> la auditoría UX/UI de 0.1.0. Los cambios posteriores (navegación
+> expandida/colapsada, prioridad de la barra superior, rejilla de reportes y
+> centrado seguro de la autenticación) están en
+> [`ux-audit-0.1.0.md`](ux-audit-0.1.0.md).
+
 - Fecha: 2026-11-04
 - Skill: Impeccable 4.8.0 (`npx impeccable install --project --no-hooks`)
 - Alcance: `frontend/src` (shell, ventas, catálogo, inventario, caja y gestión)
