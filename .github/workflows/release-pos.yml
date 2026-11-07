@@ -1,22 +1,12 @@
 name: Release POS
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Versión SemVer (ej. 0.2.0-rc.1)"
-        required: true
-      channel:
-        description: "Canal de actualización"
-        required: true
-        type: choice
-        options: [stable, beta, alpha]
   push:
     tags:
       - "pos-v*"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-pos-${{ github.ref }}
@@ -28,6 +18,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validar tag de release
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_TYPE" = "tag" || { echo "::error::la release solo se ejecuta desde un tag"; exit 1; }
+          case "$GITHUB_REF_NAME" in pos-v*) ;; *) echo "::error::tag invalido"; exit 1;; esac
+          version="${GITHUB_REF_NAME#pos-v}"
+          tauri_version=$(python3 -c 'import json;print(json.load(open("apps/pos-desktop/src-tauri/tauri.conf.json"))["version"])')
+          frontend_version=$(node -p "require('./frontend/package.json').version")
+          test "$tauri_version" = "$version" || { echo "::error::version Tauri $tauri_version != $version"; exit 1; }
+          test "$frontend_version" = "$version" || { echo "::error::version frontend $frontend_version != $version"; exit 1; }
+          echo "Tag valido: $GITHUB_REF_NAME (SHA $GITHUB_SHA)"
       - name: Toolchain fijado por rust-toolchain.toml
         shell: bash
         run: |
@@ -149,6 +151,8 @@ jobs:
     name: Publicar GitHub Release
     needs: [validate, build-windows, build-linux]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Descargar artefactos

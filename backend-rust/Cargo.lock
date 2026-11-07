@@ -963,7 +963,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "pos-application"
-version = "0.1.0"
+version = "0.1.1-rc.1"
 dependencies = [
  "async-trait",
  "pos-core",
@@ -978,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "pos-core"
-version = "0.1.0"
+version = "0.1.1-rc.1"
 dependencies = [
  "rust_decimal",
  "serde",
@@ -990,7 +990,7 @@ dependencies = [
 
 [[package]]
 name = "pos-licensing"
-version = "0.1.0"
+version = "0.1.1-rc.1"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -1007,7 +1007,7 @@ dependencies = [
 
 [[package]]
 name = "pos-security"
-version = "0.1.0"
+version = "0.1.1-rc.1"
 dependencies = [
  "argon2",
  "password-hash",
@@ -1018,7 +1018,7 @@ dependencies = [
 
 [[package]]
 name = "pos-storage-sqlite"
-version = "0.1.0"
+version = "0.1.1-rc.1"
 dependencies = [
  "async-trait",
  "libc",
