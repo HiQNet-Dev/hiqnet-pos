@@ -36,6 +36,8 @@ jobs:
         run: cargo clippy --locked --manifest-path backend-rust/Cargo.toml --workspace --all-targets -- -D warnings
       - name: Pruebas
         run: cargo test --locked --manifest-path backend-rust/Cargo.toml --workspace
+      - name: Pruebas de staging de release
+        run: python3 tools/test_stage_release.py
 
   frontend:
     name: Frontend (lint, tipos, pruebas, build)
