@@ -1,7 +1,8 @@
 # Inventario de ramas y mantenimiento del repositorio
 
-Estado observado: `main` en `455718f` (merge de #22, 2026-11-07). **9 ramas
-remotas** contando `main`.
+Estado observado: `main` en `455718f` (merge de #22, 2026-11-07). Tras la
+limpieza quedan **9 ramas remotas** contando `main`; la rama de este PR de
+documentación es transitoria.
 
 Este documento es un inventario de trabajo. **No autoriza borrados**: cada
 operación remota requiere aprobación del propietario. La integración de #17–#22
