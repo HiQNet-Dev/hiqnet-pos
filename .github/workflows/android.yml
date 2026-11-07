@@ -5,8 +5,7 @@ name: Android (validación aparte)
 #   - manualmente (workflow_dispatch)
 #   - en PR etiquetados con `android` que toquen código compartido
 #
-# Primera ejecución pendiente de validar en CI; hasta entonces no se añade a los
-# gates obligatorios de `main`.
+# Verificado en PR #22 (run 42372723076). No se exige como check universal.
 
 on:
   workflow_dispatch:

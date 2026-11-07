@@ -66,8 +66,20 @@ La compilación Android vive en `.github/workflows/android.yml` y es opt-in:
 - ejecución manual (`workflow_dispatch`);
 - PR etiquetado con `android` que toque código compartido.
 
-No se ejecuta en cada PR de documentación o de escritorio. Su primera ejecución
-en CI está pendiente de validación.
+No se ejecuta en cada PR de documentación o de escritorio.
+
+Primera ejecución verificada en PR #22 (run `42372723076`):
+
+- Gradle compiló la APK con JDK 17, SDK y NDK `30.0.16248370`.
+- La APK contiene `lib/arm64-v8a/libpos_desktop_lib.so` y no otras ABIs.
+- 193 494 769 bytes; SHA-256 `B404A74C3F134AD41C62B57229067687A48906BFFC24F39D5C5A97630B4E3B04`.
+- Firmada con el certificado **Android Debug** (`CN=Android Debug`), no con la
+  clave interna. El workflow no usa secretos de firma.
+- Artefacto `hiqnet-pos-android-debug`, retención 7 días.
+
+Esto valida toolchain, SDK/NDK, plugin SAF Kotlin, target ARM64 y empaquetado.
+**No valida hardware**: SAF, exportación/importación y navegación siguen
+pendientes de prueba en dispositivo.
 
 ## Límites
 
