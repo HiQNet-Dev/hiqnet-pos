@@ -917,6 +917,12 @@ pub struct IntegrityFinding {
 pub struct IntegrityDiagnosticReport {
     pub organization_id: String,
     pub branch_id: String,
+    /// Semantica agregada: el peor estado de todos los hallazgos.
+    pub status: IntegrityStatus,
+    /// Numero de movimientos efectivamente leidos, maximo 100000.
+    pub movement_count: usize,
+    /// `true` si el limite no interrumpio el recorrido.
+    pub complete: bool,
     pub findings: Vec<IntegrityFinding>,
 }
 
@@ -978,14 +984,38 @@ impl PosService {
             by_id.insert(movement.id, movement.clone());
         }
 
+        let mut seen_waste_keys = std::collections::BTreeSet::new();
         for waste in &waste_records {
-            match by_id.get(&waste.inventory_movement_id) {
-                None => findings.push(IntegrityFinding {
-                    scope: "waste.reference".to_string(),
+            if !seen_waste_keys.insert(waste.idempotency_key.clone()) {
+                findings.push(IntegrityFinding {
+                    scope: "waste.idempotency".to_string(),
                     entity_id: Some(waste.id.to_string()),
                     status: IntegrityStatus::Mismatch,
-                    message: "merma sin movimiento asociado".to_string(),
-                }),
+                    message: "idempotencia de merma duplicada".to_string(),
+                });
+            }
+        }
+
+        for waste in &waste_records {
+            match by_id.get(&waste.inventory_movement_id) {
+                None => {
+                    let status = if movements.len() >= 100_000 {
+                        IntegrityStatus::Unverifiable
+                    } else {
+                        IntegrityStatus::Mismatch
+                    };
+                    let message = if movements.len() >= 100_000 {
+                        "movimiento asociado no cargado por limite de paginacion".to_string()
+                    } else {
+                        "merma sin movimiento asociado".to_string()
+                    };
+                    findings.push(IntegrityFinding {
+                        scope: "waste.reference".to_string(),
+                        entity_id: Some(waste.id.to_string()),
+                        status,
+                        message,
+                    })
+                }
                 Some(movement) => {
                     if movement.product_id != waste.product_id
                         || movement.quantity != waste.quantity
@@ -1012,9 +1042,39 @@ impl PosService {
                 .to_string(),
         });
 
+        let complete = movements.len() < 100_000;
+        if !complete {
+            findings.push(IntegrityFinding {
+                scope: "inventory.pagination".to_string(),
+                entity_id: None,
+                status: IntegrityStatus::Unverifiable,
+                message: "diagnostico incompleto: se alcanzo el limite de 100000 movimientos"
+                    .to_string(),
+            });
+        }
+
+        let status = if findings
+            .iter()
+            .any(|f| f.status == IntegrityStatus::Mismatch)
+        {
+            IntegrityStatus::Mismatch
+        } else if findings.iter().any(|f| f.status == IntegrityStatus::Error) {
+            IntegrityStatus::Error
+        } else if findings
+            .iter()
+            .any(|f| f.status == IntegrityStatus::Unverifiable)
+        {
+            IntegrityStatus::Unverifiable
+        } else {
+            IntegrityStatus::Consistent
+        };
+
         Ok(IntegrityDiagnosticReport {
             organization_id: actor.organization_id.to_string(),
             branch_id: branch_id.to_string(),
+            status,
+            movement_count: movements.len(),
+            complete,
             findings,
         })
     }
