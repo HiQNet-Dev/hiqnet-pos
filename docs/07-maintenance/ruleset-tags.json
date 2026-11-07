@@ -1,0 +1,17 @@
+{
+  "name": "tags-release-protegidos",
+  "target": "tag",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/tags/pos-v*"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    { "type": "deletion" },
+    { "type": "update" },
+    { "type": "creation" }
+  ],
+  "bypass_actors": []
+}

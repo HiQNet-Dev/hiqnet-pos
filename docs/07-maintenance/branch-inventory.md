@@ -17,17 +17,22 @@ cada operación remota requiere aprobación del propietario.
 | `chore/android-local-spike` | #18 | `chore/local-stabilization-prepilot` | 1 | Spike Android |
 | `chore/integration-android-ux` | #20 | `chore/desktop-ux-polish` | 22 | Integración Android + UX |
 | `feat/android-saf-internal-backup` | #21 | `chore/integration-android-ux` | 10 | Respaldo SAF y firma interna |
+| `chore/repo-multiplatform-dev` | #22 | `feat/android-saf-internal-backup` | 9 | Saneamiento y soporte Linux |
+
+Total: **23 ramas remotas** contando `main`.
 
 Verificación de contenido:
 
 - `chore/desktop-ux-polish` es ancestro de `chore/integration-android-ux`.
-- El commit único de `chore/android-local-spike` fue reaplicado en
-  `chore/integration-android-ux` (`c860b2b`). La comparación dos a dos solo
-  difiere en `apps/pos-desktop/src-tauri/src/lib.rs`, donde la integración es
-  superconjunto (añade `preview_product_price`). **#18 está reemplazado por
-  #20.**
+- El commit único de `chore/android-local-spike` (`8babf94`) fue reaplicado en
+  `chore/integration-android-ux` (`c860b2b`). Verificación por `patch-id`
+  excluyendo `apps/pos-desktop/src-tauri/src/lib.rs`: **parches idénticos**
+  (`69807f05…`). En ese archivo la integración es superconjunto (añade
+  `preview_product_price`). **#18 está reemplazado por #20.**
 - `chore/integration-android-ux` es ancestro de
   `feat/android-saf-internal-backup`.
+- `feat/android-saf-internal-backup` es ancestro de
+  `chore/repo-multiplatform-dev`.
 
 ### PR abiertos antiguos
 
@@ -60,19 +65,70 @@ Estas ramas tienen **0 commits por delante de `main`** y sus PR están `MERGED`:
 No se usó solo `git branch --merged`: el squash merge no conserva ancestros. La
 comprobación fue `git rev-list --count main..<rama>` y `git cherry main <rama>`.
 
+## Simulación de integración (local, no publicada)
+
+Rama temporal `integration-sim-local` creada desde `main` (`0b57cbd`) y fusionada
+en este orden:
+
+| Paso | Rama | Resultado |
+| --- | --- | --- |
+| 1 | `chore/local-stabilization-prepilot` (#17) | Fast-forward |
+| 2 | `chore/integration-android-ux` (#20) | Fast-forward (incluye #19) |
+| 3 | `feat/android-saf-internal-backup` (#21) | Fast-forward |
+| 4 | `chore/repo-multiplatform-dev` (#22) | Fast-forward |
+
+Sin conflictos. El árbol resultante es **idéntico** a
+`chore/repo-multiplatform-dev` (`git diff --stat` vacío): 11 migraciones,
+precios públicos, ventas/devoluciones, SAF, firma externa, rutas Windows/Linux,
+CI Linux y documentación presentes. Validaciones sobre el árbol integrado:
+`cargo fmt`, `clippy -D warnings`, `cargo test --workspace`, `pnpm lint`,
+`typecheck`, `vitest` (120/120) y `build`: todo verde.
+
+La rama temporal no se publica. `git branch -D integration-sim-local` es seguro
+cuando el propietario lo autorice.
+
 ## Orden de integración recomendado
 
-1. Fusionar **#17** en `main` con CI verde.
-2. Cerrar **#18** como reemplazado por #20 (contenido verificado como
-   superconjunto).
-3. Fusionar **#20** en `main` (incluye #18 y #19).
-4. Fusionar **#21** en `main`.
-5. Cerrar **#1** y **#2** por obsoletos.
-6. Eliminar las 14 ramas fusionadas.
-7. Eliminar las ramas de #17, #19, #20 y #21 después de fusionar.
+Cada flecha representa un merge con CI verde; no usar squash para conservar la
+cadena verificada.
+
+1. **#17** → `main`.
+2. **#20** → `main` (incluye #18 y #19).
+3. **#21** → `main`.
+4. **#22** → `main` (retargetear al fusionar #21).
+5. Cerrar **#1**, **#2**, **#18** y **#19** como obsoletos/reemplazados.
+6. Eliminar ramas según la lista de abajo.
 
 Alternativa si se prefiere fusionar cada PR por separado: #17 → #19 → #20 →
-#21. **Nunca #18 antes de #20**: duplicaría una implementación divergente.
+#21 → #22. **Nunca #18 antes de #20**: duplicaría una implementación divergente.
+
+Si se usa squash en cada PR, la simulación sigue siendo válida porque se
+validaron los árboles, no solo los ancestros.
+
+## Plan de eliminación (requiere autorización)
+
+Borrar solo después de fusionar #17–#22 y cerrar los PR obsoletos:
+
+```bash
+# Tras el merge de #22 y con CI verde
+git push origin --delete \
+  fix/inventory-integrity feat/catalog-categories-variants \
+  feat/catalog-modifier-engine feat/cash-registers-shifts \
+  feat/sales-cart-checkout test/g2-5-operational-e2e \
+  test/windows-desktop-e2e test/windows-native-e2e \
+  feat/desktop-shell-redesign fix/migraciones-crlf-windows \
+  feat/local-user-management feat/purchasing-suppliers-receiving \
+  feat/local-expenses-waste feat/local-reports-returns \
+  docs/tests-readme fix/ci-security-foundation \
+  chore/android-local-spike chore/desktop-ux-polish \
+  chore/local-stabilization-prepilot chore/integration-android-ux \
+  feat/android-saf-internal-backup chore/repo-multiplatform-dev
+```
+
+Antes de ejecutarlo: retirar el worktree
+`…/hiqnet-pos-android-local-spike` y confirmar que no tiene cambios locales
+(`git -C …/hiqnet-pos-android-local-spike status`). No borrar ninguna rama de
+#17–#22 antes de completar los merges.
 
 ## Worktrees
 
@@ -81,7 +137,9 @@ Alternativa si se prefiere fusionar cada PR por separado: #17 → #19 → #20 �
 | `…/hiqnet-pos` | `chore/repo-multiplatform-dev` |
 | `…/hiqnet-pos-android-local-spike` | `chore/android-local-spike` |
 
-El worktree del spike debe retirarse antes de eliminar esa rama.
+El worktree del spike debe retirarse antes de eliminar esa rama. La rama local
+`integration-sim-local` (sin remoto) solo contiene la simulación y puede
+borrarse tras la entrega.
 
 ## Reglas de higiene
 
@@ -98,6 +156,7 @@ El worktree del spike debe retirarse antes de eliminar esa rama.
 - Borrar ramas remotas.
 - Cerrar o fusionar PR.
 - Configurar protección de `main` (hoy **sin protección**: no exige PR, CI ni
-  bloqueo de force push).
-- Crear o proteger tags de release.
+  bloqueo de force push). Propuesta lista en
+  [`branch-protection.md`](branch-protection.md).
+- Crear o proteger tags de release (`ruleset-tags.json`).
 - Configurar secretos de firma.

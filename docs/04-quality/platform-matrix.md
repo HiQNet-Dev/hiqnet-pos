@@ -27,7 +27,7 @@ WebKitGTK.
 | Playwright (navegador) | VERIFICADO | PENDIENTE (host) | N/A | No ejecutado en Actions |
 | E2E nativo Windows | VERIFICADO (manual) | N/A | N/A | No automatizado |
 | Compilación Tauri | VERIFICADO | VERIFICADO (CI Ubuntu 24.04) | PARCIAL | `desktop-linux` verde con smoke de CLI |
-| APK ARM64 | VERIFICADO (manual) | PENDIENTE (host) | — | Workflow opt-in sin ejecutar |
+| APK ARM64 | VERIFICADO (manual) | PENDIENTE (host) | — | VERIFICADO en CI (opt-in, APK debug ARM64) |
 
 ## Rutas de datos
 
