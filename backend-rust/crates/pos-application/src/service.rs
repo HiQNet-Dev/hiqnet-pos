@@ -931,12 +931,8 @@ impl PosService {
         let movements = tx
             .list_inventory_movements(actor.organization_id, branch_id, None, 100_000)
             .await?;
-        let stock_levels = tx
-            .stock_levels(actor.organization_id, branch_id)
-            .await?;
-        let waste_records = tx
-            .list_waste(actor.organization_id, branch_id)
-            .await?;
+        let stock_levels = tx.stock_levels(actor.organization_id, branch_id).await?;
+        let waste_records = tx.list_waste(actor.organization_id, branch_id).await?;
         tx.rollback().await?;
 
         let mut findings = Vec::new();
@@ -954,7 +950,8 @@ impl PosService {
         }
 
         for movement in &movements {
-            if movement.organization_id != actor.organization_id || movement.branch_id != branch_id {
+            if movement.organization_id != actor.organization_id || movement.branch_id != branch_id
+            {
                 findings.push(IntegrityFinding {
                     scope: "inventory.movement_scope".to_string(),
                     entity_id: Some(movement.id.to_string()),
@@ -1011,7 +1008,8 @@ impl PosService {
             scope: "inventory.sales".to_string(),
             entity_id: None,
             status: IntegrityStatus::Unverifiable,
-            message: "la correspondencia venta-movimiento no es referencial en el esquema actual".to_string(),
+            message: "la correspondencia venta-movimiento no es referencial en el esquema actual"
+                .to_string(),
         });
 
         Ok(IntegrityDiagnosticReport {
