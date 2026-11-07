@@ -897,7 +897,130 @@ pub struct PosService {
     clock: SharedClock,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum IntegrityStatus {
+    Consistent,
+    Mismatch,
+    Unverifiable,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrityFinding {
+    pub scope: String,
+    pub entity_id: Option<String>,
+    pub status: IntegrityStatus,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrityDiagnosticReport {
+    pub organization_id: String,
+    pub branch_id: String,
+    pub findings: Vec<IntegrityFinding>,
+}
+
 impl PosService {
+    pub async fn diagnose_inventory_integrity(
+        &self,
+        actor: &Actor,
+    ) -> AppResult<IntegrityDiagnosticReport> {
+        actor.require(pos_core::identity::Permission::ViewInventory)?;
+        let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
+        let mut tx = self.store.begin().await?;
+        let movements = tx
+            .list_inventory_movements(actor.organization_id, branch_id, None, 100_000)
+            .await?;
+        let stock_levels = tx
+            .stock_levels(actor.organization_id, branch_id)
+            .await?;
+        let waste_records = tx
+            .list_waste(actor.organization_id, branch_id)
+            .await?;
+        tx.rollback().await?;
+
+        let mut findings = Vec::new();
+        let mut by_id = std::collections::BTreeMap::new();
+
+        for (product_id, stock) in &stock_levels {
+            if stock.milli_units() < 0 {
+                findings.push(IntegrityFinding {
+                    scope: "inventory.stock".to_string(),
+                    entity_id: Some(product_id.to_string()),
+                    status: IntegrityStatus::Mismatch,
+                    message: "saldo negativo detectado".to_string(),
+                });
+            }
+        }
+
+        for movement in &movements {
+            if movement.organization_id != actor.organization_id || movement.branch_id != branch_id {
+                findings.push(IntegrityFinding {
+                    scope: "inventory.movement_scope".to_string(),
+                    entity_id: Some(movement.id.to_string()),
+                    status: IntegrityStatus::Mismatch,
+                    message: "movimiento fuera del alcance del diagnostico".to_string(),
+                });
+            }
+            if movement.quantity.milli_units() == 0 {
+                findings.push(IntegrityFinding {
+                    scope: "inventory.movement_quantity".to_string(),
+                    entity_id: Some(movement.id.to_string()),
+                    status: IntegrityStatus::Mismatch,
+                    message: "movimiento con cantidad cero".to_string(),
+                });
+            }
+            if by_id.contains_key(&movement.id) {
+                findings.push(IntegrityFinding {
+                    scope: "inventory.movement_duplicate".to_string(),
+                    entity_id: Some(movement.id.to_string()),
+                    status: IntegrityStatus::Mismatch,
+                    message: "movimiento duplicado en el diagnostico".to_string(),
+                });
+            }
+            by_id.insert(movement.id, movement.clone());
+        }
+
+        for waste in &waste_records {
+            match by_id.get(&waste.inventory_movement_id) {
+                None => findings.push(IntegrityFinding {
+                    scope: "waste.reference".to_string(),
+                    entity_id: Some(waste.id.to_string()),
+                    status: IntegrityStatus::Mismatch,
+                    message: "merma sin movimiento asociado".to_string(),
+                }),
+                Some(movement) => {
+                    if movement.product_id != waste.product_id
+                        || movement.quantity != waste.quantity
+                        || movement.organization_id != waste.organization_id
+                        || movement.branch_id != waste.branch_id
+                        || movement.kind != pos_core::inventory::MovementKind::Outbound
+                    {
+                        findings.push(IntegrityFinding {
+                            scope: "waste.reference".to_string(),
+                            entity_id: Some(waste.id.to_string()),
+                            status: IntegrityStatus::Mismatch,
+                            message: "merma y movimiento asociado no coinciden".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        findings.push(IntegrityFinding {
+            scope: "inventory.sales".to_string(),
+            entity_id: None,
+            status: IntegrityStatus::Unverifiable,
+            message: "la correspondencia venta-movimiento no es referencial en el esquema actual".to_string(),
+        });
+
+        Ok(IntegrityDiagnosticReport {
+            organization_id: actor.organization_id.to_string(),
+            branch_id: branch_id.to_string(),
+            findings,
+        })
+    }
+
     pub fn new(store: SharedStore, hasher: SharedHasher, clock: SharedClock) -> Self {
         Self {
             store,
