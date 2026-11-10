@@ -13,7 +13,7 @@ impl PosService {
         let fingerprint = serde_json::to_string(&draft).map_err(|_| AppError::Storage)?;
         let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Sales, self.clock.now())?;
         // La recuperación idempotente se resuelve antes de exigir un turno abierto:

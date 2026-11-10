@@ -60,19 +60,110 @@ pub(super) fn validate_password(password: &str) -> AppResult<()> {
     Ok(())
 }
 
-pub(super) async fn require_commercial(
-    tx: &mut dyn crate::ports::StoreTx,
-) -> AppResult<CommercialState> {
-    let state = tx
-        .installation_state()
-        .await?
-        .ok_or(pos_core::DomainError::AlreadyInitialized)?;
-    commercial_from_installation(&state)
+/// Resultado de resolver el estado comercial desde lo persistido.
+pub(super) enum LicenseResolution {
+    /// No hay documento firmado: se conserva el trial local.
+    NoGrant,
+    /// Documento validado criptograficamente.
+    Verified(VerifiedLicense),
+    /// Hay documento pero no autoriza.
+    Rejected(&'static str),
 }
 
-pub(super) fn commercial_from_installation(
+/// Estado comercial resultante de una licencia que no puede acreditarse.
+///
+/// Sin funciones y en solo lectura: ninguna columna editable de SQLite puede
+/// reactivar la operacion comercial por si misma.
+fn revoked_state(state: &InstallationState) -> CommercialState {
+    CommercialState {
+        installation_id: state.installation_id,
+        organization_id: state.organization_id,
+        plan: PlanName::Trial,
+        status: LicenseStatus::ReadOnly,
+        features: BTreeSet::new(),
+        valid_until: state.valid_until,
+    }
+}
+
+/// Resuelve el estado comercial.
+///
+/// Regla: si existe un documento firmado, **solo** autoriza cuando la firma se
+/// verifica y sus identidades coinciden con la instalacion. Las columnas
+/// `plan`, `features` y `valid_until` nunca autorizan por si solas cuando hay
+/// un grant presente; sin grant se conserva el trial local.
+pub(super) fn resolve_commercial(
     state: &InstallationState,
-) -> AppResult<CommercialState> {
+    verifier: Option<&dyn LicenseVerifier>,
+) -> (CommercialState, LicenseResolution) {
+    let grant_json = state
+        .license_grant_json
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let signature = state
+        .license_signature_b64
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    match (grant_json, signature) {
+        (None, None) => (commercial_from_trial_row(state), LicenseResolution::NoGrant),
+        (Some(json), Some(signature)) => {
+            let Some(verifier) = verifier else {
+                return (
+                    revoked_state(state),
+                    LicenseResolution::Rejected("public_key_unavailable"),
+                );
+            };
+            let license = match verifier.verify(json, signature) {
+                Ok(license) => license,
+                Err(_) => {
+                    return (
+                        revoked_state(state),
+                        LicenseResolution::Rejected("signature_rejected"),
+                    );
+                }
+            };
+            if license.installation_id != state.installation_id {
+                return (
+                    revoked_state(state),
+                    LicenseResolution::Rejected("installation_mismatch"),
+                );
+            }
+            if license.organization_id != state.organization_id {
+                return (
+                    revoked_state(state),
+                    LicenseResolution::Rejected("organization_mismatch"),
+                );
+            }
+            let status = if license.plan == PlanName::Trial {
+                LicenseStatus::Trial
+            } else {
+                LicenseStatus::Active
+            };
+            (
+                CommercialState {
+                    installation_id: license.installation_id,
+                    organization_id: license.organization_id,
+                    plan: license.plan,
+                    status,
+                    features: license.features.clone(),
+                    valid_until: license.valid_until,
+                },
+                LicenseResolution::Verified(license),
+            )
+        }
+        // Documento incompleto (grant sin firma o firma sin grant): no autoriza
+        // y no cae al trial.
+        _ => (
+            revoked_state(state),
+            LicenseResolution::Rejected("incomplete_document"),
+        ),
+    }
+}
+
+/// Estado comercial de una instalacion sin licencia firmada (trial local).
+pub(super) fn commercial_from_trial_row(state: &InstallationState) -> CommercialState {
     let plan = match state.plan.as_str() {
         "trial" => PlanName::Trial,
         "local" => PlanName::Local,
@@ -93,41 +184,84 @@ pub(super) fn commercial_from_installation(
         .filter_map(|key| FeatureKey::from_key(key))
         .collect();
 
-    // La verificación de la firma del grant pertenece a `pos-licensing`; este
-    // estado refleja únicamente lo observado por la aplicación.
-    Ok(CommercialState {
+    CommercialState {
         installation_id: state.installation_id,
         organization_id: state.organization_id,
         plan,
         status,
         features,
         valid_until: state.valid_until,
-    })
+    }
 }
 
-pub(super) fn commercial_view(
-    state: &InstallationState,
-    now: OffsetDateTime,
-) -> AppResult<CommercialStateView> {
-    let commercial = commercial_from_installation(state)?;
-    let effective = commercial.effective_status(now);
-    Ok(CommercialStateView {
-        plan: commercial.plan.as_str(),
-        status: match effective {
-            LicenseStatus::Trial => "trial",
-            LicenseStatus::Active => "active",
-            LicenseStatus::Grace => "grace",
-            LicenseStatus::ReadOnly => "read_only",
-            LicenseStatus::Expired => "expired",
-        },
-        valid_until: commercial.valid_until,
-        features: commercial
-            .features
-            .iter()
-            .map(|feature| feature.as_str())
-            .collect(),
-        read_only: matches!(effective, LicenseStatus::ReadOnly | LicenseStatus::Expired),
-    })
+impl PosService {
+    /// Estado comercial exigido antes de cualquier mutacion protegida.
+    ///
+    /// Es el unico camino: ningun caso de uso lee `plan`, `features` ni
+    /// `valid_until` directamente de la fila de instalacion.
+    pub(super) async fn require_commercial(
+        &self,
+        tx: &mut dyn crate::ports::StoreTx,
+    ) -> AppResult<CommercialState> {
+        let state = tx
+            .installation_state()
+            .await?
+            .ok_or(pos_core::DomainError::AlreadyInitialized)?;
+        let (commercial, resolution) = resolve_commercial(&state, self.license.as_deref());
+        match resolution {
+            LicenseResolution::Rejected(reason) => tracing::warn!(
+                installation_id = %state.installation_id,
+                reason,
+                "licencia no verificable: la instalacion queda en solo lectura"
+            ),
+            LicenseResolution::Verified(license) => tracing::debug!(
+                plan = license.plan.as_str(),
+                valid_until = %license.valid_until,
+                "licencia verificada"
+            ),
+            LicenseResolution::NoGrant => {}
+        }
+        Ok(commercial)
+    }
+
+    /// Vista comercial para la interfaz, derivada del mismo camino verificado.
+    pub(super) fn commercial_view(
+        &self,
+        state: &InstallationState,
+    ) -> AppResult<CommercialStateView> {
+        let (commercial, resolution) = resolve_commercial(state, self.license.as_deref());
+        match resolution {
+            LicenseResolution::Rejected(reason) => tracing::warn!(
+                installation_id = %state.installation_id,
+                reason,
+                "licencia no verificable: se muestra en solo lectura"
+            ),
+            LicenseResolution::Verified(license) => tracing::debug!(
+                plan = license.plan.as_str(),
+                valid_until = %license.valid_until,
+                "licencia verificada"
+            ),
+            LicenseResolution::NoGrant => {}
+        }
+        let effective = commercial.effective_status(self.clock.now());
+        Ok(CommercialStateView {
+            plan: commercial.plan.as_str(),
+            status: match effective {
+                LicenseStatus::Trial => "trial",
+                LicenseStatus::Active => "active",
+                LicenseStatus::Grace => "grace",
+                LicenseStatus::ReadOnly => "read_only",
+                LicenseStatus::Expired => "expired",
+            },
+            valid_until: commercial.valid_until,
+            features: commercial
+                .features
+                .iter()
+                .map(|feature| feature.as_str())
+                .collect(),
+            read_only: matches!(effective, LicenseStatus::ReadOnly | LicenseStatus::Expired),
+        })
+    }
 }
 
 pub(super) fn installation_from_commercial(commercial: &CommercialState) -> InstallationState {

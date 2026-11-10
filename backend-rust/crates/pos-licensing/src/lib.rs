@@ -6,7 +6,7 @@
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-use pos_application::{AppError, AppResult};
+use pos_application::AppError;
 use pos_core::entitlements::{FeatureKey, LicenseStatus, PlanName};
 use pos_core::ids::{InstallationId, OrganizationId};
 use serde::{Deserialize, Serialize};
@@ -110,14 +110,30 @@ impl Ed25519LicenseVerifier {
 }
 
 impl pos_application::LicenseVerifier for Ed25519LicenseVerifier {
-    fn verify(&self, grant_json: &str, signature_b64: &str) -> AppResult<()> {
-        match self.verify_grant(grant_json, signature_b64) {
-            Ok(_) => Ok(()),
+    /// Verifica la firma y devuelve el contenido del documento ya validado.
+    ///
+    /// El error hacia capas superiores es siempre `Crypto`: no distingue entre
+    /// firma incorrecta, documento malformado o version no soportada.
+    fn verify(
+        &self,
+        grant_json: &str,
+        signature_b64: &str,
+    ) -> pos_application::AppResult<pos_application::VerifiedLicense> {
+        let grant = match self.verify_grant(grant_json, signature_b64) {
+            Ok(grant) => grant,
             Err(error) => {
                 tracing::warn!(error = %error, "licencia rechazada");
-                Err(AppError::Crypto)
+                return Err(AppError::Crypto);
             }
-        }
+        };
+        Ok(pos_application::VerifiedLicense {
+            installation_id: grant.installation_id,
+            organization_id: grant.organization_id,
+            plan: grant.plan,
+            features: grant.features.into_iter().collect(),
+            issued_at: grant.issued_at,
+            valid_until: grant.valid_until,
+        })
     }
 }
 

@@ -253,7 +253,7 @@ impl PosService {
             tx.rollback().await?;
             return Ok(view);
         }
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Sales, self.clock.now())?;
         let sale = tx

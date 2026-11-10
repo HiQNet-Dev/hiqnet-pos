@@ -119,6 +119,6 @@ impl PosService {
         let mut tx = self.store.begin().await?;
         let state = tx.installation_state().await?.ok_or(AppError::NotFound)?;
         tx.rollback().await?;
-        commercial_view(&state, self.clock.now())
+        self.commercial_view(&state)
     }
 }

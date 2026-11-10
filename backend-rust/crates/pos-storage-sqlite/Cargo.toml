@@ -29,5 +29,8 @@ libc = "0.2"
 
 [dev-dependencies]
 pos-security.workspace = true
+pos-licensing.workspace = true
+ed25519-dalek.workspace = true
+base64.workspace = true
 tempfile = "3"
 tokio.workspace = true

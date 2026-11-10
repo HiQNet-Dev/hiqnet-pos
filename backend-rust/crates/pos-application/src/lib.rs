@@ -12,7 +12,8 @@ pub use ports::{
     CashReportTotals, CatalogConfiguration, Clock, ExpenseCategoryReportRow, ExpensesReportTotals,
     InstallationState, InventoryReportTotals, LicenseVerifier, PasswordHasher,
     ProductSalesReportRow, PurchasesReportTotals, ReturnedTotals, ReturnsReportTotals,
-    SalesReportTotals, SharedClock, SharedHasher, SharedStore, Store, StoreTx, SystemClock,
+    SalesReportTotals, SharedClock, SharedHasher, SharedLicenseVerifier, SharedStore, Store,
+    StoreTx, SystemClock, VerifiedLicense,
 };
 pub use service::{
     AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, BranchView,

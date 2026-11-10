@@ -36,7 +36,7 @@ impl PosService {
             .map_err(|_| pos_core::DomainError::CategoryNotFound)?;
 
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Catalog, self.clock.now())?;
 
@@ -90,7 +90,7 @@ impl PosService {
             .map_err(|_| pos_core::DomainError::CategoryNotFound)?;
 
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Catalog, self.clock.now())?;
 
@@ -167,7 +167,7 @@ impl PosService {
     ) -> AppResult<CategoryView> {
         actor.require(pos_core::identity::Permission::ManageCatalog)?;
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Catalog, self.clock.now())?;
 
@@ -205,7 +205,7 @@ impl PosService {
         let price: Money = draft.price.parse()?;
 
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Catalog, self.clock.now())?;
 
@@ -259,7 +259,7 @@ impl PosService {
         let product_id: pos_core::ids::ProductId =
             draft.product_id.parse().map_err(|_| AppError::NotFound)?;
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Catalog, self.clock.now())?;
         tx.find_product(actor.organization_id, product_id)
@@ -313,7 +313,7 @@ impl PosService {
         let kind = OptionKind::from_key(&draft.kind).ok_or(AppError::NotFound)?;
         let price_delta: Money = draft.price_delta.parse()?;
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Catalog, self.clock.now())?;
         let group = tx

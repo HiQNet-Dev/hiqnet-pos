@@ -8,7 +8,16 @@ impl PosService {
             store,
             hasher,
             clock,
+            license: None,
         }
+    }
+
+    /// Instala el verificador de licencias. Sin el, cualquier licencia firmada
+    /// se considera no verificable y la instalacion pasa a solo lectura.
+    #[must_use]
+    pub fn with_license_verifier(mut self, verifier: SharedLicenseVerifier) -> Self {
+        self.license = Some(verifier);
+        self
     }
 
     pub async fn status(&self) -> AppResult<AppStatus> {
@@ -21,7 +30,7 @@ impl PosService {
         tx.rollback().await?;
 
         let commercial = match state {
-            Some(state) => Some(commercial_view(&state, self.clock.now())?),
+            Some(state) => Some(self.commercial_view(&state)?),
             None => None,
         };
 

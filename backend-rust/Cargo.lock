@@ -1021,9 +1021,12 @@ name = "pos-storage-sqlite"
 version = "0.1.1-rc.1"
 dependencies = [
  "async-trait",
+ "base64",
+ "ed25519-dalek",
  "libc",
  "pos-application",
  "pos-core",
+ "pos-licensing",
  "pos-security",
  "serde",
  "serde_json",
