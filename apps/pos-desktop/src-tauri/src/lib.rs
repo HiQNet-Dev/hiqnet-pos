@@ -26,6 +26,8 @@ use pos_core::ids::{BranchId, ProductId, PurchaseOrderId};
 use pos_security::Argon2idHasher;
 use pos_storage_sqlite::SqliteStore;
 use serde::Serialize;
+mod licensing;
+
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_saf_document::{ExportRequest, ImportRequest, SafDocumentExt};
 
@@ -879,59 +881,6 @@ async fn restore_startup_notice(state: State<'_, AppState>) -> IpcResult<Option<
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-/// Clave publica de verificacion de licencias.
-///
-/// Se embebe en tiempo de compilacion con `POS_LICENSE_PUBLIC_KEY`. En
-/// compilaciones de depuracion se admite ademas la variable de entorno
-/// `HIQNET_POS_LICENSE_PUBLIC_KEY` para pruebas locales. El binario nunca
-/// contiene clave privada ni semilla de firma.
-fn license_public_key() -> Option<String> {
-    if let Some(value) = option_env!("POS_LICENSE_PUBLIC_KEY") {
-        let trimmed = value.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_owned());
-        }
-    }
-    #[cfg(debug_assertions)]
-    {
-        std::env::var("HIQNET_POS_LICENSE_PUBLIC_KEY")
-            .ok()
-            .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty())
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        None
-    }
-}
-
-fn license_verifier() -> Option<pos_application::SharedLicenseVerifier> {
-    let key = license_public_key()?;
-    match pos_licensing::Ed25519LicenseVerifier::from_public_key_base64(&key) {
-        Ok(verifier) => Some(Arc::new(verifier)),
-        Err(error) => {
-            tracing::error!(
-                error = %error,
-                "la clave publica de licencias configurada no es valida"
-            );
-            None
-        }
-    }
-}
-
-#[tauri::command(rename_all = "snake_case")]
-async fn install_license(
-    state: State<'_, AppState>,
-    grant_json: String,
-    signature_b64: String,
-) -> IpcResult<CommercialStateView> {
-    let actor = authenticated(&state).await?;
-    Ok(state
-        .service
-        .install_license(&actor, grant_json, signature_b64)
-        .await?)
-}
-
 pub fn run() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
@@ -1001,7 +950,7 @@ pub fn run() {
             let hasher: SharedHasher = Arc::new(Argon2idHasher::new());
             let clock: SharedClock = Arc::new(SystemClock);
             let service = PosService::new(store, hasher, clock);
-            let service = match license_verifier() {
+            let service = match licensing::license_verifier() {
                 Some(verifier) => service.with_license_verifier(verifier),
                 None => {
                     tracing::warn!(
@@ -1025,7 +974,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_status,
             bootstrap,
-            install_license,
+            licensing::install_license,
             login,
             logout,
             current_session,
