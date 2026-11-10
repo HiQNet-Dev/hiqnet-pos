@@ -3,11 +3,6 @@
   "hard_limit": 1000,
   "review_limit": 800,
   "files": {
-    "backend-rust/crates/pos-storage-sqlite/src/uow.rs": {
-      "lines": 2263,
-      "owner": "pos-storage-sqlite",
-      "reason": "Implementacion unica de StoreTx; toda mutacion auditable comparte esta transaccion. Dividir requiere separar por dominio manteniendo atomicidad."
-    },
     "backend-rust/crates/pos-storage-sqlite/src/backup.rs": {
       "lines": 1571,
       "owner": "pos-storage-sqlite",

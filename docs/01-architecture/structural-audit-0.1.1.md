@@ -73,7 +73,7 @@ Fortalezas confirmadas:
 | Archivo | Líneas | Responsabilidad mezclada | Riesgo |
 |---|---|---|---|
 | `backend-rust/crates/pos-application/src/service.rs` | **4 050** | ~60 métodos de servicio + ~900 líneas de DTOs | **Alto**: un solo archivo para usuarios, catálogo, ventas, inventario, compras, gastos, devoluciones y caja (**resuelto**, ver §12) |
-| `backend-rust/crates/pos-storage-sqlite/src/uow.rs` | **2 263** | Implementación de `Store`/`StoreTx` para todos los agregados | **Alto**: capa transaccional completa en un archivo |
+| `backend-rust/crates/pos-storage-sqlite/src/uow.rs` | **2 263** | Implementación de `Store`/`StoreTx` para todos los agregados | **Alto**: capa transaccional completa en un archivo (**resuelto**, ver §13) |
 | `backend-rust/crates/pos-storage-sqlite/src/backup.rs` | 1 571 | Copia, verificación, promoción y reversión | Medio: procedimiento sensible ya cubierto por pruebas |
 | `backend-rust/crates/pos-storage-sqlite/tests/returns.rs` | 1 348 | Todos los escenarios de devoluciones | Medio: localización de pruebas |
 | `frontend/src/screens/CatalogScreen.tsx` | 1 075 | Pantalla, estado, filtros y acciones | Medio |
@@ -186,7 +186,7 @@ No se detectan pruebas desactivadas que oculten funcionalidad bloqueante en lo r
 | Prioridad | Incremento | Criterio de aceptación |
 |---|---|---|
 | P0 | Dividir `pos-application/service.rs` por dominio | Sin cambios de comportamiento; `cargo test --workspace` idéntico (hecho, ver §12) |
-| P0 | Dividir `pos-storage-sqlite/uow.rs` por agregado | Transacciones y auditoría intactas |
+| P0 | Dividir `pos-storage-sqlite/uow.rs` por agregado | Transacciones y auditoría intactas (hecho, ver §13) |
 | P1 | Verificador de tamaño con línea base POS | CI falla ante nuevos monolíticos (hecho, ver §12) |
 | P1 | Dividir `tests/returns.rs` y `tests/expenses.rs` | Escenarios localizables |
 | P2 | `CatalogScreen.tsx` y `lib.rs` de Tauri | Extracción por subcomponente/comando |
@@ -259,3 +259,58 @@ Cada archivo de dominio contiene su propio `impl PosService`; los DTO viven en `
 ### Control preventivo
 
 `tools/check_size_policy.py` se ejecuta en CI (job `supply-chain`). Falla ante un archivo nuevo por encima de 1 000 líneas, ante el crecimiento de un archivo registrado en `tools/maintenance_baseline.json` y advierte entre 500 y 1 000 líneas. La línea base sólo se reduce; subirla exige justificación escrita en el PR.
+
+## 13. Estado tras el incremento P0 (división de `uow.rs`)
+
+`backend-rust/crates/pos-storage-sqlite/src/uow.rs` pasó de un archivo único de 2 263 líneas a un módulo `uow/` con un archivo por agregado, sin cambios en el comportamiento transaccional.
+
+### Estructura resultante
+
+```text
+crates/pos-storage-sqlite/src/uow/
+├── mod.rs           # SqliteStore, impl Store, SqliteTx y su handle de transaccion
+├── store_tx.rs      # impl StoreTx: fachada que delega (89 metodos)
+├── rows.rs          # formato de valores y mapeo de filas
+├── organization.rs  # instalacion, organizacion, sucursal
+├── users.rs         # usuarios locales
+├── catalog.rs       # productos, categorias, variantes
+├── modifiers.rs     # modificadores
+├── inventory.rs     # inventario y stock
+├── sales.rs         # ventas
+├── cash.rs          # cajas, turnos y movimientos
+├── purchasing.rs    # compras y recepciones
+├── expenses.rs      # gastos y merma
+├── returns.rs       # devoluciones
+├── reporting.rs     # consultas agregadas
+└── audit.rs         # auditoria
+```
+
+### Decisiones de la división
+
+1. **Rust no permite repartir un `impl` de trait entre módulos**. `store_tx.rs` conserva el contrato completo con una delegación por método; el resto vive en módulos por agregado como funciones libres `async fn(tx: &mut SqliteTx, ...)`.
+2. **Sin duplicar lógica en la fachada**: ninguna operación se implementa dos veces. El despacho es de una línea por método y no crece con la lógica del dominio.
+3. **El cuerpo de cada operación se movió literalmente**: la única transformación mecánica fue `self.tx()` → `tx.tx()`. La transacción, el orden de escrituras, los `?` y los puntos de commit son los mismos.
+4. **`commit` y `rollback` permanecen en `store_tx.rs`** porque consumen `Box<Self>` y definen el cierre de la unidad de trabajo.
+5. **Sin macros ni `include!`**: la división es real, no cosmética.
+
+### Garantías conservadas
+
+- Una sola `Transaction<'static, Sqlite>` por unidad de trabajo y un único punto de commit.
+- El orden y el contenido de las sentencias SQL no cambió: la comparación automática de los 87 cuerpos sólo detectó reajustes de línea de `rustfmt`.
+- `BEGIN` diferido, `WAL`, `busy_timeout`, `synchronous` y `foreign_keys` siguen en `open()` de `lib.rs`, sin tocar.
+- La auditoría se sigue escribiendo dentro de la misma transacción (`append_audit`).
+- `Store`/`StoreTx` no cambian de firma: `pos-application` no requirió modificaciones.
+
+### Métricas antes/después
+
+| Métrica | Antes | Después |
+|---|---|---|
+| `uow.rs` | 2 263 líneas | eliminado |
+| Mayor archivo del backend | 2 263 (`uow.rs`) | 1 571 (`backup.rs`) |
+| Archivos de código > 1 000 líneas | 6 | 5 |
+| Archivos de `uow/` | 1 | 15 |
+| Mayor archivo de `uow/` | 2 263 | 631 (`store_tx.rs`, fachada) |
+| Métodos de `StoreTx` | 89 | 89 |
+| Pruebas Rust | 178 | 178 |
+
+`store_tx.rs` (631 líneas) se mantiene por encima del umbral informativo de 500 porque replica las 89 firmas del puerto y Rust no permite repartir el `impl`. Su contenido es una delegación por método, no lógica.
