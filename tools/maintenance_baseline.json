@@ -3,11 +3,6 @@
   "hard_limit": 1000,
   "review_limit": 800,
   "files": {
-    "backend-rust/crates/pos-storage-sqlite/tests/returns.rs": {
-      "lines": 1348,
-      "owner": "pos-storage-sqlite",
-      "reason": "Escenarios de devoluciones y reembolsos con fixtures compartidos; pendiente de extraer fixtures y dividir por escenario."
-    },
     "frontend/src/screens/CatalogScreen.tsx": {
       "lines": 1075,
       "owner": "frontend",
