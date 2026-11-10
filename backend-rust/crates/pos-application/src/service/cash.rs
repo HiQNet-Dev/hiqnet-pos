@@ -11,7 +11,7 @@ impl PosService {
         actor.require(pos_core::identity::Permission::ManageCashRegisters)?;
         let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Sales, self.clock.now())?;
         let register = CashRegister::new(actor.organization_id, branch_id, draft.name, draft.code)?;
@@ -67,7 +67,7 @@ impl PosService {
         let opening: Money = draft.opening_amount.parse()?;
         let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Sales, self.clock.now())?;
         let registers = tx
@@ -153,7 +153,7 @@ impl PosService {
         let amount: Money = draft.amount.parse()?;
         let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         let open_shift = tx
             .find_cash_shift(actor.organization_id, shift_id)
@@ -206,7 +206,7 @@ impl PosService {
         let counted: Money = draft.counted_amount.parse()?;
         let branch_id = actor.branch_id.ok_or(AppError::NotFound)?;
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         let open_shift = tx
             .find_cash_shift(actor.organization_id, shift_id)

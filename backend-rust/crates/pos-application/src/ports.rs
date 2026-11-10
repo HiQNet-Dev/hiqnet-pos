@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use pos_core::audit::AuditEvent;
 use pos_core::cash::{CashMovement, CashRegister, CashShift};
 use pos_core::catalog::{Category, Product, ProductVariant};
+use pos_core::entitlements::{FeatureKey, PlanName};
 use pos_core::expenses::{Expense, ExpenseCategory, WasteRecord};
 use pos_core::identity::User;
 use pos_core::ids::{
@@ -522,15 +523,34 @@ impl Clock for SystemClock {
     }
 }
 
-/// Verificador de firmas de licencia. En esta fundación solo se exige la
-/// interfaz; la emisión productiva pertenece a HiQNet Platform (pendiente).
+/// Contenido validado de una licencia firmada. Solo existe si la firma, el
+/// formato y la versión del documento se comprobaron; la aplicación nunca
+/// construye este tipo a partir de columnas de SQLite.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VerifiedLicense {
+    pub installation_id: InstallationId,
+    pub organization_id: OrganizationId,
+    pub plan: PlanName,
+    pub features: std::collections::BTreeSet<FeatureKey>,
+    pub issued_at: OffsetDateTime,
+    pub valid_until: OffsetDateTime,
+}
+
+/// Verificador de firmas de licencia.
+///
+/// El adaptador (Ed25519) vive en `pos-licensing`; la emisión productiva
+/// pertenece a HiQNet Platform. La aplicación solo consume el resultado ya
+/// validado: nunca decide por sí misma si una firma es correcta.
 pub trait LicenseVerifier: Send + Sync {
-    fn verify(&self, grant_json: &str, signature_b64: &str) -> AppResult<()>;
+    /// Valida el documento y devuelve su contenido. Un `Err` significa que la
+    /// licencia no puede considerarse válida bajo ninguna circunstancia.
+    fn verify(&self, grant_json: &str, signature_b64: &str) -> AppResult<VerifiedLicense>;
 }
 
 pub type SharedStore = std::sync::Arc<dyn Store>;
 pub type SharedHasher = std::sync::Arc<dyn PasswordHasher>;
 pub type SharedClock = std::sync::Arc<dyn Clock>;
+pub type SharedLicenseVerifier = std::sync::Arc<dyn LicenseVerifier>;
 
 /// Utilidad para los adaptadores: convierte fallos inesperados sin filtrar
 /// detalles internos hacia la UI.

@@ -12,13 +12,15 @@ fn vista_comercial_marca_solo_lectura_al_vencer() {
     let commercial =
         CommercialState::new_trial(InstallationId::new(), OrganizationId::new(), start);
     let state = installation_from_commercial(&commercial);
-    let fresh = commercial_view(&state, start).unwrap();
-    assert!(!fresh.read_only);
-    assert_eq!(fresh.status, "trial");
 
-    let expired = commercial_view(&state, start + time::Duration::days(31)).unwrap();
-    assert!(expired.read_only);
-    assert_eq!(expired.status, "read_only");
+    // Sin licencia firmada se conserva el trial local.
+    let (fresh, resolution) = resolve_commercial(&state, None);
+    assert!(matches!(resolution, LicenseResolution::NoGrant));
+    assert_eq!(fresh.effective_status(start), LicenseStatus::Trial);
+
+    let expirado = fresh.effective_status(start + time::Duration::days(31));
+    assert_eq!(expirado, LicenseStatus::ReadOnly);
+    assert!(!fresh.allows(FeatureKey::Sales, start + time::Duration::days(31)));
 }
 
 #[test]

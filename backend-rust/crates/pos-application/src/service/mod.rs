@@ -4,7 +4,10 @@
 //! reparte en implementaciones inherentes dentro del mismo crate.
 
 use crate::error::{AppError, AppResult};
-use crate::ports::{InstallationState, SharedClock, SharedHasher, SharedStore, StoreTx};
+use crate::ports::{
+    InstallationState, LicenseVerifier, SharedClock, SharedHasher, SharedLicenseVerifier,
+    SharedStore, StoreTx, VerifiedLicense,
+};
 use pos_core::audit::{AuditAction, AuditEvent};
 use pos_core::cash::{CashMovement, CashMovementKind, CashRegister, CashShift, CashShiftStatus};
 use pos_core::catalog::{Category, Product, ProductVariant};
@@ -46,6 +49,7 @@ mod dto;
 mod expenses;
 mod helpers;
 mod inventory;
+mod licensing;
 mod purchasing;
 mod reporting;
 mod returns;
@@ -62,4 +66,6 @@ pub struct PosService {
     store: SharedStore,
     hasher: SharedHasher,
     clock: SharedClock,
+    /// Ausente por defecto: sin verificador, una licencia firmada se rechaza.
+    license: Option<SharedLicenseVerifier>,
 }

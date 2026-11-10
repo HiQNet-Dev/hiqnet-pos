@@ -95,7 +95,7 @@ impl PosService {
         validate_password(&draft.password)?;
 
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         if tx.find_user_by_username(&username).await?.is_some() {
             return Err(pos_core::DomainError::DuplicateUsername.into());
@@ -145,7 +145,7 @@ impl PosService {
         let user_id: UserId = draft.user_id.parse().map_err(|_| AppError::NotFound)?;
 
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         let mut user = tx
             .find_user_by_id(actor.organization_id, user_id)
@@ -202,7 +202,7 @@ impl PosService {
         let user_id: UserId = draft.user_id.parse().map_err(|_| AppError::NotFound)?;
 
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         let user = tx
             .find_user_by_id(actor.organization_id, user_id)
@@ -238,7 +238,7 @@ impl PosService {
         let branch_id = actor.branch_id;
 
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         let user = tx
             .find_user_by_id(actor.organization_id, actor.user_id)

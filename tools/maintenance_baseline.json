@@ -4,9 +4,9 @@
   "review_limit": 800,
   "files": {
     "apps/pos-desktop/src-tauri/src/lib.rs": {
-      "lines": 1030,
+      "lines": 1042,
       "owner": "pos-desktop",
-      "reason": "Fachada IPC: ~60 comandos finos que delegan en PosService y el registro generate_handler!. Su tamano sigue al contrato IPC, no a la logica; dividirlo obliga a repartir AppState, IpcError y el registro de comandos. Ver docs/01-architecture/structural-audit-0.1.1.md SS17."
+      "reason": "Fachada IPC: ~60 comandos finos que delegan en PosService y el registro generate_handler!. Su tamano sigue al contrato IPC, no a la logica. La integracion de licencias se extrajo a src/licensing.rs; el archivo crecio 12 lineas por la declaracion del modulo y las dos referencias. Ver docs/01-architecture/structural-audit-0.1.1.md SS17."
     }
   }
 }

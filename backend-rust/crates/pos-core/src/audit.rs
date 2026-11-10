@@ -36,6 +36,8 @@ pub enum AuditAction {
     ExpenseRecorded,
     WasteRecorded,
     SaleReturned,
+    LicenseInstalled,
+    LicenseRejected,
 }
 
 impl AuditAction {
@@ -70,6 +72,8 @@ impl AuditAction {
             "expenses.recorded" => Some(AuditAction::ExpenseRecorded),
             "waste.recorded" => Some(AuditAction::WasteRecorded),
             "sales.returned" => Some(AuditAction::SaleReturned),
+            "license.installed" => Some(AuditAction::LicenseInstalled),
+            "license.rejected" => Some(AuditAction::LicenseRejected),
             _ => None,
         }
     }
@@ -105,6 +109,8 @@ impl AuditAction {
             AuditAction::ExpenseRecorded => "expenses.recorded",
             AuditAction::WasteRecorded => "waste.recorded",
             AuditAction::SaleReturned => "sales.returned",
+            AuditAction::LicenseInstalled => "license.installed",
+            AuditAction::LicenseRejected => "license.rejected",
         }
     }
 }

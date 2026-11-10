@@ -26,6 +26,8 @@ use pos_core::ids::{BranchId, ProductId, PurchaseOrderId};
 use pos_security::Argon2idHasher;
 use pos_storage_sqlite::SqliteStore;
 use serde::Serialize;
+mod licensing;
+
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_saf_document::{ExportRequest, ImportRequest, SafDocumentExt};
 
@@ -948,6 +950,15 @@ pub fn run() {
             let hasher: SharedHasher = Arc::new(Argon2idHasher::new());
             let clock: SharedClock = Arc::new(SystemClock);
             let service = PosService::new(store, hasher, clock);
+            let service = match licensing::license_verifier() {
+                Some(verifier) => service.with_license_verifier(verifier),
+                None => {
+                    tracing::warn!(
+                        "sin clave publica de licencias: cualquier licencia firmada se rechazara"
+                    );
+                    service
+                }
+            };
 
             app.manage(AppState {
                 db_path,
@@ -963,6 +974,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_status,
             bootstrap,
+            licensing::install_license,
             login,
             logout,
             current_session,

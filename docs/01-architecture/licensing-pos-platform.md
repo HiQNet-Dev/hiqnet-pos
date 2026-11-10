@@ -14,18 +14,16 @@ bloqueo actual y propone los cambios seguros que faltan.
 | Verificación | `pos-licensing::Ed25519LicenseVerifier` | Implementada **y probada** (firma válida, payload manipulado, clave ajena, vencimiento) |
 | Consumo en el POS | `local_installation_state` (`license_grant_json`, `license_signature_b64`) | **Almacena, pero no verifica** |
 
-### Hallazgo crítico
+### Hallazgo crítico (corregido)
 
-`pos-licensing` es dependencia de `pos-desktop`, pero **`Ed25519LicenseVerifier`
-no se invoca en ningún punto del ejecutable**. El estado comercial que aplica el
-POS (`plan`, `license_status`, `features`, `valid_until`) se lee de la base
-local sin comprobar la firma.
+~~`pos-licensing` es dependencia de `pos-desktop`, pero **`Ed25519LicenseVerifier`
+no se invoca en ningún punto del ejecutable**.~~ **Corregido**: ver §6.
 
-Consecuencia: un usuario con acceso al archivo SQLite puede extender
-`valid_until` o cambiar `features` y el POS lo aceptará. Para un piloto interno
-el riesgo es bajo; **para entrega a clientes es bloqueante**.
+El estado comercial que aplica el POS (`plan`, `license_status`, `features`,
+`valid_until`) se leía de la base local sin comprobar la firma, de modo que
+editar el archivo SQLite bastaba para extender una licencia.
 
-Lo que sí está resuelto: el contrato de firma, la emisión en Platform (con la
+Lo que ya estaba resuelto: el contrato de firma, la emisión en Platform (con la
 clave inyectada por configuración y nunca en el repositorio) y las pruebas de
 manipulación del documento firmado.
 
@@ -112,3 +110,49 @@ del piloto y de las instalaciones de prueba.
 manipulado, rechazo de firma de otra clave y transición a sólo lectura al
 vencer. Todas usan una **clave sintética** (`[7u8; 32]`) que nunca se usa en
 instaladores.
+
+## 6. Estado tras la corrección (POS verifica licencias)
+
+El POS ya no confía en `plan`, `features` ni `valid_until` cuando existe un
+documento firmado. La resolución vive en un único punto
+(`pos-application::service::helpers::resolve_commercial`) y **todas** las
+mutaciones protegidas pasan por `PosService::require_commercial`.
+
+| Situación | Comportamiento |
+|---|---|
+| Sin grant (`license_grant_json` vacío) | Trial local: se conserva el comportamiento previo |
+| Grant válido (firma + versión + identidades) | Plan y features **exclusivamente del documento**; vigencia desde el grant |
+| Firma inválida, documento incompleto o identidad que no coincide | Solo lectura, sin features, `tracing::warn` |
+| Clave pública no disponible | Solo lectura (no cae al trial) |
+| Grant vencido | Solo lectura por `effective_status`, conservando lectura y respaldo |
+
+Puntos de control: arranque (`status`), consulta de plan (`commercial_state`),
+cada mutación protegida (`require_commercial`), instalación/reemplazo
+(`install_license`) y, tras reiniciar, la resolución se repite desde SQLite (no
+hay caché en memoria que pudiera sobrevivir a una revocación).
+
+La clave pública se embebe en tiempo de compilación con
+`POS_LICENSE_PUBLIC_KEY`; solo en compilaciones de depuración se admite
+`HIQNET_POS_LICENSE_PUBLIC_KEY` para pruebas. El binario no contiene clave
+privada ni semilla.
+
+### Modelo de amenazas y límites
+
+| Ataque | Resultado |
+|---|---|
+| Editar `plan`, `features` o `valid_until` en SQLite | Sin efecto: el documento firmado manda |
+| Sustituir firma o grant por otro documento | Rechazado → solo lectura |
+| Sustituir `installation_id`/`organization_id` | Rechazado → solo lectura |
+| Instalar un grant firmado con otra clave | Rechazado → solo lectura |
+| **Rollback de licencia**: restaurar un grant antiguo válidamente firmado | **No protegido**: mientras no haya vencido, sigue siendo un documento auténtico. Se acota con vigencias cortas |
+| **Manipulación del reloj local** | **No protegido** en local-first: adelantar el reloj no extiende una licencia (la fecha del documento manda), pero atrasarlo puede mantenerla vigente. Requiere contrapeso de servidor |
+| Atacante que modifica el propio ejecutable | Fuera del modelo: quien controla el binario puede parchear la verificación |
+
+### Evidencia
+
+- 14 pruebas de integración con SQLite real en
+  `pos-storage-sqlite/tests/licensing.rs` (casos positivos y las diez
+  manipulaciones exigidas).
+- Validación nativa (`tools/windows-native-e2e/e2e_license.py`) sobre el
+  ejecutable real: trial, instalación de un grant de prueba, entitlements
+  aplicados, persistencia tras reinicio, firma manipulada y licencia vencida.

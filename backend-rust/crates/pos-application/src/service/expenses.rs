@@ -32,7 +32,7 @@ impl PosService {
         actor.require(pos_core::identity::Permission::ManageExpenses)?;
         let category = ExpenseCategory::new(actor.organization_id, draft.name)?;
         let mut tx = self.store.begin().await?;
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Expenses, self.clock.now())?;
         tx.insert_expense_category(&category).await?;
@@ -134,7 +134,7 @@ impl PosService {
             tx.rollback().await?;
             return Ok(expense_view(existing));
         }
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Expenses, self.clock.now())?;
         let category = tx
@@ -255,7 +255,7 @@ impl PosService {
             tx.rollback().await?;
             return Ok(waste_view(existing));
         }
-        let commercial = require_commercial(tx.as_mut()).await?;
+        let commercial = self.require_commercial(tx.as_mut()).await?;
         commercial.require_writes_allowed(self.clock.now())?;
         commercial.require_feature(FeatureKey::Inventory, self.clock.now())?;
         let product = tx
