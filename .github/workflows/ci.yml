@@ -155,9 +155,14 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: backend-rust
-          # Excepción específica: sin parche disponible y solo alcanzable desde
-          # features de sqlx no usadas en runtime. Ver backend-rust/.cargo/audit.toml.
-          ignore: RUSTSEC-2023-0071
+          # Excepciones con justificación escrita en backend-rust/.cargo/audit.toml:
+          # - RUSTSEC-2023-0071: sin parche y sólo alcanzable desde features de sqlx
+          #   no usadas en runtime.
+          # - RUSTSEC-2026-0459: ninguna versión de sqlx admite libsqlite3-sys >=0.39;
+          #   vector local y controles compensatorios documentados en
+          #   docs/01-architecture/structural-audit-0.1.1.md §5.
+          # Revisar antes del piloto comercial.
+          ignore: RUSTSEC-2023-0071 RUSTSEC-2026-0459
       - uses: pnpm/action-setup@v4
         with:
           version: 11.24.0
