@@ -131,8 +131,8 @@ En HiQNet Platform este aviso era inerte: aparecía en `Cargo.lock` como depende
 
 Se acepta el riesgo de forma acotada y verificable, con la misma disciplina que la excepción ya existente para `RUSTSEC-2023-0071`:
 
-- Excepción en `backend-rust/.cargo/audit.toml` con justificación completa y condición de salida.
-- `cargo audit` vuelve a pasar, por lo que el job de seguridad de CI recupera su valor como señal.
+- Excepción en `backend-rust/.cargo/audit.toml` (auditorías locales del workspace) y en `.cargo/audit.toml` de la raíz, que es el que consume `cargo audit` desde la raíz —la invocación que hace `rustsec/audit-check` en CI—.
+- `cargo audit` vuelve a pasar en ambas invocaciones, por lo que el job de seguridad de CI recupera su valor como señal.
 
 Controles compensatorios, verificados en código:
 

@@ -1,0 +1,11 @@
+[advisories]
+# Excepciones de seguridad de HiQNet POS.
+#
+# Este archivo se aplica cuando `cargo audit` se ejecuta desde la raíz del
+# repositorio, que es exactamente lo que hace rustsec/audit-check en CI.
+# Para auditorías manuales dentro de `backend-rust` existe además
+# `backend-rust/.cargo/audit.toml` con los mismos identificadores.
+#
+# La justificación detallada de ambas excepciones vive en
+# docs/01-architecture/structural-audit-0.1.1.md §5 y en el archivo del workspace.
+ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0459"]

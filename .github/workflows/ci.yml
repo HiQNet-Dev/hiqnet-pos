@@ -155,14 +155,12 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: backend-rust
-          # Excepciones con justificación escrita en backend-rust/.cargo/audit.toml:
-          # - RUSTSEC-2023-0071: sin parche y sólo alcanzable desde features de sqlx
-          #   no usadas en runtime.
-          # - RUSTSEC-2026-0459: ninguna versión de sqlx admite libsqlite3-sys >=0.39;
-          #   vector local y controles compensatorios documentados en
-          #   docs/01-architecture/structural-audit-0.1.1.md §5.
-          # Revisar antes del piloto comercial.
-          ignore: RUSTSEC-2023-0071 RUSTSEC-2026-0459
+          # Las excepciones viven en .cargo/audit.toml (raíz) y en
+          # backend-rust/.cargo/audit.toml, con la justificación escrita en
+          # docs/01-architecture/structural-audit-0.1.1.md §5.
+          # Este input mantiene la excepción histórica de RUSTSEC-2023-0071
+          # porque el action sólo admite un identificador.
+          ignore: RUSTSEC-2023-0071
       - uses: pnpm/action-setup@v4
         with:
           version: 11.24.0
