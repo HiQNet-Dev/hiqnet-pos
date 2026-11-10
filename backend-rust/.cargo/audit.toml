@@ -1,6 +1,29 @@
 [advisories]
-ignore = ["RUSTSEC-2023-0071"]
+ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0459"]
 
 # RUSTSEC-2023-0071 (Marvin Attack en rsa 0.9.10) no tiene corrección publicada.
 # Proviene transitivamente de sqlx-mysql/sqlx-postgres habilitados por la feature
 # "migrate" del crate unificado sqlx; HiQNet POS solo usa SQLite en producción.
+
+# RUSTSEC-2026-0459 (CVE-2026-119375) — libsqlite3-sys 0.30.1, memoria no
+# inicializada al abrir una base junto a un "-wal" con tamaño de página distinto.
+#
+# Por qué se acepta temporalmente (revisar antes del piloto comercial):
+#
+# 1. No hay versión de sqlx que lo corrija. sqlx 0.9.0 exige
+#    libsqlite3-sys >=0.30.1, <0.38.0 y el aviso sólo está parcheado en >=0.39.0.
+#    Actualizar sqlx no cambia la versión de SQLite embebida.
+# 2. El vector es local (CVSS AV:L): requiere que un tercero con menos confianza
+#    escriba la base y su "-wal" en el directorio de datos del usuario.
+# 3. En POS la base viva y su WAL sólo los escribe la aplicación, en la ruta
+#    fija de pos-storage-sqlite::paths. Nunca se abren rutas aportadas por el
+#    usuario.
+# 4. Los respaldos, que sí pueden venir de fuera, se generan con VACUUM INTO:
+#    son un archivo único sin "-wal" acompañante, así que no cumplen la
+#    precondición del CVE.
+# 5. El impacto es divulgación de memoria en resultados de consulta, no
+#    ejecución de código.
+#
+# Condición de salida: quitar esta excepción cuando exista una versión de sqlx
+# que admita libsqlite3-sys >=0.39, o al sustituir el driver SQLite.
+# Seguimiento en docs/01-architecture/structural-audit-0.1.1.md §5.

@@ -155,8 +155,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: backend-rust
-          # Excepción específica: sin parche disponible y solo alcanzable desde
-          # features de sqlx no usadas en runtime. Ver backend-rust/.cargo/audit.toml.
+          # Las excepciones viven en .cargo/audit.toml (raíz) y en
+          # backend-rust/.cargo/audit.toml, con la justificación escrita en
+          # docs/01-architecture/structural-audit-0.1.1.md §5.
+          # Este input mantiene la excepción histórica de RUSTSEC-2023-0071
+          # porque el action sólo admite un identificador.
           ignore: RUSTSEC-2023-0071
       - uses: pnpm/action-setup@v4
         with:
