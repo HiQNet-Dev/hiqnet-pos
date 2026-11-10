@@ -76,7 +76,7 @@ Fortalezas confirmadas:
 | `backend-rust/crates/pos-storage-sqlite/src/uow.rs` | **2 263** | Implementación de `Store`/`StoreTx` para todos los agregados | **Alto**: capa transaccional completa en un archivo (**resuelto**, ver §13) |
 | `backend-rust/crates/pos-storage-sqlite/src/backup.rs` | 1 571 | Copia, verificación, promoción y reversión | Medio: procedimiento sensible ya cubierto por pruebas (**resuelto**, ver §14) |
 | `backend-rust/crates/pos-storage-sqlite/tests/returns.rs` | 1 348 | Todos los escenarios de devoluciones | Medio: localización de pruebas (**resuelto**, ver §15) |
-| `frontend/src/screens/CatalogScreen.tsx` | 1 075 | Pantalla, estado, filtros y acciones | Medio |
+| `frontend/src/screens/CatalogScreen.tsx` | 1 075 | Pantalla, estado, filtros y acciones | Medio (**resuelto**, ver §16) |
 | `apps/pos-desktop/src-tauri/src/lib.rs` | 1 030 | 63 comandos IPC y composición | Medio |
 | `frontend/e2e/visual.spec.ts` | 1 016 | Recorridos visuales | Bajo |
 
@@ -190,7 +190,7 @@ No se detectan pruebas desactivadas que oculten funcionalidad bloqueante en lo r
 | P1 | Verificador de tamaño con línea base POS | CI falla ante nuevos monolíticos (hecho, ver §12) |
 | P1 | Dividir `tests/returns.rs` y `tests/expenses.rs` | Escenarios localizables (returns hecho, ver §15) |
 | P1 | Dividir `backup.rs` por responsabilidad | Secuencia de restauración intacta (hecho, ver §14) |
-| P2 | `CatalogScreen.tsx` y `lib.rs` de Tauri | Extracción por subcomponente/comando |
+| P2 | `CatalogScreen.tsx` y `lib.rs` de Tauri | Extracción por subcomponente/comando (catálogo hecho, ver §16) |
 | P2 | Restauración desde UI | Procedimiento seguro o decisión documentada |
 | P3 | Integración de licencia y enrolamiento con Platform | Contrato productivo con custodia de clave |
 
@@ -401,3 +401,44 @@ crates/pos-storage-sqlite/tests/returns/
 ### Nota sobre el recuento
 
 El total real de pruebas del workspace es **179**. Los informes anteriores de esta auditoría indicaban 178 por un error aritmético al sumar los recuentos por objetivo; la cifra correcta se ha fijado en las tablas de este documento.
+
+## 16. Estado tras R5 (división de `CatalogScreen.tsx`)
+
+`frontend/src/screens/CatalogScreen.tsx` (1 075 líneas) mezclaba la pantalla, seis subcomponentes, dos diálogos y utilidades. La pantalla queda como entrada pública y sus partes pasan a la carpeta de la funcionalidad.
+
+### Estructura resultante
+
+```text
+frontend/src/screens/
+├── CatalogScreen.tsx          # pantalla: estado, filtros, detalle y acciones
+└── catalog/
+    ├── ProductCreateDialog.tsx   # alta de producto
+    ├── CategoryCreateDialog.tsx  # alta de categoría
+    ├── VariantEditor.tsx         # alta de variante
+    ├── GroupEditor.tsx           # grupo de modificadores
+    ├── OptionEditor.tsx          # opción de modificador
+    ├── ConfigurationPreview.tsx  # previsualización de precio
+    ├── messages.ts               # mensaje de error de IPC
+    └── types.ts                  # GroupDraft y OptionDraft
+```
+
+### Decisiones
+
+1. **La pantalla conserva su ruta pública** (`screens/CatalogScreen.tsx`), así `AppShell` y las pruebas no cambian de importación y el diff se mantiene pequeño.
+2. **Cada componente arrastra sólo los imports que usa**: se calcularon por uso real del identificador, y `tsc` con `noUnusedLocals` lo verifica.
+3. **Las props propias viajan con su componente**; sólo se extraen a `types.ts` los borradores que cruzan módulos (`GroupDraft`, `OptionDraft`).
+4. **Sin cambios de contrato**: no se toca `api.ts`, ni los tipos de `contracts.ts`, ni ninguna llamada al backend. La autoridad de negocio sigue en Rust.
+
+### Métricas antes/después
+
+| Métrica | Antes | Después |
+|---|---|---|
+| `CatalogScreen.tsx` | 1 075 líneas | 478 |
+| Archivos de la funcionalidad | 1 | 9 |
+| Mayor archivo de la funcionalidad | 1 075 | 478 (pantalla) |
+| Archivos de código > 1 000 líneas | 3 | 2 |
+| Pruebas frontend | 120 | 120 |
+
+### Deuda registrada
+
+`messageOf` sigue duplicado en seis archivos (`AdminScreen`, `ExpensesScreen`, `PurchasingScreen`, `ReturnsScreen`, `AppShell` y el catálogo). Extraerlo a `src/lib` exige tocar cinco pantallas fuera del alcance de este incremento; queda anotado para un incremento transversal.
