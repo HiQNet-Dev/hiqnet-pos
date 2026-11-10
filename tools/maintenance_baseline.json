@@ -3,11 +3,6 @@
   "hard_limit": 1000,
   "review_limit": 800,
   "files": {
-    "backend-rust/crates/pos-storage-sqlite/src/backup.rs": {
-      "lines": 1571,
-      "owner": "pos-storage-sqlite",
-      "reason": "Respaldo, restauracion y verificacion de integridad comparten formato y validaciones; pendiente de division por fase."
-    },
     "backend-rust/crates/pos-storage-sqlite/tests/returns.rs": {
       "lines": 1348,
       "owner": "pos-storage-sqlite",

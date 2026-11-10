@@ -74,7 +74,7 @@ Fortalezas confirmadas:
 |---|---|---|---|
 | `backend-rust/crates/pos-application/src/service.rs` | **4 050** | ~60 métodos de servicio + ~900 líneas de DTOs | **Alto**: un solo archivo para usuarios, catálogo, ventas, inventario, compras, gastos, devoluciones y caja (**resuelto**, ver §12) |
 | `backend-rust/crates/pos-storage-sqlite/src/uow.rs` | **2 263** | Implementación de `Store`/`StoreTx` para todos los agregados | **Alto**: capa transaccional completa en un archivo (**resuelto**, ver §13) |
-| `backend-rust/crates/pos-storage-sqlite/src/backup.rs` | 1 571 | Copia, verificación, promoción y reversión | Medio: procedimiento sensible ya cubierto por pruebas |
+| `backend-rust/crates/pos-storage-sqlite/src/backup.rs` | 1 571 | Copia, verificación, promoción y reversión | Medio: procedimiento sensible ya cubierto por pruebas (**resuelto**, ver §14) |
 | `backend-rust/crates/pos-storage-sqlite/tests/returns.rs` | 1 348 | Todos los escenarios de devoluciones | Medio: localización de pruebas |
 | `frontend/src/screens/CatalogScreen.tsx` | 1 075 | Pantalla, estado, filtros y acciones | Medio |
 | `apps/pos-desktop/src-tauri/src/lib.rs` | 1 030 | 63 comandos IPC y composición | Medio |
@@ -189,6 +189,7 @@ No se detectan pruebas desactivadas que oculten funcionalidad bloqueante en lo r
 | P0 | Dividir `pos-storage-sqlite/uow.rs` por agregado | Transacciones y auditoría intactas (hecho, ver §13) |
 | P1 | Verificador de tamaño con línea base POS | CI falla ante nuevos monolíticos (hecho, ver §12) |
 | P1 | Dividir `tests/returns.rs` y `tests/expenses.rs` | Escenarios localizables |
+| P1 | Dividir `backup.rs` por responsabilidad | Secuencia de restauración intacta (hecho, ver §14) |
 | P2 | `CatalogScreen.tsx` y `lib.rs` de Tauri | Extracción por subcomponente/comando |
 | P2 | Restauración desde UI | Procedimiento seguro o decisión documentada |
 | P3 | Integración de licencia y enrolamiento con Platform | Contrato productivo con custodia de clave |
@@ -314,3 +315,48 @@ crates/pos-storage-sqlite/src/uow/
 | Pruebas Rust | 178 | 178 |
 
 `store_tx.rs` (631 líneas) se mantiene por encima del umbral informativo de 500 porque replica las 89 firmas del puerto y Rust no permite repartir el `impl`. Su contenido es una delegación por método, no lógica.
+
+## 14. Estado tras el incremento P1 (división de `backup.rs`)
+
+`backend-rust/crates/pos-storage-sqlite/src/backup.rs` pasó de 1 571 líneas a un módulo `backup/` con un archivo por responsabilidad. **La secuencia crítica de restauración no se fragmentó.**
+
+### Responsabilidades identificadas y destino
+
+| Responsabilidad | Archivo | Líneas |
+|---|---|---|
+| Copia de respaldo y hash | `file.rs` | 49 |
+| Verificación (estructura, migraciones, snapshot) y lectura | `verify.rs` | 177 |
+| Política, previsualización y pertenencia | `policy.rs` | 157 |
+| Restauración diferida y workspace SAF | `pending.rs` | 151 |
+| Preparación, promoción y reversión atómicas | `restore.rs` | 472 |
+| Puntos de fallo | `hooks.rs` | 24 |
+| Inyector de fallos (solo pruebas) | `fault_injector.rs` | 43 |
+| Gancho de la ventana checkpoint/promoción (solo pruebas) | `race.rs` | 33 |
+| Pruebas de fallo y concurrencia | `failure_tests.rs` | 458 |
+| API pública, constantes y reexportes | `mod.rs` | 40 |
+
+### Por qué no se dividió más `restore.rs`
+
+`prepare_destination → promote_and_verify → rollback_to` forman una sola unidad: la atomicidad depende del orden, de mantener el bloqueo exclusivo, de apartar los sidecars WAL/SHM y de la ventana mínima entre el checkpoint y el reemplazo del archivo. Separarlas en módulos distintos sólo ocultaría esa secuencia. `StagedFile` y su `impl Drop` viven en el mismo archivo por la misma razón: la limpieza de artefactos temporales es parte del procedimiento.
+
+### Garantías conservadas
+
+- Copia de recuperación antes de reemplazar la base y reversión si falla la verificación final.
+- Cuarentena de sidecars con guarda `wal_has_data` y rechazo de escrituras externas en la ventana.
+- `sync_file`/`sync_parent` (fsync) tras escribir; `StagedFile::drop` limpia temporales.
+- Marcador de restauración pendiente con SHA-256 y política de pertenencia (instalación/organización).
+- `RestoreCritical` cuando ni la base ni la copia se pueden verificar: no se borra nada.
+- Bloqueo exclusivo para impedir restaurar con la base en uso.
+- El inyector de fallos y el gancho de carrera siguen existiendo **sólo** en compilaciones de prueba.
+
+### Métricas antes/después
+
+| Métrica | Antes | Después |
+|---|---|---|
+| `backup.rs` | 1 571 líneas | eliminado |
+| Mayor archivo del backend | 1 571 (`backup.rs`) | 1 348 (`tests/returns.rs`) |
+| Mayor archivo de producción del backend | 1 571 (`backup.rs`) | 631 (`uow/store_tx.rs`) |
+| Archivos de código > 1 000 líneas | 5 | 4 |
+| Mayor archivo de `backup/` | 1 571 | 472 (`restore.rs`) |
+| Pruebas de restauración | 13 | 13 |
+| Pruebas Rust | 178 | 178 |
