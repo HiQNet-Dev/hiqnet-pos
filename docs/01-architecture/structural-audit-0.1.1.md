@@ -116,17 +116,39 @@ libsqlite3-sys v0.30.1
 
 En HiQNet Platform este aviso era inerte: aparecía en `Cargo.lock` como dependencia opcional de `sqlx` sin ruta de compilación. **En POS ocurre lo contrario**: `sqlx` está compilado con la feature `sqlite` y `pos-storage-sqlite` es la autoridad de datos. El C SQLite vulnerable está en el binario que gestiona toda la base local, incluidos respaldos y restauración.
 
-### Opciones de remediación
+### Opciones evaluadas
 
-| Opción | Coste | Nota |
+| Opción | Viable | Motivo |
 |---|---|---|
-| Actualizar a `sqlx 0.9` | Alto | Cambio mayor; requiere revisar migraciones, macros y `uow.rs` |
-| Fijar `libsqlite3-sys >= 0.39` con `[patch.crates-io]` | Medio | Sólo viable si la API es compatible con `sqlx-sqlite 0.8` |
-| Aceptar el riesgo con controles compensatorios | Bajo | Exigiría justificación escrita, análisis del CVE y seguimiento de parche |
+| Actualizar a `sqlx 0.9` | **No corrige** | `sqlx-sqlite 0.9.0` exige `libsqlite3-sys >=0.30.1, <0.38.0`. El aviso sólo está parcheado en `>=0.39.0`, así que la actualización no cambia el SQLite embebido |
+| `[patch.crates-io]` a `libsqlite3-sys 0.39` | **No** | Cargo exige que el parche satisfaga el requisito del dependiente; `0.39` queda fuera de `<0.38` y el parche se ignora |
+| Enlazar SQLite del sistema (`sqlite-unbundled`) | **No para escritorio** | Obligaría a distribuir `sqlite3.dll` y a confiar en la versión del sistema operativo; peor postura de despliegue |
+| Sustituir el driver (`rusqlite 0.41`, SQLite 3.54) | **Desproporcionado** | Reescribir `uow.rs` (2 263 líneas), migraciones y macro de consultas; riesgo muy superior al del aviso |
 
-**Recomendación:** tratar la actualización de `sqlx` como primer incremento de seguridad de POS, antes de cualquier refactorización estructural, y mantener el `ignore` actual limitado a `RUSTSEC-2023-0071`.
+**Conclusión:** hoy no existe corrección por dependencia. Cualquier cambio de versión sería trabajo sin beneficio de seguridad para este CVE.
 
-> Este documento no modifica código ni la política de auditoría. El arreglo requiere autorización explícita.
+### Tratamiento aplicado
+
+Se acepta el riesgo de forma acotada y verificable, con la misma disciplina que la excepción ya existente para `RUSTSEC-2023-0071`:
+
+- Excepción en `backend-rust/.cargo/audit.toml` con justificación completa y condición de salida.
+- `cargo audit` vuelve a pasar, por lo que el job de seguridad de CI recupera su valor como señal.
+
+Controles compensatorios, verificados en código:
+
+| Control | Evidencia |
+|---|---|
+| El vector es local (`CVSS AV:L`) y exige que un tercero escriba la base y su `-wal` | Aviso RUSTSEC-2026-0459 |
+| POS sólo abre su propia base en una ruta fija, nunca rutas del usuario | `pos-storage-sqlite::paths` |
+| La base viva y su WAL los escribe únicamente la aplicación en el directorio de datos del usuario | `backup.rs` usa `wal_checkpoint(TRUNCATE)` sobre la base propia |
+| Los respaldos, único archivo que puede venir de fuera, se generan con `VACUUM INTO`: archivo único sin `-wal` acompañante | `backup.rs:86`, `backup.rs:696` |
+| El impacto es divulgación de memoria en resultados, no ejecución de código | Categoría `memory-exposure` del aviso |
+
+La precondición del CVE —una base y un `-wal` hermano con tamaños de página distintos— **no se produce en el flujo de datos de POS**: o los escribe la propia aplicación, o llegan como un archivo único sin WAL.
+
+### Condición de salida
+
+Retirar la excepción cuando exista una versión de `sqlx` que admita `libsqlite3-sys >=0.39`, o al sustituir el driver SQLite. Revisar obligatoriamente antes del piloto comercial.
 
 ## 6. Riesgos
 
@@ -134,7 +156,7 @@ En HiQNet Platform este aviso era inerte: aparecía en `Cargo.lock` como depende
 |---|---|---|
 | `service.rs` monolítico | Alto | Conflictos de merge y dificultad para añadir dominios |
 | `uow.rs` monolítico | Alto | Toca la capa transaccional; cualquier división debe preservar `StoreTx` y el orden de bloqueos |
-| RUSTSEC-2026-0459 en `libsqlite3-sys` | **Medio-alto** | En la ruta de ejecución de SQLite; bloquea CI desde 2026-11-10 (§5) |
+| RUSTSEC-2026-0459 en `libsqlite3-sys` | Medio | Aceptado con excepción justificada y controles; revisar antes del piloto (§5) |
 | Restauración desde UI | Medio | La matriz la marca PENDIENTE; el camino seguro es la utilidad offline |
 | Emisión de licencias | Medio | PENDIENTE y es responsabilidad de Platform |
 | Validación Linux/Android | Medio | Requiere ejecutar `docs/04-quality/platform-matrix.md` en cada host |
