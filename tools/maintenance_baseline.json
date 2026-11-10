@@ -3,11 +3,6 @@
   "hard_limit": 1000,
   "review_limit": 800,
   "files": {
-    "frontend/src/screens/CatalogScreen.tsx": {
-      "lines": 1075,
-      "owner": "frontend",
-      "reason": "Pantalla de catalogo con formularios, tablas y modificadores; pendiente de extraer componentes por seccion."
-    },
     "apps/pos-desktop/src-tauri/src/lib.rs": {
       "lines": 1030,
       "owner": "pos-desktop",
