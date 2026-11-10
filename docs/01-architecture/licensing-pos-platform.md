@@ -156,3 +156,39 @@ privada ni semilla.
 - Validación nativa (`tools/windows-native-e2e/e2e_license.py`) sobre el
   ejecutable real: trial, instalación de un grant de prueba, entitlements
   aplicados, persistencia tras reinicio, firma manipulada y licencia vencida.
+
+## 7. Preparación de la emisión productiva (análisis, sin provisión)
+
+El POS ya verifica licencias. Lo que falta está del lado de Platform. Estado
+verificado de cada pieza:
+
+| Requisito | Estado real | Qué falta |
+|---|---|---|
+| Elegibilidad comercial | Platform resuelve suscripción vigente y `OrganizationProduct` activo en su dominio comercial | Unir esa decisión al endpoint de emisión: hoy emite sin consultarla |
+| Suscripciones y entitlements | Implementados en `commercial_domain` de Platform | Traducir el plan comercial a `features` del grant en un único lugar |
+| Firma Ed25519 | `Ed25519Signer` con semilla inyectada por `signing_key_b64` | Que la semilla venga de un KMS/HSM y no de una variable de entorno plana |
+| Clave pública en el POS | Embebida con `POS_LICENSE_PUBLIC_KEY` | Definir el par de claves del piloto y compilar el binario con la pública |
+| Auditoría de emisión | `AuditAction::LicenseInstalled`/`LicenseRejected` en el POS | Equivalente en Platform: hoy no hay evento de emisión con `grant_id`, actor y vigencia |
+| Renovación | El POS reemplaza el grant de forma atómica y audita | Endpoint de renovación en Platform y entrega autenticada al POS |
+| Vigencia y gracia | `valid_until` aplica solo lectura al vencer; **no hay gracia** | Decidir si se añade `grace_until` (contrato v2) o se emite con margen |
+| Rotación de claves | El POS embebe **una** clave pública | Añadir `kid` al grant (v2) y una lista de claves aceptadas |
+| Revocación offline | No existe: el límite es `valid_until` | Aceptar vigencias cortas (30–90 días) o añadir contrapeso de servidor |
+| Autenticación de la entrega | La API ya exige sesión staff | Definir si el grant se entrega por API o por archivo firmado |
+
+### Secuencia recomendada
+
+1. **Par de claves del piloto**: generar offline, guardar la privada fuera del
+   repositorio y compilar el POS con la pública. Sin coste de infraestructura.
+2. **Emisión controlada**: endpoint existente + elegibilidad comercial +
+   auditoría de emisión. Aún con clave local, no con KMS.
+3. **KMS/HSM**: solo cuando haya clientes reales. Es el único punto con coste
+   recurrente; requiere cotización y autorización.
+4. **Contrato v2** (`kid`, `grace_until`): decisión de negocio; hoy todo lo
+   demás es compatible con v1.
+
+### Costos
+
+Los únicos costos son de custodia de clave (KMS/HSM gestionado) y, si se
+quisiera revocación con contrapeso de servidor, de un servicio en línea. Este
+documento no estima importes: requieren cotización real y autorización previa.
+Nada de esto se ha provisionado.
