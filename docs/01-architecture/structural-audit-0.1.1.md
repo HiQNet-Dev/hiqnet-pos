@@ -77,8 +77,8 @@ Fortalezas confirmadas:
 | `backend-rust/crates/pos-storage-sqlite/src/backup.rs` | 1 571 | Copia, verificación, promoción y reversión | Medio: procedimiento sensible ya cubierto por pruebas (**resuelto**, ver §14) |
 | `backend-rust/crates/pos-storage-sqlite/tests/returns.rs` | 1 348 | Todos los escenarios de devoluciones | Medio: localización de pruebas (**resuelto**, ver §15) |
 | `frontend/src/screens/CatalogScreen.tsx` | 1 075 | Pantalla, estado, filtros y acciones | Medio (**resuelto**, ver §16) |
-| `apps/pos-desktop/src-tauri/src/lib.rs` | 1 030 | 63 comandos IPC y composición | Medio |
-| `frontend/e2e/visual.spec.ts` | 1 016 | Recorridos visuales | Bajo |
+| `apps/pos-desktop/src-tauri/src/lib.rs` | 1 030 | 63 comandos IPC y composición | Medio: **excepción documentada** (§17) |
+| `frontend/e2e/visual.spec.ts` | 1 016 | Recorridos visuales | Bajo (**resuelto**, ver §17) |
 
 ### Patrón observado
 
@@ -442,3 +442,76 @@ frontend/src/screens/
 ### Deuda registrada
 
 `messageOf` sigue duplicado en seis archivos (`AdminScreen`, `ExpensesScreen`, `PurchasingScreen`, `ReturnsScreen`, `AppShell` y el catálogo). Extraerlo a `src/lib` exige tocar cinco pantallas fuera del alcance de este incremento; queda anotado para un incremento transversal.
+
+## 17. Estado tras R6 (evaluación de `src-tauri` y pruebas visuales)
+
+### `frontend/e2e/visual.spec.ts` — dividido
+
+El archivo mezclaba datos de demostración, el puente Tauri simulado y los siete escenarios. Queda:
+
+```text
+frontend/e2e/
+├── visual.spec.ts          # los 7 escenarios (314 líneas)
+└── support/
+    ├── fixtures.ts         # datos de demostración (342)
+    └── visual.ts           # mockBridge y utilidades de captura (386)
+```
+
+Los cuerpos de las pruebas no se modificaron; `playwright test --list` sigue enumerando los 7 escenarios y la suite completa pasa en Chromium real (ver §18).
+
+### `apps/pos-desktop/src-tauri/src/lib.rs` — excepción documentada
+
+**No se divide.** Diagnóstico:
+
+- Es un **adaptador de entrada**, no un módulo de dominio: cada uno de los ~60 comandos ocupa entre 3 y 8 líneas y se limita a `authenticated(&state)` → `state.service.<caso de uso>` → mapeo de error.
+- No contiene reglas de negocio, SQL ni estado propio más allá de `AppState` (servicio + sesión) y `IpcError`.
+- Su tamaño **crece con el contrato IPC**, no con la complejidad: dividirlo por dominio produciría ocho módulos de envoltorios finos y obligaría a repartir `AppState`, `IpcError` y el registro `generate_handler!`, que debe enumerar todos los comandos en un solo sitio.
+- La cobertura de esta capa es la que aporta el E2E nativo (`tools/windows-native-e2e`), no pruebas unitarias: refactorizarla sin esa red sería más arriesgado que el beneficio de mantenibilidad.
+
+Se mantiene, por tanto, como excepción razonada en la línea base.
+
+### Métricas antes/después
+
+| Métrica | Antes | Después |
+|---|---|---|
+| `visual.spec.ts` | 1 016 líneas | 314 |
+| Mayor archivo de `e2e/` | 1 016 | 386 (`support/visual.ts`) |
+| Archivos de código > 1 000 líneas | 2 | **1** (`src-tauri/src/lib.rs`, excepción) |
+
+## 18. Cierre de la deuda estructural prioritaria
+
+### Evidencia gráfica
+
+La suite visual se ejecutó en Chromium real sobre el build de producción, con el puente Tauri simulado:
+
+```text
+VISUAL_REVIEW=1 pnpm exec playwright test e2e/visual.spec.ts
+7 passed (8.7s)
+```
+
+Cada escenario verifica composición, ausencia de desbordamiento horizontal, contraste de texto y bordes, foco visible y ausencia de errores de consola en 1920, 1440, 1366, 1024 y tablet. Las capturas quedan en `.devkit/artifacts/design-review/after/`.
+
+**Alcance de esta evidencia:** es el webview real renderizando el build real, pero con IPC simulado. La validación contra el ejecutable nativo corresponde a `tools/windows-native-e2e` (Selenium + `tauri-driver`), que no se ejecutó en este entorno.
+
+### Balance global de la refactorización
+
+| Métrica | Inicio | Cierre |
+|---|---|---|
+| Archivo de producción más largo | 4 050 (`service.rs`) | 1 030 (`src-tauri/src/lib.rs`, excepción) |
+| Archivos de código > 1 000 líneas | 8 | 1 |
+| Pruebas Rust | 179 | 179 |
+| Pruebas frontend | 120 | 120 |
+| Endpoints, esquema, migraciones o contratos modificados | — | 0 |
+
+### Deuda que se conserva, con motivo
+
+| Archivo | Líneas | Motivo |
+|---|---|---|
+| `apps/pos-desktop/src-tauri/src/lib.rs` | 1 030 | Fachada IPC fina; su tamaño sigue al contrato, no a la lógica (§17) |
+| `frontend/src/screens/AdminScreen.tsx` | 843 | Cohesiva y cubierta por pruebas de pantalla; sólo requiere revisión |
+| `frontend/src/screens/SalesScreen.tsx` | 604 | Flujo de venta cohesionado, con pruebas |
+| `backend-rust/crates/pos-application/src/ports.rs` | 539 | Un puerto por agregado en un solo trait `StoreTx`; dividirlo cambiaría la API interna |
+| `backend-rust/crates/pos-storage-sqlite/src/uow/store_tx.rs` | 631 | Repite las firmas del puerto; Rust no permite repartir el `impl` |
+| `messageOf` duplicado en 6 archivos | — | Extracción transversal fuera del alcance de estos incrementos |
+
+**Conclusión:** no quedan archivos monolíticos de producción sin justificación. La política de tamaño en CI impide que reaparezcan.
