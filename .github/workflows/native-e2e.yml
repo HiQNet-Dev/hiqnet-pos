@@ -86,8 +86,30 @@ jobs:
         working-directory: apps/pos-desktop/src-tauri
         run: pnpm dlx @tauri-apps/cli@2.12.4 build --debug --no-bundle
 
-      - name: Suite nativa
+      - name: Preflight de sesión WebView2
+        id: preflight
         shell: pwsh
+        continue-on-error: true
+        env:
+          WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: "--disable-gpu --no-sandbox"
+        run: |
+          ./tools/windows-native-e2e/run-all.ps1 `
+            -NativeDriver (Join-Path $env:TEMP 'edgedriver\msedgedriver.exe') `
+            -ReportDirectory (Join-Path $env:RUNNER_TEMP 'native-e2e-preflight') `
+            -Suite e2e_smoke
+
+      - name: Anotar bloqueo del entorno
+        if: steps.preflight.outcome != 'success'
+        shell: pwsh
+        run: |
+          Write-Output "::error title=Sesión WebView2 no disponible::El runner no pudo crear una sesión WebDriver (DevToolsActivePort). No es un defecto de la aplicación; la suite nativa requiere un host con escritorio interactivo (self-hosted)."
+          exit 1
+
+      - name: Suite nativa
+        if: steps.preflight.outcome == 'success'
+        shell: pwsh
+        env:
+          WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: "--disable-gpu --no-sandbox"
         run: |
           $suite = "${{ github.event.inputs.suite }}"
           $arguments = @{
@@ -102,6 +124,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-e2e-evidence
-          path: ${{ runner.temp }}/native-e2e-artifacts
+          path: ${{ runner.temp }}/native-e2e-*
           if-no-files-found: warn
           retention-days: 14
