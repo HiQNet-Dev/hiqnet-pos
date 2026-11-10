@@ -1,0 +1,37 @@
+{
+  "comment": "Excepciones justificadas de la politica de tamano. Solo se reduce: si un archivo deja de superar el limite, elimina su entrada en el mismo PR. Ver docs/01-architecture/structural-audit-0.1.1.md para el plan de division.",
+  "hard_limit": 1000,
+  "review_limit": 800,
+  "files": {
+    "backend-rust/crates/pos-storage-sqlite/src/uow.rs": {
+      "lines": 2263,
+      "owner": "pos-storage-sqlite",
+      "reason": "Implementacion unica de StoreTx; toda mutacion auditable comparte esta transaccion. Dividir requiere separar por dominio manteniendo atomicidad."
+    },
+    "backend-rust/crates/pos-storage-sqlite/src/backup.rs": {
+      "lines": 1571,
+      "owner": "pos-storage-sqlite",
+      "reason": "Respaldo, restauracion y verificacion de integridad comparten formato y validaciones; pendiente de division por fase."
+    },
+    "backend-rust/crates/pos-storage-sqlite/tests/returns.rs": {
+      "lines": 1348,
+      "owner": "pos-storage-sqlite",
+      "reason": "Escenarios de devoluciones y reembolsos con fixtures compartidos; pendiente de extraer fixtures y dividir por escenario."
+    },
+    "frontend/src/screens/CatalogScreen.tsx": {
+      "lines": 1075,
+      "owner": "frontend",
+      "reason": "Pantalla de catalogo con formularios, tablas y modificadores; pendiente de extraer componentes por seccion."
+    },
+    "apps/pos-desktop/src-tauri/src/lib.rs": {
+      "lines": 1030,
+      "owner": "pos-desktop",
+      "reason": "Registro de comandos IPC; pendiente de dividir por dominio conservando los nombres de comando."
+    },
+    "frontend/e2e/visual.spec.ts": {
+      "lines": 1016,
+      "owner": "frontend",
+      "reason": "Suite visual por viewport; pendiente de dividir por pantalla manteniendo las capturas."
+    }
+  }
+}
