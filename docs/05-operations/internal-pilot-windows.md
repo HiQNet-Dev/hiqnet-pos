@@ -23,7 +23,7 @@ Windows. Complementa `pilot-checklist.md`, `windows-installation.md` y
 | Desinstalar preservando datos | Desinstalador NSIS; la base del usuario quedó intacta (hash idéntico) | **Aprobado** |
 | Actualización entre versiones | Hay instaladores previos (0.0.9, 0.1.0) y migraciones idempotentes, pero **no se ejecutó una actualización sobre datos del piloto** | **No validado** |
 | Firma de código | Instalador y ejecutable `NotSigned` | **Bloqueado** |
-| Licencia firmada | El POS almacena pero no verifica el grant | **Bloqueado** |
+| Licencia firmada | El POS verifica firma, identidad, vigencia y entitlements; el grant manipulado cae a solo lectura | **Aprobado** (emisión productiva pendiente) |
 
 ## Requisitos del puesto de piloto
 
