@@ -16,6 +16,10 @@ extremo.
 | `e2e_returns.py` | Devolución parcial operada por la interfaz, reportes por la interfaz, reinicio, persistencia y denegación al cajero |
 | `verify_returns_db.py` | Verificación de la devolución: partida `restock`, `inbound`, salida de caja única, stock y auditoría |
 | `e2e_restore_guard.py` | Respaldo desde la aplicación, rechazo de restauración con la aplicación abierta y con un lector SQLite externo, restauración correcta tras cerrarla y reapertura con los datos intactos |
+| `e2e_restore_corruption.py` | Respaldos truncados, vacíos, inexistentes, no-SQLite y con bytes alterados; sidecars inconsistentes; interrupción real de la restauración. La base operativa debe quedar intacta y legible |
+| `e2e_crash_recovery.py` | Terminación abrupta del proceso (`TerminateProcess`) durante venta, inventario, caja, compra y una venta de 40 líneas; tras reiniciar, verifica integridad, ausencia de transacciones parciales, duplicados y saldos |
+| `e2e_offline.py` | Ciclo operativo completo y ausencia de conexiones fuera de loopback durante todo el recorrido |
+| `perf_volume.py` | Volumen representativo (2 000 productos, 1 000 ventas, 3 turnos), respaldo y restauración medidos, y tres ciclos de estabilidad |
 | `restore_multiphase_check.py` | Sobre una base ya generada: snapshot `VACUUM INTO`, restauración con la utilidad real, comparación por hash SHA-256 de 27 tablas, `integrity_check`, `foreign_key_check` y deshacer de un cambio posterior |
 | `perf_smoke.py` | Medición local: arranque, 200 checkouts por IPC, consultas y reportes |
 | `e2e_smoke.py` | Comprobación mínima de que el driver puede abrir la aplicación |
@@ -64,21 +68,13 @@ pnpm dlx @tauri-apps/cli@2.12.4 build --debug --no-bundle
 ## Ejecución
 
 ```powershell
-# Flujo comercial completo
+# Suite completa (encadena todos los guiones y agrega un resumen JSON)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows-native-e2e/run-all.ps1 `
+    -NativeDriver "$env:TEMP\edgedriver\msedgedriver.exe" -KeepArtifacts
+
+# Un solo guion
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows-native-e2e/run-e2e.ps1 `
     -Script tools/windows-native-e2e/e2e_flow.py -KeepArtifacts
-
-# Devoluciones y reportes
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows-native-e2e/run-e2e.ps1 `
-    -Script tools/windows-native-e2e/e2e_returns.py -KeepArtifacts
-
-# Guardia de restauración (bloqueo de base en uso)
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows-native-e2e/run-e2e.ps1 `
-    -Script tools/windows-native-e2e/e2e_restore_guard.py -KeepArtifacts
-
-# Rendimiento local (no es un SLA)
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows-native-e2e/run-e2e.ps1 `
-    -Script tools/windows-native-e2e/perf_smoke.py -KeepArtifacts
 ```
 
 Verificación de la base, indicando la ruta impresa por el orquestador:

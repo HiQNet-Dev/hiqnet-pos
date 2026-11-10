@@ -1,0 +1,107 @@
+name: E2E nativo (Windows)
+
+# La suite nativa arranca la aplicacion real con tauri-driver + WebDriver y
+# tarda mucho mas que el CI de cada PR. Se ejecuta:
+#   - manualmente (workflow_dispatch)
+#   - semanalmente (lunes 04:00 UTC) como vigilancia de regresiones
+#
+# No sustituye a `ci.yml`: lo complementa. Ver
+# docs/05-operations/operational-validation.md y tools/windows-native-e2e/README.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Guiones separados por coma (vacio = suite completa)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "0 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native:
+    name: Suite nativa sobre el ejecutable real
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain fijado por rust-toolchain.toml
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel=$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' rust-toolchain.toml)
+          test -n "$channel" || { echo "::error::rust-toolchain.toml no declara channel"; exit 1; }
+          rustup toolchain install "$channel" --profile minimal
+          rustup override set "$channel"
+          rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/pos-desktop/src-tauri
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Dependencias del frontend
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Instalar tauri-driver
+        run: cargo install tauri-driver --locked
+
+      - name: Instalar Selenium
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install selenium
+
+      - name: Driver de WebView2
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $version = (Get-ItemProperty -Path $key -ErrorAction Stop).pv
+          if (-not $version) { throw 'No se pudo leer la version del runtime de WebView2' }
+          Write-Output "webview2=$version"
+          $dir = Join-Path $env:TEMP 'edgedriver'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          Invoke-WebRequest -Uri "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile (Join-Path $dir 'driver.zip')
+          Expand-Archive -Path (Join-Path $dir 'driver.zip') -DestinationPath $dir -Force
+          & (Join-Path $dir 'msedgedriver.exe') --version
+
+      - name: Compilar aplicacion
+        working-directory: apps/pos-desktop/src-tauri
+        run: pnpm dlx @tauri-apps/cli@2.12.4 build --debug --no-bundle
+
+      - name: Suite nativa
+        shell: pwsh
+        run: |
+          $suite = "${{ github.event.inputs.suite }}"
+          $arguments = @{
+            NativeDriver    = (Join-Path $env:TEMP 'edgedriver\msedgedriver.exe')
+            ReportDirectory = (Join-Path $env:RUNNER_TEMP 'native-e2e-artifacts')
+          }
+          if ($suite) { $arguments.Suite = $suite.Split(',') }
+          ./tools/windows-native-e2e/run-all.ps1 @arguments
+
+      - name: Publicar evidencias
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-e2e-evidence
+          path: ${{ runner.temp }}/native-e2e-artifacts
+          if-no-files-found: warn
+          retention-days: 14
