@@ -72,7 +72,7 @@ Fortalezas confirmadas:
 
 | Archivo | Líneas | Responsabilidad mezclada | Riesgo |
 |---|---|---|---|
-| `backend-rust/crates/pos-application/src/service.rs` | **4 050** | ~60 métodos de servicio + ~900 líneas de DTOs | **Alto**: un solo archivo para usuarios, catálogo, ventas, inventario, compras, gastos, devoluciones y caja |
+| `backend-rust/crates/pos-application/src/service.rs` | **4 050** | ~60 métodos de servicio + ~900 líneas de DTOs | **Alto**: un solo archivo para usuarios, catálogo, ventas, inventario, compras, gastos, devoluciones y caja (**resuelto**, ver §12) |
 | `backend-rust/crates/pos-storage-sqlite/src/uow.rs` | **2 263** | Implementación de `Store`/`StoreTx` para todos los agregados | **Alto**: capa transaccional completa en un archivo |
 | `backend-rust/crates/pos-storage-sqlite/src/backup.rs` | 1 571 | Copia, verificación, promoción y reversión | Medio: procedimiento sensible ya cubierto por pruebas |
 | `backend-rust/crates/pos-storage-sqlite/tests/returns.rs` | 1 348 | Todos los escenarios de devoluciones | Medio: localización de pruebas |
@@ -185,9 +185,9 @@ No se detectan pruebas desactivadas que oculten funcionalidad bloqueante en lo r
 
 | Prioridad | Incremento | Criterio de aceptación |
 |---|---|---|
-| P0 | Dividir `pos-application/service.rs` por dominio | Sin cambios de comportamiento; `cargo test --workspace` idéntico |
+| P0 | Dividir `pos-application/service.rs` por dominio | Sin cambios de comportamiento; `cargo test --workspace` idéntico (hecho, ver §12) |
 | P0 | Dividir `pos-storage-sqlite/uow.rs` por agregado | Transacciones y auditoría intactas |
-| P1 | Verificador de tamaño con línea base POS | CI falla ante nuevos monolíticos |
+| P1 | Verificador de tamaño con línea base POS | CI falla ante nuevos monolíticos (hecho, ver §12) |
 | P1 | Dividir `tests/returns.rs` y `tests/expenses.rs` | Escenarios localizables |
 | P2 | `CatalogScreen.tsx` y `lib.rs` de Tauri | Extracción por subcomponente/comando |
 | P2 | Restauración desde UI | Procedimiento seguro o decisión documentada |
@@ -209,3 +209,53 @@ Platform Beta `0.1.0-beta.1` queda cerrada y en mantenimiento. POS consume:
 - **Organización y producto** asociados a la instalación.
 
 Pendiente para producción: custodia de clave de firma, elegibilidad de emisión y auditoría de emisión, según [Transición a POS](https://github.com/HiQNet-Dev/hiqnet-platform/blob/main/docs/02-development/platform-transition-pos.md).
+
+## 12. Estado tras el incremento P0 (división de `service.rs`)
+
+`backend-rust/crates/pos-application/src/service.rs` pasó de un archivo único de 4 050 líneas a un módulo `service/` con un archivo por dominio, sin cambios de comportamiento ni de contratos.
+
+### Estructura resultante
+
+```text
+crates/pos-application/src/service/
+├── mod.rs          # imports, constantes, mods, reexports y struct PosService
+├── core.rs         # new, status
+├── helpers.rs      # utilidades compartidas (fechas, dinero, comercial, contrasena)
+├── users.rs        # sesion, usuarios y bootstrap
+├── catalog.rs      # productos, categorias, variantes y modificadores
+├── inventory.rs    # movimientos, stock y diagnostico de integridad
+├── cash.rs         # registros, turnos y movimientos de caja
+├── sales.rs        # ventas
+├── purchasing.rs   # proveedores y ordenes de compra
+├── expenses.rs     # gastos y merma
+├── returns.rs      # devoluciones
+├── reporting.rs    # reportes
+├── audit.rs        # auditoria y respaldos
+├── tests.rs        # pruebas unitarias del servicio
+└── dto/            # un archivo de DTO por dominio
+```
+
+Cada archivo de dominio contiene su propio `impl PosService`; los DTO viven en `service/dto/` y se reexportan desde `mod.rs`, de modo que los nombres públicos de `pos_application` no cambian.
+
+### Decisiones de la división
+
+1. **Una implementación inherente por dominio**: los `impl` no se pueden repartir entre módulos, así que cada dominio declara el suyo. Es la misma técnica empleada en Platform.
+2. **Utilidades transversales en `helpers.rs`**: fechas, importes, política de contraseña y resolución comercial se usan desde varios dominios; se centralizan allí con visibilidad `pub(super)` para no duplicar validaciones críticas.
+3. **DTO separados de los casos de uso**, uno por dominio, con los constructores inherentes (`UserView::from_user`, `ProductView::of`) junto a su tipo.
+4. **Sin abstracciones nuevas**: no se crearon traits, crates ni capas intermedias; la división es exclusivamente organizativa.
+
+### Métricas antes/después
+
+| Métrica | Antes | Después |
+|---|---|---|
+| Archivos de código > 1 000 líneas | 8 | 7 |
+| Archivo manual más largo | 4 050 (`service.rs`) | 2 263 (`uow.rs`) |
+| `service.rs` | 4 050 líneas | eliminado |
+| Mayor archivo de `pos-application` | 4 050 | 539 (`ports.rs`) |
+| Métodos de `PosService` | 66 | 66 |
+| Tipos de aplicación | 78 | 78 |
+| Pruebas Rust | 178 | 178 |
+
+### Control preventivo
+
+`tools/check_size_policy.py` se ejecuta en CI (job `supply-chain`). Falla ante un archivo nuevo por encima de 1 000 líneas, ante el crecimiento de un archivo registrado en `tools/maintenance_baseline.json` y advierte entre 500 y 1 000 líneas. La línea base sólo se reduce; subirla exige justificación escrita en el PR.
