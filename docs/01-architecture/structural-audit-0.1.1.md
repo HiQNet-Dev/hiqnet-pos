@@ -91,18 +91,56 @@ Es el mismo que tenía HiQNet Platform antes de su refactorización, pero **de m
 3. Pantallas de React con estado, consultas y presentación en el mismo archivo (catálogo y administración).
 4. Pruebas de persistencia con escenarios de varios dominios en un solo archivo (`returns.rs`, `expenses.rs`).
 
-## 5. Riesgos
+## 5. Hallazgo de seguridad (bloqueante de CI)
+
+Detectado al ejecutar el pipeline de esta auditoría el 2026-11-10. **No lo introduce este cambio**: el aviso apareció en la base de datos de RustSec después del último CI verde en `main` (2026-11-07).
+
+```text
+Crate:     libsqlite3-sys
+Version:   0.30.1
+ID:        RUSTSEC-2026-0459
+Severity:  6.8 (medium)
+Solution:  Upgrade to >=0.39.0
+```
+
+Ruta de dependencia real, verificada con `cargo tree`:
+
+```text
+libsqlite3-sys v0.30.1
+└── sqlx-sqlite v0.8.6
+    └── sqlx v0.8.6
+        └── pos-storage-sqlite v0.1.1-rc.1
+```
+
+### Por qué no puede ignorarse como en Platform
+
+En HiQNet Platform este aviso era inerte: aparecía en `Cargo.lock` como dependencia opcional de `sqlx` sin ruta de compilación. **En POS ocurre lo contrario**: `sqlx` está compilado con la feature `sqlite` y `pos-storage-sqlite` es la autoridad de datos. El C SQLite vulnerable está en el binario que gestiona toda la base local, incluidos respaldos y restauración.
+
+### Opciones de remediación
+
+| Opción | Coste | Nota |
+|---|---|---|
+| Actualizar a `sqlx 0.9` | Alto | Cambio mayor; requiere revisar migraciones, macros y `uow.rs` |
+| Fijar `libsqlite3-sys >= 0.39` con `[patch.crates-io]` | Medio | Sólo viable si la API es compatible con `sqlx-sqlite 0.8` |
+| Aceptar el riesgo con controles compensatorios | Bajo | Exigiría justificación escrita, análisis del CVE y seguimiento de parche |
+
+**Recomendación:** tratar la actualización de `sqlx` como primer incremento de seguridad de POS, antes de cualquier refactorización estructural, y mantener el `ignore` actual limitado a `RUSTSEC-2023-0071`.
+
+> Este documento no modifica código ni la política de auditoría. El arreglo requiere autorización explícita.
+
+## 6. Riesgos
 
 | Riesgo | Impacto | Nota |
 |---|---|---|
 | `service.rs` monolítico | Alto | Conflictos de merge y dificultad para añadir dominios |
 | `uow.rs` monolítico | Alto | Toca la capa transaccional; cualquier división debe preservar `StoreTx` y el orden de bloqueos |
+| RUSTSEC-2026-0459 en `libsqlite3-sys` | **Medio-alto** | En la ruta de ejecución de SQLite; bloquea CI desde 2026-11-10 (§5) |
 | Restauración desde UI | Medio | La matriz la marca PENDIENTE; el camino seguro es la utilidad offline |
 | Emisión de licencias | Medio | PENDIENTE y es responsabilidad de Platform |
 | Validación Linux/Android | Medio | Requiere ejecutar `docs/04-quality/platform-matrix.md` en cada host |
 | Integración con Platform | Medio | Contratos existentes; falta custodia de clave para emisión productiva |
 
-## 6. Pruebas
+## 7. Pruebas
 
 - **178 pruebas Rust** en `pos-core`, `pos-application` y `pos-storage-sqlite`, incluidas migraciones, fallos de migración, restauración, concurrencia y aislamiento.
 - Pruebas de frontend por pantalla con Testing Library.
@@ -111,7 +149,7 @@ Es el mismo que tenía HiQNet Platform antes de su refactorización, pero **de m
 
 No se detectan pruebas desactivadas que oculten funcionalidad bloqueante en lo revisado.
 
-## 7. Recomendación arquitectónica
+## 8. Recomendación arquitectónica
 
 **Aplicar la técnica de Platform, no su estructura.**
 
@@ -121,7 +159,7 @@ No se detectan pruebas desactivadas que oculten funcionalidad bloqueante en lo r
 4. Dividir las pruebas de persistencia por escenario cuando se toque el dominio correspondiente.
 5. **No** introducir crates nuevos por entidad, capas intermedias ni microservicios. POS es local-first y Tauri ya es el borde.
 
-## 8. Backlog inicial
+## 9. Backlog inicial
 
 | Prioridad | Incremento | Criterio de aceptación |
 |---|---|---|
@@ -133,13 +171,13 @@ No se detectan pruebas desactivadas que oculten funcionalidad bloqueante en lo r
 | P2 | Restauración desde UI | Procedimiento seguro o decisión documentada |
 | P3 | Integración de licencia y enrolamiento con Platform | Contrato productivo con custodia de clave |
 
-## 9. Primer incremento recomendado
+## 10. Primer incremento recomendado
 
 **Dividir `pos-application/service.rs`.**
 
 Es el mayor riesgo de mantenibilidad, no toca SQLite ni Tauri, y está cubierto por 178 pruebas. Enfoque propuesto: extraer los DTOs a un módulo propio y repartir el `impl PosService` en módulos por dominio (`users`, `catalog`, `sales`, `inventory`, `purchasing`, `expenses`, `returns`, `cash`, `backup`), sin cambiar firmas, orden de operaciones ni reglas de RBAC.
 
-## 10. Dependencias con HiQNet Platform
+## 11. Dependencias con HiQNet Platform
 
 Platform Beta `0.1.0-beta.1` queda cerrada y en mantenimiento. POS consume:
 
