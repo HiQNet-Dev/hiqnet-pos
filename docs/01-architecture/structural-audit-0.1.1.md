@@ -26,7 +26,7 @@ Medición sobre `git ls-files` con el mismo criterio que usa HiQNet Platform:
 | Archivos > 1 000 líneas | **7** |
 | Archivos 801–1 000 | 1 |
 | Archivos 501–800 | 10 |
-| Pruebas Rust | 178 |
+| Pruebas Rust | 179 |
 | Pruebas frontend | Unitarias por pantalla + 7 especificaciones Playwright |
 | Crates del backend | 5 (`pos-core`, `pos-application`, `pos-storage-sqlite`, `pos-security`, `pos-licensing`) |
 | Comandos IPC | 63 |
@@ -75,7 +75,7 @@ Fortalezas confirmadas:
 | `backend-rust/crates/pos-application/src/service.rs` | **4 050** | ~60 métodos de servicio + ~900 líneas de DTOs | **Alto**: un solo archivo para usuarios, catálogo, ventas, inventario, compras, gastos, devoluciones y caja (**resuelto**, ver §12) |
 | `backend-rust/crates/pos-storage-sqlite/src/uow.rs` | **2 263** | Implementación de `Store`/`StoreTx` para todos los agregados | **Alto**: capa transaccional completa en un archivo (**resuelto**, ver §13) |
 | `backend-rust/crates/pos-storage-sqlite/src/backup.rs` | 1 571 | Copia, verificación, promoción y reversión | Medio: procedimiento sensible ya cubierto por pruebas (**resuelto**, ver §14) |
-| `backend-rust/crates/pos-storage-sqlite/tests/returns.rs` | 1 348 | Todos los escenarios de devoluciones | Medio: localización de pruebas |
+| `backend-rust/crates/pos-storage-sqlite/tests/returns.rs` | 1 348 | Todos los escenarios de devoluciones | Medio: localización de pruebas (**resuelto**, ver §15) |
 | `frontend/src/screens/CatalogScreen.tsx` | 1 075 | Pantalla, estado, filtros y acciones | Medio |
 | `apps/pos-desktop/src-tauri/src/lib.rs` | 1 030 | 63 comandos IPC y composición | Medio |
 | `frontend/e2e/visual.spec.ts` | 1 016 | Recorridos visuales | Bajo |
@@ -188,7 +188,7 @@ No se detectan pruebas desactivadas que oculten funcionalidad bloqueante en lo r
 | P0 | Dividir `pos-application/service.rs` por dominio | Sin cambios de comportamiento; `cargo test --workspace` idéntico (hecho, ver §12) |
 | P0 | Dividir `pos-storage-sqlite/uow.rs` por agregado | Transacciones y auditoría intactas (hecho, ver §13) |
 | P1 | Verificador de tamaño con línea base POS | CI falla ante nuevos monolíticos (hecho, ver §12) |
-| P1 | Dividir `tests/returns.rs` y `tests/expenses.rs` | Escenarios localizables |
+| P1 | Dividir `tests/returns.rs` y `tests/expenses.rs` | Escenarios localizables (returns hecho, ver §15) |
 | P1 | Dividir `backup.rs` por responsabilidad | Secuencia de restauración intacta (hecho, ver §14) |
 | P2 | `CatalogScreen.tsx` y `lib.rs` de Tauri | Extracción por subcomponente/comando |
 | P2 | Restauración desde UI | Procedimiento seguro o decisión documentada |
@@ -255,7 +255,7 @@ Cada archivo de dominio contiene su propio `impl PosService`; los DTO viven en `
 | Mayor archivo de `pos-application` | 4 050 | 539 (`ports.rs`) |
 | Métodos de `PosService` | 66 | 66 |
 | Tipos de aplicación | 78 | 78 |
-| Pruebas Rust | 178 | 178 |
+| Pruebas Rust | 179 | 179 |
 
 ### Control preventivo
 
@@ -312,7 +312,7 @@ crates/pos-storage-sqlite/src/uow/
 | Archivos de `uow/` | 1 | 15 |
 | Mayor archivo de `uow/` | 2 263 | 631 (`store_tx.rs`, fachada) |
 | Métodos de `StoreTx` | 89 | 89 |
-| Pruebas Rust | 178 | 178 |
+| Pruebas Rust | 179 | 179 |
 
 `store_tx.rs` (631 líneas) se mantiene por encima del umbral informativo de 500 porque replica las 89 firmas del puerto y Rust no permite repartir el `impl`. Su contenido es una delegación por método, no lógica.
 
@@ -359,4 +359,45 @@ crates/pos-storage-sqlite/src/uow/
 | Archivos de código > 1 000 líneas | 5 | 4 |
 | Mayor archivo de `backup/` | 1 571 | 472 (`restore.rs`) |
 | Pruebas de restauración | 13 | 13 |
-| Pruebas Rust | 178 | 178 |
+| Pruebas Rust | 179 | 179 |
+
+## 15. Estado tras R4 (división de `tests/returns.rs`)
+
+`backend-rust/crates/pos-storage-sqlite/tests/returns.rs` (1 348 líneas, 19 pruebas) pasa a ser un objetivo de pruebas en formato directorio, con un archivo por escenario y los fixtures compartidos en un solo lugar.
+
+```text
+crates/pos-storage-sqlite/tests/returns/
+├── main.rs           # declara los modulos
+├── common.rs         # fixtures: servicio, venta, stock, borradores, MoneyView
+├── parciales.rs      # devoluciones parciales, sucesivas y fraccionarias
+├── validaciones.rs   # rechazos y casos limite
+├── idempotencia.rs   # reintentos con la misma clave
+├── integridad.rs     # mercancia no reintegrable
+├── concurrencia.rs   # devoluciones simultaneas
+├── rollback.rs       # fallo a mitad y atomicidad
+├── permisos.rs       # aislamiento y permisos
+├── persistencia.rs   # reinicio del proceso
+└── reportes.rs       # agregados de reportes
+```
+
+### Decisiones
+
+1. **Formato directorio con `main.rs`**: Cargo descubre `tests/<nombre>/main.rs` como objetivo `returns`, de modo que `mod common;` resuelve a `tests/returns/common.rs`. Un `tests/returns.rs` con submódulos no lo permite: el root de un objetivo de pruebas resuelve sus módulos en `tests/`.
+2. **Los fixtures se publican** (`pub`) porque cruzan módulos; los tipos de la aplicación se reexportan desde `common`, así cada escenario solo importa `use super::common::*;`.
+3. **Los cuerpos de las pruebas no se tocaron**: la comparación textual de los 19 bloques contra el original los reporta idénticos.
+4. **Separación de dominios**: la mitad del archivo probaba reportes, no devoluciones. Ahora `reportes.rs` agrupa esos siete escenarios sin mezclarlos con el ciclo de devolución.
+
+### Métricas antes/después
+
+| Métrica | Antes | Después |
+|---|---|---|
+| `tests/returns.rs` | 1 348 líneas | eliminado |
+| Archivos del objetivo `returns` | 1 | 11 |
+| Mayor archivo del objetivo | 1 348 | 397 (`reportes.rs`) |
+| Archivos de código > 1 000 líneas | 4 | 3 |
+| Pruebas del objetivo | 19 | 19 |
+| Pruebas Rust del workspace | 179 | 179 |
+
+### Nota sobre el recuento
+
+El total real de pruebas del workspace es **179**. Los informes anteriores de esta auditoría indicaban 178 por un error aritmético al sumar los recuentos por objetivo; la cifra correcta se ha fijado en las tablas de este documento.
