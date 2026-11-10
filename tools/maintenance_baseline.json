@@ -6,12 +6,7 @@
     "apps/pos-desktop/src-tauri/src/lib.rs": {
       "lines": 1030,
       "owner": "pos-desktop",
-      "reason": "Registro de comandos IPC; pendiente de dividir por dominio conservando los nombres de comando."
-    },
-    "frontend/e2e/visual.spec.ts": {
-      "lines": 1016,
-      "owner": "frontend",
-      "reason": "Suite visual por viewport; pendiente de dividir por pantalla manteniendo las capturas."
+      "reason": "Fachada IPC: ~60 comandos finos que delegan en PosService y el registro generate_handler!. Su tamano sigue al contrato IPC, no a la logica; dividirlo obliga a repartir AppState, IpcError y el registro de comandos. Ver docs/01-architecture/structural-audit-0.1.1.md SS17."
     }
   }
 }
