@@ -26,9 +26,22 @@ no se invoca en ningún punto del ejecutable**.~~ **Corregido**: ver §6.
 el POS volvía a confiar en las columnas `plan`/`license_status`/`valid_until`
 que la licencia había escrito.~~ **Corregido**: la migración POS 0012 añade el
 marcador persistente `license_installed_at`; `resolve_commercial` sólo acepta el
-fallback del trial en instalaciones que nunca tuvieron licencia. Con marcador y
-sin grant → solo lectura (razón `grant_absent`), sin reinicio del trial y sin
-columnas que autoricen por sí solas.
+fallback del trial en instalaciones que **nunca** tuvieron licencia. Con marcador
+y sin grant → solo lectura (razón `grant_absent`), sin reinicio de trial y sin
+columnas que autorizen por sí solas.
+
+**Migración de bases históricas**: 0012 rellena el marcador cuando la fila ya
+tenía un documento almacenado (grant + firma persistidos); es la única evidencia
+usada, nunca las columnas comerciales sin verificar. El guardado posterior
+nunca reinicia el marcador a NULL (`COALESCE` en el upsert). Una instalación
+que perdió toda evidencia de licenciamiento **antes** de actualizar no puede
+reconstruir ese hecho con certeza a partir de SQLite: queda como trial local.
+
+**Compatibilidad de claves de features**: las claves con punto
+(`backups.local`, `sync.cloud`, `admin.remote`, `enterprise.integrations`) son
+las canónicas del contrato v1 y Platform las emite así; el verificador POS las
+acepta sin conversión (renombrado serde explícito en `FeatureKey`). La prueba
+de interoperabilidad con el fixture real de Platform cubre este caso.
 
 El estado comercial que aplica el POS (`plan`, `license_status`, `features`,
 `valid_until`) se leía de la base local sin comprobar la firma, de modo que
@@ -140,6 +153,17 @@ Las fechas del grant se serializan con el formato por defecto de `time` en
 ambas implementaciones (POS y Platform). Ambos lados deben evolucionar en
 paralelo: cualquier cambio de formato o de campos exige subir `version` y
 migrar el verificador del POS. Un v2 debería fijar RFC 3339 explícitamente.
+
+**Prueba de interoperabilidad real**: el fixture
+`platform-grant-v1.json` (generado con las primitivas reales de Platform, datos
+sintéticos y semilla de pruebas) se instala en el POS tal cual —sin
+reconstruir ni volver a firmar— en
+`pos-storage-sqlite/tests/platform_grant_interop.rs`. Platform regenera el
+documento en cada CI y lo compara byte a byte
+(`platform-licensing/tests/interop_fixture.rs`): cualquier drift del contrato
+(ordenes de campos, formato de fechas, firma) rompe antes de llegar al POS.
+Detección histórica de drift: las claves de features con punto ya se cubren
+explícitamente en el verificador.
 
 ## 5. Evidencia de las pruebas existentes
 

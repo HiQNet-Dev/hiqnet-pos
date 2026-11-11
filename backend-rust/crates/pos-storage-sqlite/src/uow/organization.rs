@@ -57,7 +57,8 @@ pub(super) async fn save_installation_state(
               valid_until = excluded.valid_until, \
               license_grant_json = excluded.license_grant_json, \
               license_signature_b64 = excluded.license_signature_b64, \
-              license_installed_at = excluded.license_installed_at, \
+              license_installed_at = COALESCE(excluded.license_installed_at, \
+                                              local_installation_state.license_installed_at), \
               updated_at = excluded.updated_at",
     )
     .bind(state.installation_id.to_string())

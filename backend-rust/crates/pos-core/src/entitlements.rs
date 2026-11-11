@@ -30,6 +30,11 @@ impl PlanName {
 
 /// Capacidades comerciales con claves estables. Un entitlement nunca sustituye
 /// a un permiso RBAC: ambos deben cumplirse.
+///
+/// Las claves con punto (`backups.local`, `sync.cloud`, `admin.remote`,
+/// `enterprise.integrations`) son las canónicas de `as_str` y coinciden con el
+/// catálogo de Platform y con los grants v1; el renombrado serde es explícito
+/// para que el documento firmado parsee sin conversión silenciosa.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FeatureKey {
@@ -39,9 +44,13 @@ pub enum FeatureKey {
     Purchasing,
     Expenses,
     Reports,
+    #[serde(rename = "backups.local")]
     LocalBackups,
+    #[serde(rename = "sync.cloud")]
     CloudSync,
+    #[serde(rename = "admin.remote")]
     RemoteAdmin,
+    #[serde(rename = "enterprise.integrations")]
     EnterpriseIntegrations,
 }
 
@@ -242,6 +251,32 @@ mod tests {
             DomainError::FeatureNotEntitled {
                 feature: "sync.cloud"
             }
+        );
+    }
+
+    /// El contrato v1 usa las claves canónicas de `as_str` (con punto) tanto al
+    /// serializar como al deserializar: son las mismas que emite Platform.
+    #[test]
+    fn las_claves_canonicas_con_punto_son_el_formato_serde() {
+        assert_eq!(
+            serde_json::to_value(FeatureKey::LocalBackups).unwrap(),
+            serde_json::json!("backups.local")
+        );
+        assert_eq!(
+            serde_json::to_value(FeatureKey::CloudSync).unwrap(),
+            serde_json::json!("sync.cloud")
+        );
+        assert_eq!(
+            serde_json::to_value(FeatureKey::RemoteAdmin).unwrap(),
+            serde_json::json!("admin.remote")
+        );
+        assert_eq!(
+            serde_json::to_value(FeatureKey::EnterpriseIntegrations).unwrap(),
+            serde_json::json!("enterprise.integrations")
+        );
+        assert_eq!(
+            serde_json::from_value::<FeatureKey>(serde_json::json!("backups.local")).unwrap(),
+            FeatureKey::LocalBackups
         );
     }
 }

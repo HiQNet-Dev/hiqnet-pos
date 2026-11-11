@@ -219,4 +219,21 @@ mod tests {
             LicenseStatus::ReadOnly
         );
     }
+
+    /// El JSON canónico de Platform serializa las fechas de `time` en su
+    /// formato por defecto (array año/ordinal); RFC 3339 no es el formato del
+    /// contrato v1. Ambas implementaciones comparten el mismo behaviour; si
+    /// Platform lo cambia, el verificador debe migrarse con versión nueva.
+    #[test]
+    fn el_formato_canonico_de_fechas_es_el_de_time() {
+        let with_array = r#"{"version":1,"grant_id":"c0ffee00-0000-4000-8000-000000000001","installation_id":"0f9e8d7c-0000-4000-8000-0000000000bb","organization_id":"0f9e8d7c-0000-4000-8000-0000000000aa","plan":"pro","features":["catalog"],"issued_at":[2026,1,0,0,0,0,0,0,0],"valid_until":[2099,1,0,0,0,0,0,0,0]}"#;
+        let parsed: LicenseGrant = serde_json::from_str(with_array).unwrap();
+        assert_eq!(
+            parsed.valid_until,
+            OffsetDateTime::from_unix_timestamp(4_070_908_800).unwrap()
+        );
+
+        let with_rfc3339 = r#"{"version":1,"grant_id":"c0ffee00-0000-4000-8000-000000000001","installation_id":"0f9e8d7c-0000-4000-8000-0000000000bb","organization_id":"0f9e8d7c-0000-4000-8000-0000000000aa","plan":"pro","features":["catalog"],"issued_at":"2026-01-01T00:00:00Z","valid_until":"2099-01-01T00:00:00Z"}"#;
+        assert!(serde_json::from_str::<LicenseGrant>(with_rfc3339).is_err());
+    }
 }
