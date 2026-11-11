@@ -10,18 +10,30 @@ bloqueo actual y propone los cambios seguros que faltan.
 |---|---|---|
 | Contrato `LicenseGrant` v1 | `pos-licensing` y `platform-core::license` | Implementado, JSON canónico con orden de campos fijo |
 | Firma Ed25519 | `platform-licensing::Ed25519Signer` | Implementada; semilla inyectada por `settings.signing_key_b64` |
-| Emisión | `apps/api/src/licensing.rs` → `PlatformService::issue_license` | Implementada y protegida por `allow_dev_issuance` |
+| Emisión DEV | `apps/api/src/licensing.rs` → `PlatformService::issue_license` | Implementada y protegida por `allow_dev_issuance` |
+| Emisión comercial | `apps/api/src/control_licensing.rs` → `PlatformService::issue_entitled_license` | Implementada (entorno de pruebas): sesión staff y `InstallationsManage`, elegibilidad desde `entitlements`, plan/features/vigencia derivados del derecho comercial, duplicados 409 por unicidad (instalación, suscripción) y auditoría transaccional. Habilitada sólo con `HIQNET_PLATFORM_ALLOW_LICENSE_ISSUANCE=true` y firmante configurado |
 | Verificación | `pos-licensing::Ed25519LicenseVerifier` | Implementada **y probada** (firma válida, payload manipulado, clave ajena, vencimiento) |
-| Consumo en el POS | `local_installation_state` (`license_grant_json`, `license_signature_b64`) | **Almacena, pero no verifica** |
+| Consumo en el POS | `local_installation_state` (`license_grant_json`, `license_signature_b64`, `license_installed_at`) | Almacena y **verifica**; el marcador `license_installed_at` impide que borrar el grant reinicie el trial |
 
 ### Hallazgo crítico (corregido)
 
 ~~`pos-licensing` es dependencia de `pos-desktop`, pero **`Ed25519LicenseVerifier`
 no se invoca en ningún punto del ejecutable**.~~ **Corregido**: ver §6.
 
+### Hallazgo adicional corregido (2026-11)
+
+~~Borrar el grant de SQLite hacía caer la resolución en el fallback del trial y
+el POS volvía a confiar en las columnas `plan`/`license_status`/`valid_until`
+que la licencia había escrito.~~ **Corregido**: la migración POS 0012 añade el
+marcador persistente `license_installed_at`; `resolve_commercial` sólo acepta el
+fallback del trial en instalaciones que nunca tuvieron licencia. Con marcador y
+sin grant → solo lectura (razón `grant_absent`), sin reinicio del trial y sin
+columnas que autoricen por sí solas.
+
 El estado comercial que aplica el POS (`plan`, `license_status`, `features`,
 `valid_until`) se leía de la base local sin comprobar la firma, de modo que
-editar el archivo SQLite bastaba para extender una licencia.
+editar el archivo SQLite bastaba para extender una licencia. Corregido: ver §6;
+el documento firmado manda siempre que exista.
 
 Lo que ya estaba resuelto: el contrato de firma, la emisión en Platform (con la
 clave inyectada por configuración y nunca en el repositorio) y las pruebas de
@@ -98,11 +110,36 @@ del piloto y de las instalaciones de prueba.
 ## 4. Bloqueos declarados
 
 - **Emisión productiva**: no se activa. `allow_dev_issuance` sigue siendo la
-  única vía y produce documentos con clave de desarrollo.
+  única vía para el flujo DEV de planes/vigencias arbitrarias, y la emisión
+  comercial controlada requiere además `HIQNET_PLATFORM_ALLOW_LICENSE_ISSUANCE`
+  (desactivada por defecto; sólo pruebas controladas).
 - **Custodia de clave**: no existe todavía un KMS/HSM ni un procedimiento de
   rotación; crearlo implica decisión de infraestructura y coste.
 - **Contrato v2**: `grace_until` y `kid` no están implementados; sin ellos no
   hay periodo de gracia formal ni rotación sin recompilar el POS.
+
+### Decisiones comerciales pendientes (contrato v1 congelado)
+
+El contrato `LicenseGrant` v1 no incorpora `kid` ni `grace_until` de forma
+unilateral. Quedan abiertas, y requieren decisión de negocio antes de cualquier
+emisión productiva:
+
+1. **Rotación de claves**: hoy exige recompilar el POS (una clave pública
+   embebida). v2 añadiría `kid` y una lista de claves aceptadas.
+2. **Vigencia y renovación**: duración estándar (propuesta actual: 30–90 días)
+   y mecanismo de renovación (endpoint dedicado vs. reemisión por suscripción).
+3. **Periodo de gracia**: si el POS tolerará operación limitada tras el
+   vencimiento (`grace_until` en v2) o solo lectura inmediata (comportamiento
+   actual de v1).
+4. **Revocación offline**: la ventana depende de `valid_until`; vigencias cortas
+   acotan el riesgo pero multiplican la operación de emisión.
+
+### Compatibilidad del JSON canónico (v1)
+
+Las fechas del grant se serializan con el formato por defecto de `time` en
+ambas implementaciones (POS y Platform). Ambos lados deben evolucionar en
+paralelo: cualquier cambio de formato o de campos exige subir `version` y
+migrar el verificador del POS. Un v2 debería fijar RFC 3339 explícitamente.
 
 ## 5. Evidencia de las pruebas existentes
 
@@ -120,7 +157,8 @@ mutaciones protegidas pasan por `PosService::require_commercial`.
 
 | Situación | Comportamiento |
 |---|---|
-| Sin grant (`license_grant_json` vacío) | Trial local: se conserva el comportamiento previo |
+| Sin grant y sin marcador (instalación nueva) | Trial local: se conserva el comportamiento previo |
+| Sin grant pero con marcador (`license_installed_at`) | Solo lectura (razón `grant_absent`): borrar el grant no reinicia el trial ni autoriza con columnas sin firmar |
 | Grant válido (firma + versión + identidades) | Plan y features **exclusivamente del documento**; vigencia desde el grant |
 | Firma inválida, documento incompleto o identidad que no coincide | Solo lectura, sin features, `tracing::warn` |
 | Clave pública no disponible | Solo lectura (no cae al trial) |
@@ -164,23 +202,27 @@ verificado de cada pieza:
 
 | Requisito | Estado real | Qué falta |
 |---|---|---|
-| Elegibilidad comercial | Platform resuelve suscripción vigente y `OrganizationProduct` activo en su dominio comercial | Unir esa decisión al endpoint de emisión: hoy emite sin consultarla |
-| Suscripciones y entitlements | Implementados en `commercial_domain` de Platform | Traducir el plan comercial a `features` del grant en un único lugar |
+| Elegibilidad comercial | El endpoint de emisión comercial resuelve suscripción vigente y `OrganizationProduct` activo vía `CommercialService::entitlements` antes de firmar; instala ajena → 404, sin derecho → 403 | Nada para el piloto; quedan decisiones de negocio (abajo) |
+| Suscripciones y entitlements | Implementados en `commercial_domain`; la traducción plan→features ocurre en un único lugar (`license_issuance::EntitledPlan`) | Nada; un plan o capacidad no representable en v1 rechaza la emisión (422 `unsupported_plan`/`unsupported_feature`), sin conversiones silenciosas |
 | Firma Ed25519 | `Ed25519Signer` con semilla inyectada por `signing_key_b64` | Que la semilla venga de un KMS/HSM y no de una variable de entorno plana |
 | Clave pública en el POS | Embebida con `POS_LICENSE_PUBLIC_KEY` | Definir el par de claves del piloto y compilar el binario con la pública |
-| Auditoría de emisión | `AuditAction::LicenseInstalled`/`LicenseRejected` en el POS | Equivalente en Platform: hoy no hay evento de emisión con `grant_id`, actor y vigencia |
+| Auditoría de emisión | Evento `license.issued` (transaccional con el registro del grant) y `license.issuance_denied` para rechazos; sin secretos | Consulta del historial de emisión para Control (lectura) si se desea UI |
 | Renovación | El POS reemplaza el grant de forma atómica y audita | Endpoint de renovación en Platform y entrega autenticada al POS |
-| Vigencia y gracia | `valid_until` aplica solo lectura al vencer; **no hay gracia** | Decidir si se añade `grace_until` (contrato v2) o se emite con margen |
-| Rotación de claves | El POS embebe **una** clave pública | Añadir `kid` al grant (v2) y una lista de claves aceptadas |
+| Vigencia y gracia | `valid_until` aplica solo lectura al vencer; no hay gracia | Decidir si se añade `grace_until` (contrato v2) o se emite con margen |
+| Rotación de claves | El POS embebe una clave pública | Añadir `kid` al grant (v2) y una lista de claves aceptadas |
 | Revocación offline | No existe: el límite es `valid_until` | Aceptar vigencias cortas (30–90 días) o añadir contrapeso de servidor |
-| Autenticación de la entrega | La API ya exige sesión staff | Definir si el grant se entrega por API o por archivo firmado |
+| Autenticación de la entrega | La API exige sesión staff; la emisión controlada vive en `/api/v1/control/installations/{id}/licenses` | Definir si el POS consumirá la entrega por API autenticada o por archivo firmado |
+| Idempotencia y duplicados | Unicidad parcial (instalación, suscripción) en `issued_license`; duplicado → 409; reintentos tras fallo o pérdida del grant emiten un grant nuevo | Nada para el piloto |
+| Transiciones POS | Marcador `license_installed_at` (migración 0012): borrar el grant deja la instalación en solo lectura; el trial sólo existe para instalaciones nuevas | Nada |
 
 ### Secuencia recomendada
 
 1. **Par de claves del piloto**: generar offline, guardar la privada fuera del
    repositorio y compilar el POS con la pública. Sin coste de infraestructura.
-2. **Emisión controlada**: endpoint existente + elegibilidad comercial +
-   auditoría de emisión. Aún con clave local, no con KMS.
+2. **Emisión controlada**: endpoint de emisión comercial con elegibilidad,
+   duplicados y auditoría. Aún con clave local, no con KMS. La habilitación es
+   explícita por entorno (`HIQNET_PLATFORM_ALLOW_LICENSE_ISSUANCE`) y su valor
+   por defecto es desactivado.
 3. **KMS/HSM**: solo cuando haya clientes reales. Es el único punto con coste
    recurrente; requiere cotización y autorización.
 4. **Contrato v2** (`kid`, `grace_until`): decisión de negocio; hoy todo lo

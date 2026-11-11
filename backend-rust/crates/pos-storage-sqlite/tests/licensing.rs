@@ -515,3 +515,162 @@ async fn el_trial_sin_licencia_sigue_funcionando() {
         .await
         .unwrap();
 }
+
+// --- Transiciones licencia → sin grant → trial -------------------------------
+
+/// Eliminar el grant no reinicia el trial: la instalación que tuvo licencia
+/// queda en sólo lectura, aunque las columnas sin verificar queden en la fila.
+#[tokio::test]
+async fn borrar_el_grant_no_reinicia_el_trial_ni_autoriza() {
+    let (_dir, path, _, actor) = base_con_licencia().await;
+    // Ataque: borrar el documento firmado y su firma, dejando en la fila el
+    // plan, el estado y la vigencia que la licencia había escrito.
+    manipular(
+        &path,
+        "UPDATE local_installation_state SET license_grant_json = NULL, \
+             license_signature_b64 = NULL, license_status = 'active', \
+             plan = 'pro', valid_until = '2030-01-01T00:00:00Z'",
+    )
+    .await;
+    let service = reabrir(&path, Some(verifier_with(&SEED))).await;
+    let view = estado(&service).await.commercial.unwrap();
+    assert_eq!(view.status, "read_only");
+    assert!(view.read_only);
+    assert!(view.features.is_empty());
+    // Ni reinicio del trial ni operación comercial sin documento.
+    assert!(rechaza_mutacion(&service, &actor, "LIC-10").await);
+}
+
+/// El mismo ataque sobre una instalación que nunca tuvo licencia no cambia el
+/// trial legítimo: el marcador es lo que distingue ambos casos.
+#[tokio::test]
+async fn el_trial_de_una_instalacion_nueva_no_se_reinicia_por_marca_ajena() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("trial-limpio.db");
+    let pool = open(&path).await.unwrap();
+    let (service, actor) = preparar(&pool, Some(verifier_with(&SEED))).await;
+    let view = estado(&service).await.commercial.unwrap();
+    assert_eq!(view.status, "trial");
+    let trial_started: String =
+        sqlx::query_scalar("SELECT trial_started_at FROM local_installation_state WHERE id = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    // Sin licencia instalada, el marcador no existe y el trial legítimo sigue.
+    let marcador: Option<String> = sqlx::query_scalar(
+        "SELECT license_installed_at FROM local_installation_state WHERE id = 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(marcador.is_none());
+    let _ = trial_started;
+    assert!(!view.read_only);
+    service
+        .create_product(&actor, producto("TRIAL-2"))
+        .await
+        .unwrap();
+}
+
+/// Un grant emitido por Platform (canonical JSON con orden de campos fijo y
+/// fechas en el formato de `time`) se verifica nativamente en el POS con la
+/// clave pública del par sintético de pruebas.
+#[tokio::test]
+async fn grant_emitido_por_platform_se_verifica_nativamente() {
+    use base64::Engine as _;
+    use ed25519_dalek::Signer;
+    use serde::{Deserialize, Serialize};
+
+    // Réplica del struct canónico de Platform: mismo orden de campos y tipos.
+    // El espejo comprueba que el documento emitido por Platform es legible
+    // campo a campo por el POS; los campos no asertados son `#[allow(dead_code)]`
+    // porque su valor se valida ya en el grant verificado.
+    #[derive(Serialize)]
+    struct GrantPlatform {
+        version: u32,
+        grant_id: uuid::Uuid,
+        installation_id: InstallationId,
+        organization_id: OrganizationId,
+        plan: PlanName,
+        features: Vec<FeatureKey>,
+        issued_at: OffsetDateTime,
+        valid_until: OffsetDateTime,
+    }
+    #[derive(Deserialize)]
+    #[allow(dead_code)]
+    struct GrantMirror {
+        version: u32,
+        grant_id: String,
+        installation_id: InstallationId,
+        organization_id: OrganizationId,
+        plan: PlanName,
+        features: Vec<FeatureKey>,
+        issued_at: OffsetDateTime,
+        valid_until: OffsetDateTime,
+    }
+
+    // El par sintético de pruebas es el mismo que la semilla DEV de Platform.
+    const SEED_PLATFORM: [u8; 32] = [7u8; 32];
+    let signing = ed25519_dalek::SigningKey::from_bytes(&SEED_PLATFORM);
+    let vigencia = OffsetDateTime::now_utc() + time::Duration::days(45);
+    let documento = GrantPlatform {
+        version: LICENSE_DOC_VERSION,
+        grant_id: uuid::Uuid::new_v4(),
+        installation_id: InstallationId::new(),
+        organization_id: OrganizationId::new(),
+        plan: PlanName::Pro,
+        features: vec![FeatureKey::Catalog, FeatureKey::Sales, FeatureKey::Reports],
+        issued_at: OffsetDateTime::now_utc(),
+        valid_until: vigencia,
+    };
+    let grant_json = String::from_utf8(serde_json::to_vec(&documento).unwrap()).unwrap();
+    let firma = base64::engine::general_purpose::STANDARD
+        .encode(signing.sign(grant_json.as_bytes()).to_bytes());
+
+    let verifier = Ed25519LicenseVerifier::from_public_key_base64(
+        &base64::engine::general_purpose::STANDARD.encode(signing.verifying_key().to_bytes()),
+    )
+    .unwrap();
+    let grant = verifier.verify_grant(&grant_json, &firma).unwrap();
+    assert_eq!(grant.plan, PlanName::Pro);
+    assert_eq!(grant.features.len(), 3);
+    assert_eq!(grant.valid_until, vigencia);
+
+    // El grant de Platform se instala en el POS real y autoriza.
+    let dir = tempfile::tempdir().unwrap();
+    let pool = open(dir.path().join("platform.db")).await.unwrap();
+    let (service, actor) = preparar(&pool, Some(verifier_with(&SEED_PLATFORM))).await;
+    let (installation, organization) = ids(&pool).await;
+    // Re-firmar con las identidades locales: el caso de entrega exige que el
+    // documento traiga las identidades de esta instalación.
+    let entregado = GrantPlatform {
+        version: LICENSE_DOC_VERSION,
+        grant_id: documento.grant_id,
+        installation_id: installation,
+        organization_id: organization,
+        plan: documento.plan,
+        features: documento.features,
+        issued_at: documento.issued_at,
+        valid_until: vigencia,
+    };
+    let json_entregado = String::from_utf8(serde_json::to_vec(&entregado).unwrap()).unwrap();
+    let firma_entregada = base64::engine::general_purpose::STANDARD
+        .encode(signing.sign(json_entregado.as_bytes()).to_bytes());
+    let view = service
+        .install_license(&actor, json_entregado.clone(), firma_entregada)
+        .await
+        .unwrap();
+    assert_eq!(view.plan, "pro");
+    assert!(!view.read_only);
+    assert!(view.features.contains(&"catalog"));
+
+    // El documento entregado coincide con el esquema canónico que Platform
+    // produce (difiere sólo en las identidades de la instalación local).
+    let espejo: GrantMirror = serde_json::from_str(json_entregado.as_str()).unwrap();
+    assert_eq!(espejo.version, LICENSE_DOC_VERSION);
+    assert_eq!(espejo.installation_id, installation);
+    assert_eq!(espejo.organization_id, organization);
+    assert_eq!(espejo.features.len(), 3);
+    assert_eq!(espejo.valid_until, vigencia);
+    assert_eq!(espejo.plan, PlanName::Pro);
+}

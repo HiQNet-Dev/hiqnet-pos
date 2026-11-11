@@ -107,7 +107,20 @@ pub(super) fn resolve_commercial(
         .filter(|value| !value.is_empty());
 
     match (grant_json, signature) {
-        (None, None) => (commercial_from_trial_row(state), LicenseResolution::NoGrant),
+        (None, None) => {
+            // Sólo una instalación que nunca tuvo licencia conserva el trial
+            // local. Si el grant se instaló alguna vez y desapareció de la
+            // base, el fallback a las columnas no verificadas está prohibido:
+            // quedan en sólo lectura (ni trial ni licencia sin documento).
+            if state.license_installed_at.is_some() {
+                (
+                    revoked_state(state),
+                    LicenseResolution::Rejected("grant_absent"),
+                )
+            } else {
+                (commercial_from_trial_row(state), LicenseResolution::NoGrant)
+            }
+        }
         (Some(json), Some(signature)) => {
             let Some(verifier) = verifier else {
                 return (
@@ -278,5 +291,6 @@ pub(super) fn installation_from_commercial(commercial: &CommercialState) -> Inst
         valid_until: commercial.valid_until,
         license_grant_json: None,
         license_signature_b64: None,
+        license_installed_at: None,
     }
 }
