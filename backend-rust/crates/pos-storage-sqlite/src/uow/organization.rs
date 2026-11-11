@@ -6,7 +6,8 @@ pub(super) async fn installation_state(tx: &mut SqliteTx) -> AppResult<Option<In
     let tx = tx.tx()?;
     let row = sqlx::query(
         "SELECT installation_id, organization_id, plan, license_status, features_json, \
-             trial_started_at, valid_until, license_grant_json, license_signature_b64 \
+             trial_started_at, valid_until, license_grant_json, license_signature_b64, \
+             license_installed_at \
              FROM local_installation_state WHERE id = 1",
     )
     .fetch_optional(&mut **tx)
@@ -26,6 +27,10 @@ pub(super) async fn installation_state(tx: &mut SqliteTx) -> AppResult<Option<In
             valid_until: parse_ts(row.get("valid_until"))?,
             license_grant_json: row.get("license_grant_json"),
             license_signature_b64: row.get("license_signature_b64"),
+            license_installed_at: row
+                .get::<Option<String>, _>("license_installed_at")
+                .map(parse_ts)
+                .transpose()?,
         })
     })
     .transpose()
@@ -37,10 +42,11 @@ pub(super) async fn save_installation_state(
 ) -> AppResult<()> {
     let features = serde_json::to_string(&state.features).map_err(|_| AppError::Storage)?;
     sqlx::query(
-            "INSERT INTO local_installation_state \
+        "INSERT INTO local_installation_state \
              (id, installation_id, organization_id, plan, license_status, features_json, \
-              trial_started_at, valid_until, license_grant_json, license_signature_b64, updated_at) \
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+              trial_started_at, valid_until, license_grant_json, license_signature_b64, \
+              license_installed_at, updated_at) \
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
              ON CONFLICT (id) DO UPDATE SET \
               installation_id = excluded.installation_id, \
               organization_id = excluded.organization_id, \
@@ -51,21 +57,24 @@ pub(super) async fn save_installation_state(
               valid_until = excluded.valid_until, \
               license_grant_json = excluded.license_grant_json, \
               license_signature_b64 = excluded.license_signature_b64, \
+              license_installed_at = COALESCE(excluded.license_installed_at, \
+                                              local_installation_state.license_installed_at), \
               updated_at = excluded.updated_at",
-        )
-        .bind(state.installation_id.to_string())
-        .bind(state.organization_id.to_string())
-        .bind(&state.plan)
-        .bind(&state.license_status)
-        .bind(features)
-        .bind(format_ts(state.trial_started_at))
-        .bind(format_ts(state.valid_until))
-        .bind(&state.license_grant_json)
-        .bind(&state.license_signature_b64)
-        .bind(format_ts(OffsetDateTime::now_utc()))
-        .execute(&mut **tx.tx()?)
-        .await
-        .map_err(map_sqlx)?;
+    )
+    .bind(state.installation_id.to_string())
+    .bind(state.organization_id.to_string())
+    .bind(&state.plan)
+    .bind(&state.license_status)
+    .bind(features)
+    .bind(format_ts(state.trial_started_at))
+    .bind(format_ts(state.valid_until))
+    .bind(&state.license_grant_json)
+    .bind(&state.license_signature_b64)
+    .bind(state.license_installed_at.map(format_ts))
+    .bind(format_ts(OffsetDateTime::now_utc()))
+    .execute(&mut **tx.tx()?)
+    .await
+    .map_err(map_sqlx)?;
     Ok(())
 }
 

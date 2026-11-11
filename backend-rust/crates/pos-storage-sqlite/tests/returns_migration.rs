@@ -67,7 +67,7 @@ async fn actualiza_0009_a_0011_conservando_gastos_y_ventas() {
         .await
         .unwrap()
         .get("total");
-    assert_eq!(applied, 11);
+    assert_eq!(applied, 12);
 
     let expense = sqlx::query("SELECT amount_minor, concept FROM expense WHERE id = 'exp-1'")
         .fetch_one(&upgraded)

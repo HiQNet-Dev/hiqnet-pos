@@ -42,7 +42,7 @@ async fn actualiza_0007_a_0011_y_conserva_el_esquema_previo() {
         .await
         .unwrap()
         .get("total");
-    assert_eq!(migrations, 11);
+    assert_eq!(migrations, 12);
     for table in [
         "organization",
         "sale",

@@ -120,6 +120,9 @@ pub struct InstallationState {
     pub valid_until: OffsetDateTime,
     pub license_grant_json: Option<String>,
     pub license_signature_b64: Option<String>,
+    /// Momento de la última instalación de un grant verificado. Persistente:
+    /// si el grant desaparece de la base, la instalación no vuelve al trial.
+    pub license_installed_at: Option<OffsetDateTime>,
 }
 
 /// Puertos de persistencia. La implementación transaccional vive en

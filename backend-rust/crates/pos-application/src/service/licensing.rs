@@ -49,6 +49,10 @@ impl PosService {
             valid_until: license.valid_until,
             license_grant_json: Some(grant_json),
             license_signature_b64: Some(signature_b64),
+            // Marcador persistente: aunque el grant se borre después, la
+            // instalación no puede regresar al trial ni confiar en columnas
+            // sin documento firmado.
+            license_installed_at: Some(self.clock.now()),
         };
         tx.save_installation_state(&state).await?;
 
