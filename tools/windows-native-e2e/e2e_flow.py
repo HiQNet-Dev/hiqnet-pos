@@ -374,7 +374,10 @@ def vender(app: App) -> str:
 
     app.click_xpath("//button[starts-with(normalize-space(),'Cobrar $')]")
     app.wait_xpath(f"{DIALOG}//label[.//span[normalize-space()='Efectivo recibido']]//input")
-    checkout = app.text_of(DIALOG)
+    # El texto del portal puede tardar un tick en exponerse al WebDriver nativo;
+    # se espera el copy visible y se lee del body, que sí incluye el diálogo.
+    app.wait_text("Total estimado")
+    checkout = app.text()
     assert_contains(checkout, f"Total estimado\n${TOTAL_VENTA}", "el checkout no coincide con el ticket")
     app.fill(DIALOG, "Efectivo recibido", EFECTIVO_RECIBIDO)
     app.wait_text(f"Cambio estimado: ${CAMBIO}")
@@ -383,13 +386,13 @@ def vender(app: App) -> str:
 
     app.wait_text("Venta V-")
     app.screenshot("venta-confirmada")
-    confirmacion = app.text_of(DIALOG)
+    confirmacion = app.text()
     assert_contains(confirmacion, f"Total cobrado\n${TOTAL_VENTA}", "total confirmado incorrecto")
     assert_contains(confirmacion, f"Cambio\n${CAMBIO}", "cambio incorrecto")
 
     for line in confirmacion.splitlines():
         if line.startswith("Venta V-"):
-            folio = line.split(" ", 1)[1]
+            folio = line.split()[1]
             break
     else:
         raise AssertionError("No se encontró el folio en la confirmación")
@@ -458,7 +461,8 @@ def cerrar_turno(app: App):
     app.fill("//section[@aria-label='Operación del turno']", "Efectivo contado", SALDO_CIERRE)
     app.click_xpath("//button[normalize-space()='Revisar cierre']")
     app.wait_xpath(DIALOG)
-    review = app.text_of(DIALOG)
+    app.wait_text("Esta acción no se puede deshacer")
+    review = app.text()
     assert_contains(review, SALDO_CIERRE, "la revisión no muestra el saldo esperado")
     assert_contains(review, "Esta acción no se puede deshacer", "la revisión no advierte la consecuencia")
     app.screenshot("revision-cierre")
@@ -560,7 +564,8 @@ def gestionar_gastos_y_merma(app: App) -> dict:
     app.screenshot("merma")
     app.click_xpath(f"{waste_scope}//button[normalize-space()='Revisar merma']")
     app.wait_xpath(DIALOG)
-    preview = app.text_of(DIALOG)
+    app.wait_text("Se descontará")
+    preview = app.text()
     assert_contains(preview, f"{STOCK_COMPRAS} → {STOCK_MERMA}", "la revisión de merma no muestra el stock resultante")
     app.screenshot("revision-merma")
 
