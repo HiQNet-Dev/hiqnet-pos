@@ -57,7 +57,11 @@ test.describe("revisión visual del shell", () => {
     await expect(page.getByRole("heading", { name: /Venta F-000128/ })).toBeVisible();
     await shot(page, "08-venta-confirmada-1920");
     await page.getByRole("button", { name: "Nueva venta" }).click();
-    await page.getByRole("button", { name: "Descartar mensaje" }).click();
+    const search = page.getByRole("textbox", { name: /Buscar producto/ });
+    await expect(search).toBeFocused();
+    await expect(search).toHaveValue("");
+    const dismiss = page.getByRole("button", { name: "Descartar mensaje" });
+    if (await dismiss.count()) await dismiss.click();
 
     // Responsive con ticket y turno activos, antes de cerrar la caja.
     await addProducts(page);
@@ -104,7 +108,19 @@ test.describe("revisión visual del shell", () => {
     await shot(page, "10-caja-1920");
 
     await page.getByLabel("Efectivo contado").fill("1840.00");
-    await page.getByRole("button", { name: "Cerrar turno" }).click();
+    await page.getByRole("button", { name: "Revisar cierre" }).click();
+    const review = page.getByRole("dialog");
+    await expect(review).toBeVisible();
+    await expect(review.getByText(/El turno se cerrará y el arqueo quedará registrado/)).toBeVisible();
+    await review.getByRole("button", { name: "Cancelar" }).click();
+    await expect(review).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Operación del turno" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Revisar cierre" }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Cerrar turno y registrar arqueo" })
+      .click();
     await expect(page.getByRole("heading", { name: "Resultado del arqueo" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Abrir turno" })).toHaveCount(0);
     await shot(page, "10b-arqueo-1920");

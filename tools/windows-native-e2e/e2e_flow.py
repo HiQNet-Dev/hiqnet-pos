@@ -404,7 +404,13 @@ def verificar_persistencia(app: App) -> dict:
 
 def cerrar_turno(app: App):
     app.fill("//section[@aria-label='Operación del turno']", "Efectivo contado", SALDO_CIERRE)
-    app.click_xpath("//button[normalize-space()='Cerrar turno']")
+    app.click_xpath("//button[normalize-space()='Revisar cierre']")
+    app.wait_xpath(DIALOG)
+    review = app.text_of(DIALOG)
+    assert_contains(review, SALDO_CIERRE, "la revisión no muestra el saldo esperado")
+    assert_contains(review, "Esta acción no se puede deshacer", "la revisión no advierte la consecuencia")
+    app.screenshot("revision-cierre")
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Cerrar turno y registrar arqueo']")
     app.wait_text("Turno cerrado")
 
     app.wait_text("Resultado del arqueo")
@@ -488,7 +494,12 @@ def gestionar_gastos_y_merma(app: App) -> dict:
     app.fill(waste_scope, "Cantidad", "1")
     app.select(waste_scope, "Motivo", "Daño")
     app.screenshot("merma")
-    app.click_xpath(f"{waste_scope}//button[normalize-space()='Registrar merma']")
+    app.click_xpath(f"{waste_scope}//button[normalize-space()='Revisar merma']")
+    app.wait_xpath(DIALOG)
+    preview = app.text_of(DIALOG)
+    assert_contains(preview, f"{STOCK_COMPRAS} → {STOCK_MERMA}", "la revisión de merma no muestra el stock resultante")
+    app.screenshot("revision-merma")
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Registrar merma']")
     app.wait_text("Merma registrada")
     app.wait_xpath(f"//span[contains(@class,'stock-figure') and normalize-space()='{STOCK_MERMA}']")
 

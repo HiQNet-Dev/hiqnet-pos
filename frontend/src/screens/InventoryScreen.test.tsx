@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -135,7 +135,9 @@ async function submitWaste(user: ReturnType<typeof userEvent.setup>) {
     Array.from(form.querySelectorAll("select"))[0] as HTMLSelectElement,
     "daño",
   );
-  await user.click(screen.getByRole("button", { name: /^registrar merma$/i }));
+  await user.click(screen.getByRole("button", { name: /^revisar merma$/i }));
+  const review = await screen.findByRole("dialog");
+  await user.click(within(review).getByRole("button", { name: /^registrar merma$/i }));
 }
 
 describe("InventoryScreen", () => {
@@ -229,6 +231,32 @@ describe("InventoryScreen", () => {
     await screen.findByText("20", { selector: ".stock-figure" });
 
     expect(screen.queryByRole("button", { name: /^registrar$/i })).not.toBeInTheDocument();
+  });
+
+  it("muestra el impacto de la merma y permite cancelar sin descontar", async () => {
+    renderScreen({ actor: wasteActor });
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Producto"), "p-1");
+    await screen.findByText("20", { selector: ".stock-figure" });
+
+    const form = screen.getByRole("heading", { name: "Registrar merma" }).closest("form");
+    if (!form) throw new Error("no se encontró el formulario de merma");
+    await user.type(Array.from(form.querySelectorAll("input"))[0] as HTMLInputElement, "1");
+    await user.selectOptions(
+      Array.from(form.querySelectorAll("select"))[0] as HTMLSelectElement,
+      "daño",
+    );
+    await user.click(screen.getByRole("button", { name: /^revisar merma$/i }));
+
+    const review = await screen.findByRole("dialog");
+    expect(within(review).getByText("20 → 19")).toBeVisible();
+    expect(within(review).getByText(/se descontará 1 de café americano/i)).toBeVisible();
+    expect(api.recordWaste).not.toHaveBeenCalled();
+
+    await user.click(within(review).getByRole("button", { name: /^cancelar$/i }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(api.recordWaste).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "Registrar merma" })).toBeVisible();
   });
 
   it("conserva la merma incierta al navegar y la reintenta con la misma clave", async () => {
