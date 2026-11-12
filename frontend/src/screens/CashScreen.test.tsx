@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Actor, CashRegister, CashShift } from "../contracts";
@@ -190,12 +190,36 @@ describe("CashScreen", () => {
     expect(onShiftChanged).toHaveBeenCalled();
   });
 
+  it("revisa el arqueo antes de cerrar y permite cancelar", async () => {
+    const { onShiftChanged } = renderScreen({ shift });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText(/efectivo contado/i), "130.00");
+    await user.click(screen.getByRole("button", { name: /revisar cierre/i }));
+
+    const review = await screen.findByRole("dialog");
+    expect(within(review).getByRole("heading", { name: /cerrar turno/i })).toBeVisible();
+    expect(within(review).getByText(/\$132\.48/)).toBeVisible();
+    expect(within(review).getByText(/faltante \$2\.48/i)).toBeVisible();
+    expect(api.closeCashShift).not.toHaveBeenCalled();
+
+    await user.click(within(review).getByRole("button", { name: /^cancelar$/i }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(api.closeCashShift).not.toHaveBeenCalled();
+    expect(onShiftChanged).not.toHaveBeenCalled();
+    expect(screen.getByRole("region", { name: /operación del turno/i })).toBeVisible();
+  });
+
   it("cierra el turno y conserva el resultado del arqueo", async () => {
     const { onShiftChanged, rerender } = renderScreen({ shift });
     const user = userEvent.setup();
 
     await user.type(screen.getByLabelText(/efectivo contado/i), "130.00");
-    await user.click(screen.getByRole("button", { name: /cerrar turno/i }));
+    await user.click(screen.getByRole("button", { name: /revisar cierre/i }));
+    const review = await screen.findByRole("dialog");
+    await user.click(
+      within(review).getByRole("button", { name: /cerrar turno y registrar arqueo/i }),
+    );
 
     await waitFor(() =>
       expect(api.closeCashShift).toHaveBeenCalledWith({
@@ -204,6 +228,7 @@ describe("CashScreen", () => {
       }),
     );
     expect(onShiftChanged).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     rerender(null);
 

@@ -32,6 +32,7 @@ import { ReturnsScreen } from "../screens/ReturnsScreen";
 import { SideNav } from "./SideNav";
 import { TopBar } from "./TopBar";
 import { ChangePasswordDialog } from "./ChangePasswordDialog";
+import { Toast } from "../components/Toast";
 import { availableSections, defaultSection, type SectionId } from "./navigation";
 
 interface Props {
@@ -149,6 +150,12 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string } | null>(
     null,
   );
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 6_000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   const refreshCatalog = useCallback(() => setCatalogVersion((value) => value + 1), []);
   const refreshCash = useCallback(() => setCashVersion((value) => value + 1), []);
@@ -339,22 +346,6 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
             </p>
           )}
 
-          {notice && (
-            <div className="banner-row" aria-live="polite">
-              <p className={`banner banner-${notice.tone}`}>
-                {notice.text}
-                <button
-                  type="button"
-                  className="banner-dismiss"
-                  onClick={() => setNotice(null)}
-                  aria-label="Descartar mensaje"
-                >
-                  ×
-                </button>
-              </p>
-            </div>
-          )}
-
           {catalogError && (
             <div className="banner-row" role="alert">
               <p className="banner banner-error">
@@ -484,6 +475,12 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
           }
         />
       )}
+
+      <Toast
+        message={notice?.text ?? null}
+        tone={notice?.tone ?? "success"}
+        onDismiss={() => setNotice(null)}
+      />
     </div>
   );
 }

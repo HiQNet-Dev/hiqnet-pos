@@ -1,7 +1,14 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, IpcError } from "../api";
-import type { ModifierGroup, ModifierOption, Product, ProductVariant } from "../contracts";
-import { lineFromConfiguration, type CartLine } from "../lib/cart";
+import type {
+  ModifierConfiguration,
+  ModifierGroup,
+  ModifierOption,
+  Product,
+  ProductVariant,
+} from "../contracts";
+import { lineFromConfiguration, lineSignature, type CartLine } from "../lib/cart";
+import { formatMinor, parseMinor } from "../lib/money";
 import { Modal } from "../components/Modal";
 
 export interface ConfigTarget {
@@ -28,6 +35,18 @@ export function ProductConfigDialog({ target, onClose, onAdded }: Props) {
   const [quantity, setQuantity] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{
+    key: string;
+    configuration: ModifierConfiguration;
+  } | null>(null);
+  const [previewError, setPreviewError] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
+  const previewRequest = useRef(0);
+
+  const selectedOptionIds = useMemo(() => [...selected].sort(), [selected]);
+  const selectionKey = lineSignature(product.id, variantId || null, selectedOptionIds);
 
   function selectedInGroup(groupId: string): number {
     const ids = optionsByGroup[groupId] ?? [];
@@ -49,15 +68,58 @@ export function ProductConfigDialog({ target, onClose, onAdded }: Props) {
     });
   }
 
+  const canAdd = groups.every((group) => selectedInGroup(group.id) >= group.min);
+
+  // El precio final lo calcula Rust: no se duplica la regla fiscal en React.
+  // Mientras faltan opciones obligatorias no se consulta para no mostrar errores
+  // prematuros; al completar la configuración el resumen se actualiza solo.
+  useEffect(() => {
+    if (!canAdd) {
+      previewRequest.current += 1;
+      return;
+    }
+    const request = ++previewRequest.current;
+    api
+      .configureProduct({
+        product_id: product.id,
+        variant_id: variantId || null,
+        selected_option_ids: selectedOptionIds,
+      })
+      .then((configuration) => {
+        if (request !== previewRequest.current) return;
+        setPreview({ key: selectionKey, configuration });
+        setPreviewError(null);
+      })
+      .catch((cause: unknown) => {
+        if (request !== previewRequest.current) return;
+        setPreview(null);
+        setPreviewError({
+          key: selectionKey,
+          message:
+            cause instanceof IpcError
+              ? cause.message
+              : "No fue posible calcular el precio final.",
+        });
+      });
+    return () => {
+      if (request === previewRequest.current) previewRequest.current += 1;
+    };
+  }, [canAdd, product.id, selectedOptionIds, selectionKey, variantId]);
+
   async function handleAdd() {
     setBusy(true);
     setError(null);
     try {
-      const configuration = await api.configureProduct({
-        product_id: product.id,
-        variant_id: variantId || null,
-        selected_option_ids: selected,
-      });
+      // Reutiliza el presupuesto ya validado para esta configuración; si cambió
+      // mientras se pulsaba, Rust vuelve a ser la autoridad.
+      const configuration =
+        preview?.key === selectionKey
+          ? preview.configuration
+          : await api.configureProduct({
+              product_id: product.id,
+              variant_id: variantId || null,
+              selected_option_ids: selectedOptionIds,
+            });
       onAdded(lineFromConfiguration(configuration, quantity));
       onClose();
     } catch (cause) {
@@ -71,12 +133,18 @@ export function ProductConfigDialog({ target, onClose, onAdded }: Props) {
     }
   }
 
-  const canAdd = groups.every((group) => selectedInGroup(group.id) >= group.min);
+  const activePreview = preview?.key === selectionKey ? preview : null;
+  const activePreviewError = previewError?.key === selectionKey ? previewError.message : null;
+  const previewLoading = canAdd && !activePreview && !activePreviewError;
+  const unitMinor = activePreview ? parseMinor(activePreview.configuration.unit_price) : null;
+  const unitLabel = unitMinor === null ? "—" : `$${formatMinor(unitMinor)}`;
+  const lineLabel =
+    unitMinor === null ? "—" : `$${formatMinor(unitMinor * quantity)}`;
 
   return (
     <Modal
       title={product.name}
-      subtitle={`Precio de lista $${product.unit_price} · impuesto calculado por el sistema`}
+      subtitle="El precio final incluye IVA y lo calcula el sistema."
       onClose={onClose}
       footer={
         <>
@@ -172,6 +240,46 @@ export function ProductConfigDialog({ target, onClose, onAdded }: Props) {
           {error}
         </p>
       )}
+
+      <section
+        className="config-price-summary"
+        aria-live="polite"
+        aria-busy={previewLoading}
+      >
+        <div className="config-price-primary">
+          <span className="field-label">Precio final unitario</span>
+          <strong className="config-price-value mono">{unitLabel}</strong>
+          <span className="config-price-note">IVA incluido</span>
+        </div>
+        <div className="config-price-primary">
+          <span className="field-label">Total de la línea</span>
+          <strong className="config-price-value mono">{lineLabel}</strong>
+          <span className="config-price-note">
+            {previewLoading
+              ? "Calculando…"
+              : activePreview
+                ? `${quantity} × ${unitLabel}`
+                : "Pendiente de opciones"}
+          </span>
+        </div>
+        {activePreview && (
+          <p className="config-price-detail">
+            Base ${activePreview.configuration.base_price} + opciones $
+            {activePreview.configuration.modifiers_total} · IVA $
+            {activePreview.configuration.tax} incluido.
+          </p>
+        )}
+        {!canAdd && (
+          <p className="config-price-detail config-price-pending">
+            Completa las opciones obligatorias para ver el precio final.
+          </p>
+        )}
+        {activePreviewError && (
+          <p className="alert alert-error" role="alert">
+            {activePreviewError}
+          </p>
+        )}
+      </section>
 
       <div className="config-quantity">
         <span className="field-label">Cantidad</span>

@@ -243,8 +243,9 @@ Un solo dibujo de marca en todo el producto: cuadrado redondeado con el acento
 
 ## Components
 
-- **Botón primario**: fondo `accent`, texto blanco, 36 px de alto; deshabilitado
-  con opacidad reducida. El botón de cobro usa 46 px.
+- **Botón primario**: fondo `accent`, texto blanco, 36 px de alto. Deshabilitado
+  usa `surface-muted`, borde neutro y texto muted: no conserva el azul del CTA
+  activo. El botón de cobro usa 46 px.
 - **Botón secundario**: superficie blanca y borde `border-strong`.
 - **Botón de peligro**: solo para acciones destructivas confirmadas.
 - **Campo**: borde `control-border`, 36 px de alto, etiqueta de 12 px arriba.
@@ -259,8 +260,10 @@ Un solo dibujo de marca en todo el producto: cuadrado redondeado con el acento
   `accent-color: var(--color-accent)`; la etiqueta es parte del objetivo táctil.
 - **Momento de precio**: un importe monetario se escribe como «Precio base, sin
   IVA» y, cuando importa el resultado, se acompaña de una vista previa
-  «Precio final al público» calculada por Rust (`preview_product_price`). La
-  interfaz nunca multiplica por la tasa.
+  «Precio final al público» calculada por Rust (`preview_product_price`). En el
+  configurador de una partida, `configure_product` entrega el precio final
+  unitario y el total de la línea antes de agregar; los importes netos quedan
+  como detalle secundario. La interfaz nunca multiplica por la tasa.
 - **Tabla**: encabezado fijo, filas de 36–44 px, importes alineados a la derecha,
   identificadores sin partirse.
 - **Tarjeta de producto**: nombre, SKU, precio **al público** con IVA incluido y
@@ -274,7 +277,11 @@ Un solo dibujo de marca en todo el producto: cuadrado redondeado con el acento
   catálogo cargado completo para evitar miles de controles simultáneos.
 - **Ticket**: partidas con cantidad editable, total por línea y eliminación
   explícita. La cantidad no baja de 1; para quitar una partida se usa el botón de
-  papelera. “Vaciar” exige confirmación.
+  papelera y aparece un aviso flotante con «Deshacer» durante 7 s que restaura la
+  partida exacta (producto, variante, opciones, cantidad y precio ya calculado).
+  Si la misma configuración ya volvió al ticket, se fusiona con la existente en
+  lugar de duplicar la clave; abrir el cobro, completar la venta o vaciar el
+  ticket descarta el undo. “Vaciar” exige confirmación.
 - **Navegación**: el elemento activo usa `accent-soft` y `accent`; el contador
   del ticket se anuncia con singular o plural correcto. El nombre accesible de
   cada entrada es explícito (`aria-label`), de modo que no depende de qué
@@ -287,6 +294,16 @@ Un solo dibujo de marca en todo el producto: cuadrado redondeado con el acento
   una acción discreta de fila, pero usa el color de peligro para no confundirse
   con la acción neutra vecina. La confirmación y el botón de peligro pleno viven
   en el diálogo.
+- **Revisión irreversible**: cerrar turno y registrar merma abren un diálogo que
+  muestra el estado actual, la consecuencia y los totales resultantes antes de
+  ejecutar. El diálogo usa el mismo `Modal` con foco atrapado, Escape y retorno de
+  foco; el botón final es `button-danger` y nombra la acción completa.
+- **Aviso flotante**: los resultados globales (venta confirmada, deshacer una
+  línea) usan un toast fijo con región `aria-live`, sin desplazar el layout. Vive
+  abajo a la izquierda del contenido para no cubrir el total ni «Cobrar».
+- **Tabla de productos a 1024**: entre 961 y 1120 px se ocultan SKU y categoría
+  del listado y el detalle se reduce a 320 px para que «Al público» permanezca
+  visible sin scroll horizontal obligatorio.
 - **Auditoría**: cada evento se muestra con una frase en español; la clave
   técnica vive en `data-action` y nunca en pantalla. La meta de cada fila es la
   fecha y una referencia corta del registro, sin repetir el sustantivo que ya
@@ -308,6 +325,8 @@ Un solo dibujo de marca en todo el producto: cuadrado redondeado con el acento
 - Deriva permisos, sucursal e importes del `Actor` y de Rust; la UI no los
   inventa.
 - Confirma acciones destructivas y bloquea estados inválidos antes de enviar.
+  Ofrece deshacer cuando la operación sea reversible y el costo de repetirla sea
+  alto.
 - Repite el mismo vocabulario de botones, campos, tablas y modales en todas las
   pantallas.
 - Verifica el render real en 1920×1080, 1440×900, 1366×768, 1024×768 y

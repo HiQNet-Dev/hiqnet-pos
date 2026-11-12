@@ -20,6 +20,7 @@ import type { PendingSaleAttempt } from "../lib/pendingAttempt";
 import { formatMinor, formatQuantity } from "../lib/money";
 import { registerBackHandler } from "../lib/backNavigation";
 import { Modal } from "../components/Modal";
+import { Toast } from "../components/Toast";
 import { CheckoutDialog } from "./CheckoutDialog";
 import { ProductConfigDialog, type ConfigTarget } from "./ProductConfigDialog";
 import { MinusIcon, PlusIcon, SearchIcon, TrashIcon } from "../shell/icons";
@@ -83,8 +84,38 @@ export function SalesScreen({
   const [selectingId, setSelectingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"catalog" | "ticket">("catalog");
+  const [undo, setUndo] = useState<{ line: CartLine; index: number } | null>(null);
+  const [focusAfterCheckout, setFocusAfterCheckout] = useState(false);
   const requestRef = useRef(0);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const undoTimer = useRef<number | null>(null);
   const checkoutLocked = pendingAttempt !== null;
+
+  function dismissUndo() {
+    if (undoTimer.current !== null) {
+      window.clearTimeout(undoTimer.current);
+      undoTimer.current = null;
+    }
+    setUndo(null);
+  }
+
+  useEffect(
+    () => () => {
+      if (undoTimer.current !== null) window.clearTimeout(undoTimer.current);
+    },
+    [],
+  );
+
+  // El foco sólo se mueve cuando el usuario cerró una venta completada y la
+  // pantalla ya está lista para la siguiente. Ningún otro cierre de modal lo hace.
+  useEffect(() => {
+    if (!focusAfterCheckout || checkoutOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      searchRef.current?.focus({ preventScroll: true });
+      setFocusAfterCheckout(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusAfterCheckout, checkoutOpen]);
 
   // En el diseño apilado (≤960 px) Back devuelve del ticket al catálogo sin
   // tocar las partidas. En escritorio esta vista no se activa.
@@ -99,6 +130,11 @@ export function SalesScreen({
   );
 
   const totals = cartTotals(cart);
+  const chargeReason = !shift
+    ? "Abre un turno de caja para cobrar."
+    : cart.length === 0
+      ? "Agrega un producto al ticket para cobrar."
+      : null;
 
   const visibleProducts = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -197,7 +233,44 @@ export function SalesScreen({
 
   function removeLine(key: string) {
     if (checkoutLocked) return;
-    onCartChange(cart.filter((line) => line.key !== key));
+    const index = cart.findIndex((line) => line.key === key);
+    if (index < 0) return;
+    const line = cart[index]!;
+    onCartChange(cart.filter((item) => item.key !== key));
+    if (undoTimer.current !== null) window.clearTimeout(undoTimer.current);
+    setUndo({ line, index });
+    undoTimer.current = window.setTimeout(() => {
+      undoTimer.current = null;
+      setUndo(null);
+    }, 7_000);
+  }
+
+  /** Restaura la partida exacta; si la misma configuración ya volvió, fusiona. */
+  function restoreRemovedLine() {
+    if (!undo) return;
+    if (cart.some((line) => line.key === undo.line.key)) {
+      onCartChange(mergeLine(cart, undo.line));
+    } else {
+      const next = [...cart];
+      next.splice(Math.min(undo.index, next.length), 0, undo.line);
+      onCartChange(next);
+    }
+    dismissUndo();
+  }
+
+  function openCheckout() {
+    dismissUndo();
+    setCheckoutOpen(true);
+  }
+
+  /** Venta completada y cerrada: ticket y filtros vuelven al estado inicial. */
+  function prepareNextSale() {
+    dismissUndo();
+    setQuery("");
+    setCategoryId("");
+    setView("catalog");
+    setError(null);
+    setFocusAfterCheckout(true);
   }
 
   /** Precio al público que se muestra en la tarjeta. Lo calcula Rust. */
@@ -272,6 +345,7 @@ export function SalesScreen({
             <SearchIcon className="search-icon" />
             <span className="visually-hidden">Buscar producto</span>
             <input
+              ref={searchRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={handleSearchKeyDown}
@@ -500,20 +574,26 @@ export function SalesScreen({
             </div>
           </dl>
 
-          {!shift && (
-            <p className="ticket-hint">
-              Abre un turno de caja para cobrar.{" "}
-              <button type="button" className="link-button" onClick={onRegisterRequired}>
-                Ir a caja
-              </button>
+          {chargeReason && (
+            <p className={!shift ? "ticket-hint" : "ticket-hint ticket-hint-neutral"} id="ticket-charge-reason">
+              {chargeReason}
+              {!shift && (
+                <>
+                  {" "}
+                  <button type="button" className="link-button" onClick={onRegisterRequired}>
+                    Ir a caja
+                  </button>
+                </>
+              )}
             </p>
           )}
 
           <button
             type="button"
             className="button button-primary button-lg"
-            onClick={() => setCheckoutOpen(true)}
+            onClick={openCheckout}
             disabled={pendingAttempt ? readOnly : cart.length === 0 || !shift || readOnly}
+            aria-describedby={chargeReason ? "ticket-charge-reason" : undefined}
           >
             {pendingAttempt ? "Recuperar cobro pendiente" : `Cobrar $${totals.total}`}
           </button>
@@ -534,7 +614,7 @@ export function SalesScreen({
         <button
           type="button"
           className="button button-primary"
-          onClick={() => setCheckoutOpen(true)}
+          onClick={openCheckout}
           disabled={pendingAttempt ? readOnly : cart.length === 0 || !shift || readOnly}
         >
           {pendingAttempt ? "Recuperar cobro" : "Cobrar"}
@@ -568,6 +648,7 @@ export function SalesScreen({
                 className="button button-danger"
                 onClick={() => {
                   if (!checkoutLocked) onCartChange([]);
+                  dismissUndo();
                   setClearOpen(false);
                 }}
               >
@@ -593,12 +674,22 @@ export function SalesScreen({
           pendingAttempt={pendingAttempt}
           onPendingAttemptChange={onPendingAttemptChange}
           onClose={() => setCheckoutOpen(false)}
+          onNewSale={prepareNextSale}
           onCompleted={(sale) => {
+            dismissUndo();
             onSaleCompleted(sale);
-            setView("catalog");
           }}
         />
       )}
+
+      <Toast
+        className="toast-region-stacked"
+        message={undo ? `Línea eliminada: ${undo.line.name}` : null}
+        tone="warning"
+        actionLabel={undo ? "Deshacer" : undefined}
+        onAction={restoreRemovedLine}
+        onDismiss={dismissUndo}
+      />
     </div>
   );
 }

@@ -337,6 +337,18 @@ def vender(app: App) -> str:
     app.click_xpath(f"{DIALOG}//label[.//span[normalize-space()='Grande']]//input")
     app.click_xpath(f"{DIALOG}//label[.//span[normalize-space()='Shot extra']]//input")
     app.click_xpath(f"{DIALOG}//label[.//span[normalize-space()='Sin azúcar']]//input")
+    WebDriverWait(app.driver, 30).until(
+        lambda driver: len(driver.find_elements(By.CSS_SELECTOR, ".config-price-value")) >= 2
+        and driver.find_elements(By.CSS_SELECTOR, ".config-price-value")[0].text.startswith("$")
+    )
+    config_unit = app.driver.find_elements(By.CSS_SELECTOR, ".config-price-value")[0].text
+    config_line = app.driver.find_elements(By.CSS_SELECTOR, ".config-price-value")[1].text
+    assert config_unit == f"${UNITARIO_TOTAL}", (
+        f"el configurador no muestra el precio final unitario: {config_unit}"
+    )
+    assert config_line == f"${UNITARIO_TOTAL}", (
+        f"el total de línea del configurador no coincide: {config_line}"
+    )
     app.screenshot("configurador")
     app.click_xpath(f"{DIALOG}//button[normalize-space()='Agregar al carrito']")
 
@@ -348,8 +360,22 @@ def vender(app: App) -> str:
     app.wait_text(f"${TOTAL_VENTA}")
     app.screenshot("ticket")
 
+    # Undo: la partida configurada se restaura completa y con su precio de Rust.
+    app.click_xpath("//button[@aria-label='Quitar Café E2E']")
+    app.wait_text("Línea eliminada: Café E2E")
+    app.screenshot("ticket-undo")
+    app.click_xpath("//div[contains(@class,'toast')]//button[normalize-space()='Deshacer']")
+    app.wait_text(f"2 × ${UNITARIO_TOTAL}")
+    restored = app.text_of("//aside[contains(@class,'ticket')]")
+    assert_contains(restored, "Grande", "el undo no conservó la variante")
+    assert_contains(restored, "Shot extra", "el undo no conservó los modificadores")
+    assert_contains(restored, "Sin azúcar", "el undo no conservó la omisión")
+    assert_contains(restored, f"${TOTAL_VENTA}", "el undo no conservó el total")
+
     app.click_xpath("//button[starts-with(normalize-space(),'Cobrar $')]")
     app.wait_xpath(f"{DIALOG}//label[.//span[normalize-space()='Efectivo recibido']]//input")
+    checkout = app.text_of(DIALOG)
+    assert_contains(checkout, f"Total estimado\n${TOTAL_VENTA}", "el checkout no coincide con el ticket")
     app.fill(DIALOG, "Efectivo recibido", EFECTIVO_RECIBIDO)
     app.wait_text(f"Cambio estimado: ${CAMBIO}")
     app.screenshot("checkout")
@@ -363,8 +389,34 @@ def vender(app: App) -> str:
 
     for line in confirmacion.splitlines():
         if line.startswith("Venta V-"):
-            return line.split(" ", 1)[1]
-    raise AssertionError("No se encontró el folio en la confirmación")
+            folio = line.split(" ", 1)[1]
+            break
+    else:
+        raise AssertionError("No se encontró el folio en la confirmación")
+
+    # Post-venta: búsqueda enfocada y limpia, filtro por defecto, sin banner.
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Nueva venta']")
+    WebDriverWait(app.driver, 30).until(
+        lambda driver: driver.execute_script(
+            "return document.activeElement?.getAttribute('aria-label') === arguments[0]",
+            "Buscar producto. Enter agrega el único resultado",
+        )
+    )
+    search = app.driver.find_element(
+        By.XPATH, "//input[@aria-label='Buscar producto. Enter agrega el único resultado']"
+    )
+    assert search.get_attribute("value") == "", "la búsqueda no se limpió tras la venta"
+    active_chip = app.driver.find_element(By.CSS_SELECTOR, ".chips .chip-active")
+    assert active_chip.text.strip() == "Todas", "el filtro de categoría no volvió al default"
+    assert app.driver.execute_script("return document.querySelectorAll('.banner-row').length") == 0, (
+        "la venta confirmada volvió a usar el banner que desplaza el layout"
+    )
+    assert app.driver.execute_script(
+        "return getComputedStyle(document.querySelector('.toast-region')).position"
+    ) == "fixed", "el aviso de venta no es flotante"
+    app.screenshot("venta-nueva-venta")
+
+    return folio
 
 
 def iniciar_sesion(app: App):
@@ -404,7 +456,25 @@ def verificar_persistencia(app: App) -> dict:
 
 def cerrar_turno(app: App):
     app.fill("//section[@aria-label='Operación del turno']", "Efectivo contado", SALDO_CIERRE)
-    app.click_xpath("//button[normalize-space()='Cerrar turno']")
+    app.click_xpath("//button[normalize-space()='Revisar cierre']")
+    app.wait_xpath(DIALOG)
+    review = app.text_of(DIALOG)
+    assert_contains(review, SALDO_CIERRE, "la revisión no muestra el saldo esperado")
+    assert_contains(review, "Esta acción no se puede deshacer", "la revisión no advierte la consecuencia")
+    app.screenshot("revision-cierre")
+
+    # Cancelar no debe mutar el turno.
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Cancelar']")
+    WebDriverWait(app.driver, 30).until(EC.invisibility_of_element_located((By.XPATH, DIALOG)))
+    app.wait_xpath("//button[normalize-space()='Revisar cierre']")
+    assert not app.driver.find_elements(
+        By.XPATH, "//h2[normalize-space()='Resultado del arqueo']"
+    ), "cancelar la revisión cerró el turno"
+
+    # Reabrir la misma revisión y confirmar el cierre.
+    app.click_xpath("//button[normalize-space()='Revisar cierre']")
+    app.wait_xpath(DIALOG)
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Cerrar turno y registrar arqueo']")
     app.wait_text("Turno cerrado")
 
     app.wait_text("Resultado del arqueo")
@@ -488,7 +558,23 @@ def gestionar_gastos_y_merma(app: App) -> dict:
     app.fill(waste_scope, "Cantidad", "1")
     app.select(waste_scope, "Motivo", "Daño")
     app.screenshot("merma")
-    app.click_xpath(f"{waste_scope}//button[normalize-space()='Registrar merma']")
+    app.click_xpath(f"{waste_scope}//button[normalize-space()='Revisar merma']")
+    app.wait_xpath(DIALOG)
+    preview = app.text_of(DIALOG)
+    assert_contains(preview, f"{STOCK_COMPRAS} → {STOCK_MERMA}", "la revisión de merma no muestra el stock resultante")
+    app.screenshot("revision-merma")
+
+    # Cancelar no debe descontar existencias.
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Cancelar']")
+    WebDriverWait(app.driver, 30).until(EC.invisibility_of_element_located((By.XPATH, DIALOG)))
+    app.wait_xpath(
+        f"//span[contains(@class,'stock-figure') and normalize-space()='{STOCK_COMPRAS}']"
+    )
+
+    # Reabrir la revisión y confirmar una sola vez.
+    app.click_xpath(f"{waste_scope}//button[normalize-space()='Revisar merma']")
+    app.wait_xpath(DIALOG)
+    app.click_xpath(f"{DIALOG}//button[normalize-space()='Registrar merma']")
     app.wait_text("Merma registrada")
     app.wait_xpath(f"//span[contains(@class,'stock-figure') and normalize-space()='{STOCK_MERMA}']")
 
@@ -575,6 +661,45 @@ def capturar_tamanos(app_path: str) -> dict:
             app.resize(width, height)
             app.screenshot(name)
             result["capturas"].append(name)
+
+        # Productos a 1024: el precio público debe seguir visible y no exigir
+        # scroll horizontal; SKU y categoría son secundarios en este ancho.
+        app.resize(1024, 768)
+        app.nav("catalog")
+        wait_screen(app, "Productos y catálogo")
+        app.wait_xpath("//td[contains(@class,'product-public-price')]")
+        columns = app.driver.execute_script(
+            """
+            const sku=document.querySelector('.data-table .col-sku');
+            const category=document.querySelector('.data-table .col-category');
+            const scroll=document.querySelector('.table-scroll');
+            const cell=document.querySelector('td.product-public-price');
+            if(!scroll||!cell) return null;
+            const c=cell.getBoundingClientRect(), s=scroll.getBoundingClientRect();
+            return {
+              sku: sku ? getComputedStyle(sku).display : null,
+              category: category ? getComputedStyle(category).display : null,
+              scrollWidth: scroll.scrollWidth,
+              clientWidth: scroll.clientWidth,
+              price: cell.innerText,
+              inside: c.right <= s.right + 1 && c.left >= s.left - 1,
+              viewport: {width: innerWidth, height: innerHeight}
+            };
+            """
+        )
+        assert columns is not None, "no se pudo medir la tabla de productos a 1024"
+        assert columns["sku"] == "none", "SKU sigue visible a 1024"
+        assert columns["category"] == "none", "Categoría sigue visible a 1024"
+        assert columns["scrollWidth"] <= columns["clientWidth"] + 1, (
+            f"la tabla exige scroll horizontal a 1024: {columns}"
+        )
+        assert columns["price"] == f"${PRECIO_PUBLICO_BASE}", (
+            f"el precio público no está visible a 1024: {columns['price']}"
+        )
+        assert columns["inside"], "el precio público queda fuera del área visible a 1024"
+        result["productos_1024"] = columns
+        app.screenshot("productos-1024")
+        result["capturas"].append("productos-1024")
 
         app.resize(1366, 768)
         for section, name in [

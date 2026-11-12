@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, IpcError } from "../api";
 import type { Actor, CashRegister, CashMovementDraft, CashShift } from "../contracts";
+import { parseMinor } from "../lib/money";
+import { Modal } from "../components/Modal";
 
 interface Props {
   actor: Actor;
@@ -76,6 +78,8 @@ export function CashScreen({
     text: string;
   } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [closeReviewOpen, setCloseReviewOpen] = useState(false);
+  const [closeReviewError, setCloseReviewError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,6 +97,10 @@ export function CashScreen({
   }, [shift?.id]);
 
   const register = registers.find((item) => item.id === registerId) ?? null;
+  const countedMinor = parseMinor(countedAmount);
+  const expectedMinor = shift ? parseMinor(shift.expected_amount) : null;
+  const closeDifference =
+    countedMinor !== null && expectedMinor !== null ? countedMinor - expectedMinor : null;
 
   async function createRegister(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -154,11 +162,11 @@ export function CashScreen({
     }
   }
 
-  async function closeShift(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function closeShift() {
     if (!canClose || readOnly || !shift) return;
     setBusy(true);
     setError(null);
+    setCloseReviewError(null);
     try {
       const closed = await api.closeCashShift({
         shift_id: shift.id,
@@ -166,6 +174,7 @@ export function CashScreen({
       });
       setLastClosedState({ registerId, shift: closed });
       setCountedAmount("");
+      setCloseReviewOpen(false);
       setHistory(await api.listCashShiftHistory());
       setNotice({
         tone: closed.difference_minor === 0 ? "success" : "warning",
@@ -173,10 +182,25 @@ export function CashScreen({
       });
       onShiftChanged();
     } catch (cause) {
-      setError(cause instanceof IpcError ? cause.message : "No fue posible cerrar el turno.");
+      setCloseReviewError(
+        cause instanceof IpcError ? cause.message : "No fue posible cerrar el turno.",
+      );
     } finally {
       setBusy(false);
     }
+  }
+
+  /** El formulario sólo abre la revisión; el cierre se ejecuta en el diálogo. */
+  function openCloseReview(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canClose || readOnly || !shift) return;
+    setError(null);
+    if (parseMinor(countedAmount) === null) {
+      setError("Escribe un efectivo contado válido, por ejemplo 120.00.");
+      return;
+    }
+    setCloseReviewError(null);
+    setCloseReviewOpen(true);
   }
 
   return (
@@ -386,7 +410,7 @@ export function CashScreen({
               </div>
 
               {canClose && !readOnly && (
-                <form className="close-panel" onSubmit={closeShift} noValidate>
+                <form className="close-panel" onSubmit={openCloseReview} noValidate>
                   <div>
                     <h3>Cerrar turno</h3>
                     <p className="muted">
@@ -402,8 +426,12 @@ export function CashScreen({
                       required
                     />
                   </label>
-                  <button type="submit" className="button button-primary" disabled={busy || !countedAmount.trim()}>
-                    Cerrar turno
+                  <button
+                    type="submit"
+                    className="button button-quiet-danger"
+                    disabled={busy || !countedAmount.trim()}
+                  >
+                    Revisar cierre
                   </button>
                 </form>
               )}
@@ -510,6 +538,80 @@ export function CashScreen({
           )}
         </section>
       </div>
+
+      {closeReviewOpen && shift && (
+        <Modal
+          title="Cerrar turno"
+          subtitle="Revisa el arqueo antes de confirmar"
+          onClose={() => {
+            if (!busy) setCloseReviewOpen(false);
+          }}
+          footer={
+            <>
+              <button
+                type="button"
+                className="button"
+                onClick={() => setCloseReviewOpen(false)}
+                disabled={busy}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="button button-danger"
+                onClick={() => void closeShift()}
+                disabled={busy || closeDifference === null}
+              >
+                {busy ? "Cerrando…" : "Cerrar turno y registrar arqueo"}
+              </button>
+            </>
+          }
+        >
+          <dl className="receipt">
+            <div>
+              <dt>Caja</dt>
+              <dd>{register ? `${register.name} · ${register.code}` : registerId.slice(0, 8)}</dd>
+            </div>
+            <div>
+              <dt>Turno</dt>
+              <dd>Abierto {formatTimestamp(shift.opened_at)}</dd>
+            </div>
+            <div>
+              <dt>Fondo inicial</dt>
+              <dd className="mono">${shift.opening_amount}</dd>
+            </div>
+            <div>
+              <dt>Entradas</dt>
+              <dd className="mono">${shift.entry_total}</dd>
+            </div>
+            <div>
+              <dt>Salidas</dt>
+              <dd className="mono">${shift.exit_total}</dd>
+            </div>
+            <div>
+              <dt>Saldo esperado</dt>
+              <dd className="mono">${shift.expected_amount}</dd>
+            </div>
+            <div>
+              <dt>Efectivo contado</dt>
+              <dd className="mono">${countedAmount}</dd>
+            </div>
+            <div className="receipt-total">
+              <dt>Diferencia</dt>
+              <dd>{formatDifference(closeDifference)}</dd>
+            </div>
+          </dl>
+          <p className="alert alert-warning" role="status">
+            El turno se cerrará y el arqueo quedará registrado. Esta acción no se puede
+            deshacer.
+          </p>
+          {closeReviewError && (
+            <p className="alert alert-error" role="alert">
+              {closeReviewError}
+            </p>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }

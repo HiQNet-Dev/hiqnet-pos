@@ -214,9 +214,9 @@ export function CatalogScreen({
                 <caption className="visually-hidden">Productos registrados</caption>
                 <thead>
                   <tr>
-                    <th scope="col">SKU</th>
+                    <th scope="col" className="col-sku">SKU</th>
                     <th scope="col">Producto</th>
-                    <th scope="col">Categoría</th>
+                    <th scope="col" className="col-category">Categoría</th>
                     <th scope="col" className="align-end">
                       Precio neto
                     </th>
@@ -241,7 +241,7 @@ export function CatalogScreen({
                         }
                         onClick={() => setSelectedId(product.id)}
                       >
-                        <td className="mono">
+                        <td className="mono col-sku">
                           <button
                             type="button"
                             className="row-button"
@@ -252,7 +252,9 @@ export function CatalogScreen({
                           </button>
                         </td>
                         <td>{product.name}</td>
-                        <td className="muted">{category?.name ?? "Sin categoría"}</td>
+                        <td className="muted col-category">
+                          {category?.name ?? "Sin categoría"}
+                        </td>
                         <td className="align-end mono">${product.unit_price}</td>
                         <td className="align-end mono">
                           {(product.tax_rate_bp / 100).toFixed(2)}%

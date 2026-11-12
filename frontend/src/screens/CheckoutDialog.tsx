@@ -13,6 +13,7 @@ interface Props {
   pendingAttempt: PendingSaleAttempt | null;
   onPendingAttemptChange: (attempt: PendingSaleAttempt | null) => void;
   onClose: () => void;
+  onNewSale: () => void;
   onCompleted: (sale: SaleView) => void;
 }
 
@@ -56,6 +57,7 @@ export function CheckoutDialog({
   pendingAttempt,
   onPendingAttemptChange,
   onClose,
+  onNewSale,
   onCompleted,
 }: Props) {
   const totals = cartTotals(cart);
@@ -119,14 +121,21 @@ export function CheckoutDialog({
     if (attempt) await send(attempt);
   }
 
+  function handleClose() {
+    // Cerrar la confirmación de una venta completada deja el POS listo para la
+    // siguiente: el foco y los filtros los restablece SalesScreen.
+    if (sale) onNewSale();
+    onClose();
+  }
+
   if (sale) {
     return (
       <Modal
         title={`Venta ${sale.folio}`}
         subtitle="Venta confirmada por el sistema"
-        onClose={onClose}
+        onClose={handleClose}
         footer={
-          <button type="button" className="button button-primary" onClick={onClose}>
+          <button type="button" className="button button-primary" onClick={handleClose}>
             Nueva venta
           </button>
         }

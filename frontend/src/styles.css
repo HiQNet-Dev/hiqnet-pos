@@ -525,6 +525,97 @@ select {
   line-height: 1;
 }
 
+/* ---------- Avisos flotantes ---------- */
+
+.toast-region {
+  position: fixed;
+  left: calc(var(--sidenav-width) + var(--space-4));
+  right: auto;
+  bottom: calc(var(--space-4) + env(safe-area-inset-bottom));
+  z-index: 50;
+  width: min(400px, calc(100vw - var(--sidenav-width) - 32px));
+  display: grid;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 10px 10px 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-2);
+  pointer-events: auto;
+}
+
+.toast-success {
+  border-color: #b7e4c7;
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.toast-warning {
+  border-color: #f3d9a4;
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.toast-error {
+  border-color: #f3c1bc;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.toast-message {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-base);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.toast-action {
+  flex: none;
+  align-self: center;
+  background: var(--color-surface);
+  border-color: currentColor;
+  color: inherit;
+}
+
+.toast-dismiss {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  margin: -4px -4px -4px 0;
+  color: inherit;
+}
+
+@media (max-width: 1080px) {
+  .toast-region {
+    left: calc(var(--sidenav-width-rail) + var(--space-3));
+    width: min(400px, calc(100vw - var(--sidenav-width-rail) - 24px));
+  }
+}
+
+/* Un aviso de deshacer no tapa el aviso global de venta si ambos coexisten. */
+.toast-region-stacked {
+  bottom: calc(var(--space-4) + 72px + env(safe-area-inset-bottom));
+}
+
+@media (max-width: 960px) {
+  /* La barra de cobro ocupa el borde inferior en tablet. */
+  .toast-region {
+    bottom: calc(84px + env(safe-area-inset-bottom));
+  }
+
+  .toast-region-stacked {
+    bottom: calc(84px + 72px + env(safe-area-inset-bottom));
+  }
+}
+
 .screen-inline-alert {
   display: grid;
   gap: var(--space-2);
@@ -725,6 +816,14 @@ select {
 .button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* Un primario deshabilitado no debe parecer el CTA activo. */
+.button-primary:disabled {
+  background: var(--color-surface-muted);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-muted);
+  opacity: 1;
 }
 
 .button-primary {
@@ -1593,6 +1692,10 @@ select {
   color: var(--color-warning);
 }
 
+.ticket-hint-neutral {
+  color: var(--color-text-muted);
+}
+
 .sales-mobile-bar {
   display: none;
 }
@@ -1785,6 +1888,51 @@ select {
 
 .option-price-muted {
   font-size: var(--text-xs);
+}
+
+/* El precio final calculado por Rust domina sobre los importes netos. */
+.config-price-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+}
+
+.config-price-primary {
+  display: grid;
+  gap: 1px;
+  align-content: start;
+}
+
+.config-price-value {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.config-price-note {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.config-price-detail {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.config-price-pending {
+  color: var(--color-warning);
+}
+
+@media (max-width: 520px) {
+  .config-price-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .config-quantity {
@@ -2414,6 +2562,25 @@ select {
 
   .cash-layout {
     grid-template-columns: minmax(0, 1fr) 360px;
+  }
+}
+
+/* Entre 961 y 1120 px el detalle sigue al lado: se retiran SKU y categoría
+   para que el precio público nunca quede fuera del ancho visible. */
+@media (min-width: 961px) and (max-width: 1120px) {
+  .catalog-layout {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+
+  .catalog-layout .data-table .col-sku,
+  .catalog-layout .data-table .col-category {
+    display: none;
+  }
+
+  .catalog-layout .data-table th,
+  .catalog-layout .data-table td {
+    padding-left: 10px;
+    padding-right: 10px;
   }
 }
 
