@@ -279,7 +279,9 @@ Un solo dibujo de marca en todo el producto: cuadrado redondeado con el acento
   explícita. La cantidad no baja de 1; para quitar una partida se usa el botón de
   papelera y aparece un aviso flotante con «Deshacer» durante 7 s que restaura la
   partida exacta (producto, variante, opciones, cantidad y precio ya calculado).
-  “Vaciar” exige confirmación.
+  Si la misma configuración ya volvió al ticket, se fusiona con la existente en
+  lugar de duplicar la clave; abrir el cobro, completar la venta o vaciar el
+  ticket descarta el undo. “Vaciar” exige confirmación.
 - **Navegación**: el elemento activo usa `accent-soft` y `accent`; el contador
   del ticket se anuncia con singular o plural correcto. El nombre accesible de
   cada entrada es explícito (`aria-label`), de modo que no depende de qué

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleBackButton } from "../lib/backNavigation";
@@ -475,6 +475,128 @@ describe("SalesScreen", () => {
     expect(within(ticket).getByText("Shot extra")).toBeVisible();
     expect(within(ticket).getAllByText(/grande/i).length).toBeGreaterThan(0);
     expect(within(ticket).getAllByText("$46.40").length).toBeGreaterThan(0);
+  });
+
+  it("fusiona la partida restaurada si la misma configuración ya volvió al ticket", async () => {
+    api.listProductVariants.mockResolvedValue([variant]);
+    api.listModifierGroups.mockResolvedValue([group]);
+    api.listModifierOptions.mockResolvedValue([extra]);
+    api.configureProduct.mockResolvedValue({
+      ...configuration,
+      product_id: "p-2",
+      product_name: "Latte",
+      variant_id: "v-1",
+      variant_name: "Grande",
+      base_price: "18.00",
+      modifiers_total: "2.00",
+      tax: "3.20",
+      unit_price: "23.20",
+      selected_options: [
+        {
+          selected_option_id: "o-1",
+          name: "Shot extra",
+          kind: "extra",
+          price_delta: "2.00",
+        },
+      ],
+    });
+
+    render(<Harness shift={shift} products={[product, latte]} />);
+    const user = userEvent.setup();
+
+    // A: qty 2, se elimina.
+    await user.click(screen.getByRole("button", { name: /latte, lat-001/i }));
+    let dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("radio", { name: /shot extra/i }));
+    await user.click(within(dialog).getByRole("button", { name: /agregar al carrito/i }));
+    const ticket = screen.getByRole("complementary", { name: /ticket actual/i });
+    await user.click(within(ticket).getByRole("button", { name: /aumentar latte/i }));
+    await user.click(within(ticket).getByRole("button", { name: /quitar latte/i }));
+
+    // A vuelve a existir antes de pulsar Deshacer: qty 1.
+    await user.click(screen.getByRole("button", { name: /latte, lat-001/i }));
+    dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("radio", { name: /shot extra/i }));
+    await user.click(within(dialog).getByRole("button", { name: /agregar al carrito/i }));
+    expect(within(ticket).getByText(/1 × \$23\.20/)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: /^deshacer$/i }));
+
+    // La semántica normal del carrito fusiona: 1 + 2 = 3, sin claves duplicadas.
+    expect(within(ticket).getAllByRole("button", { name: /quitar latte/i })).toHaveLength(1);
+    expect(within(ticket).getByText(/3 × \$23\.20/)).toBeVisible();
+    expect(within(ticket).getAllByText("$69.60").length).toBeGreaterThan(0);
+  });
+
+  it("descarta el undo cuando expira el plazo", async () => {
+    const originalSetTimeout = window.setTimeout;
+    let scheduled: (() => void) | undefined;
+    let scheduledId: number | undefined;
+    const spy = vi.spyOn(window, "setTimeout").mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+    ) => {
+      const id = originalSetTimeout(handler, timeout);
+      if (timeout === 7_000) {
+        scheduled = handler as () => void;
+        scheduledId = id;
+      }
+      return id;
+    }) as unknown as typeof window.setTimeout);
+
+    try {
+      const user = userEvent.setup();
+      render(<Harness shift={shift} />);
+      await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+      await user.click(screen.getByRole("button", { name: /quitar café americano/i }));
+      expect(screen.getByText(/línea eliminada: café americano/i)).toBeVisible();
+      expect(scheduled).toBeDefined();
+
+      act(() => scheduled?.());
+      if (scheduledId !== undefined) window.clearTimeout(scheduledId);
+
+      expect(screen.queryByText(/línea eliminada: café americano/i)).not.toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("descarta el undo al abrir el cobro y no lo revive en la siguiente venta", async () => {
+    render(<Harness shift={shift} products={[product, latte]} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+    await user.click(screen.getByRole("button", { name: /quitar café americano/i }));
+    expect(screen.getByText(/línea eliminada: café americano/i)).toBeVisible();
+
+    // Otra partida mantiene el cobro disponible sin reutilizar el undo.
+    await user.click(screen.getByRole("button", { name: /latte, lat-001/i }));
+    await user.click(screen.getByRole("button", { name: /^cobrar \$/i }));
+    expect(screen.queryByText(/línea eliminada: café americano/i)).not.toBeInTheDocument();
+
+    const checkout = await screen.findByRole("dialog");
+    await user.click(within(checkout).getByRole("button", { name: /confirmar cobro/i }));
+    await within(checkout).findByText(/venta v-abc123/i);
+    await user.click(within(checkout).getByRole("button", { name: /nueva venta/i }));
+    expect(screen.queryByText(/línea eliminada: café americano/i)).not.toBeInTheDocument();
+  });
+
+  it("descarta el undo al vaciar el ticket", async () => {
+    render(<Harness shift={shift} products={[product, latte]} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /café americano, caf-001/i }));
+    await user.click(screen.getByRole("button", { name: /quitar café americano/i }));
+    expect(screen.getByText(/línea eliminada: café americano/i)).toBeVisible();
+
+    // latte sigue en el ticket, por eso “Vaciar” está disponible.
+    await user.click(screen.getByRole("button", { name: /latte, lat-001/i }));
+    expect(screen.getByRole("button", { name: /^vaciar$/i })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /^vaciar$/i }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: /^vaciar ticket$/i }),
+    );
+
+    expect(screen.queryByText(/línea eliminada: café americano/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/sin artículos/i)).toBeVisible();
   });
 
   it("muestra el precio final y el total de la línea antes de agregar", async () => {

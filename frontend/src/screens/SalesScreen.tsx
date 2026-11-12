@@ -245,12 +245,16 @@ export function SalesScreen({
     }, 7_000);
   }
 
-  /** Restaura la partida exacta; no vuelve a calcular precios ni configuración. */
+  /** Restaura la partida exacta; si la misma configuración ya volvió, fusiona. */
   function restoreRemovedLine() {
     if (!undo) return;
-    const next = [...cart];
-    next.splice(Math.min(undo.index, next.length), 0, undo.line);
-    onCartChange(next);
+    if (cart.some((line) => line.key === undo.line.key)) {
+      onCartChange(mergeLine(cart, undo.line));
+    } else {
+      const next = [...cart];
+      next.splice(Math.min(undo.index, next.length), 0, undo.line);
+      onCartChange(next);
+    }
     dismissUndo();
   }
 
@@ -644,6 +648,7 @@ export function SalesScreen({
                 className="button button-danger"
                 onClick={() => {
                   if (!checkoutLocked) onCartChange([]);
+                  dismissUndo();
                   setClearOpen(false);
                 }}
               >
