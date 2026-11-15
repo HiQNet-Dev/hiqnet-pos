@@ -17,7 +17,7 @@ const OUT_DIR = path.resolve(
   ".devkit",
   "artifacts",
   "design-review",
-  "after",
+  process.env.VISUAL_REVIEW_STAGE === "before" ? "before" : "after",
 );
 
 const actor = {
@@ -238,7 +238,19 @@ async function mockAdminBridge(page: Page) {
       auditEvents,
       shift,
       stockMovements,
-    }) => {
+      }) => {
+      const selectedScenario = () => localStorage.getItem("hiqnet.visual-admin-scenario") ?? "populated";
+      const scenarioData = () => {
+        switch (selectedScenario()) {
+          case "empty":
+            return { expenseCategories: [], expenses: [], shift: null, auditEvents: [] };
+          case "no-shift":
+            return { expenseCategories, expenses, shift: null, auditEvents };
+          default:
+            return { expenseCategories, expenses, shift, auditEvents };
+        }
+      };
+
       const responses: Record<string, unknown> = {
         app_status: {
           initialized: true,
@@ -269,8 +281,6 @@ async function mockAdminBridge(page: Page) {
             difference_minor: -20,
           },
         ],
-        active_cash_shift: shift,
-        list_audit_events: auditEvents,
         platform_enrollment_status: {
           status: "none",
           user_code: null,
@@ -284,8 +294,6 @@ async function mockAdminBridge(page: Page) {
         reports_summary: reports,
         list_suppliers: suppliers,
         list_purchase_orders: purchaseOrders,
-        list_expense_categories: expenseCategories,
-        list_expenses: expenses,
         list_sale_returns: saleReturns,
         list_users: users,
         current_stock: "1840.000",
@@ -306,6 +314,11 @@ async function mockAdminBridge(page: Page) {
         __TAURI_INTERNALS__: {
           invoke: (command: string, args?: Record<string, unknown>) => {
             const request = args ?? {};
+            const scenario = scenarioData();
+            if (command === "active_cash_shift") return Promise.resolve(scenario.shift);
+            if (command === "list_audit_events") return Promise.resolve(scenario.auditEvents);
+            if (command === "list_expense_categories") return Promise.resolve(scenario.expenseCategories);
+            if (command === "list_expenses") return Promise.resolve(scenario.expenses);
             if (command === "configure_product") {
               const draft = request.draft as { product_id?: string } | undefined;
               const product =
@@ -392,63 +405,112 @@ test.describe("capturas de pantallas administrativas", () => {
     await mkdir(OUT_DIR, { recursive: true });
   });
 
-  test("reportes, compras, gastos, devoluciones y gestión", async ({ page }) => {
-    test.setTimeout(180_000);
+  test("UI-R2A · gastos y gestión en estados operativos", async ({ page }) => {
+    test.setTimeout(300_000);
     const consoleErrors: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error") consoleErrors.push(message.text());
     });
 
-    await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await mockAdminBridge(page);
     await login(page);
 
     const nav = page.getByRole("navigation", { name: "Navegación principal" });
 
-    await nav.getByRole("button", { name: "Reportes" }).click();
-    await expect(page.getByRole("region", { name: "Reporte de ventas" })).toBeVisible();
-    await shot(page, "31-reportes-1440");
-    await expectNoHorizontalOverflow(page);
+    async function selectScenario(name: "empty" | "populated" | "no-shift") {
+      await page.evaluate((scenario) => localStorage.setItem("hiqnet.visual-admin-scenario", scenario), name);
+    }
 
-    await nav.getByRole("button", { name: "Compras" }).click();
-    await expect(page.getByRole("heading", { name: "Compras" })).toBeVisible();
-    await shot(page, "32-compras-1440");
-    await expectNoHorizontalOverflow(page);
+    async function openScreen(name: "Gastos" | "Gestión") {
+      // Fuerza un nuevo montaje para que cada estado consulte las fixtures del escenario.
+      await nav.getByRole("button", { name: name === "Gastos" ? "Ventas" : "Gastos" }).click();
+      await nav.getByRole("button", { name }).click();
+      await expect(page.getByRole("heading", { name: name === "Gastos" ? "Gastos" : "Gestión y auditoría" })).toBeVisible();
+    }
 
-    await nav.getByRole("button", { name: "Productos" }).click();
-    await page.getByRole("cell", { name: "CAF-001" }).click();
-    await shot(page, "33-productos-1440");
-    await expectNoHorizontalOverflow(page);
+    async function inspectLayout() {
+      await expectNoHorizontalOverflow(page);
+      const layout = await page.evaluate(() => {
+        const controls = [...document.querySelectorAll<HTMLElement>(".screen input, .screen select, .screen button")];
+        return controls.map((control) => {
+          const box = control.getBoundingClientRect();
+          const surface = control.closest<HTMLElement>(".surface");
+          const parent = surface?.getBoundingClientRect();
+          return {
+            visible: box.width > 0 && box.height > 0,
+            insideSurface: !parent || (
+              box.left >= parent.left - 1 &&
+              box.right <= parent.right + 1 &&
+              box.top >= parent.top - 1 &&
+              box.bottom <= parent.bottom + 1
+            ),
+            fontSize: getComputedStyle(control).fontSize,
+          };
+        });
+      });
+      expect(layout.every((control) => !control.visible || control.insideSurface)).toBe(true);
+      expect(layout.every((control) => !control.visible || Number.parseFloat(control.fontSize) >= 12)).toBe(true);
+    }
 
-    await page.setViewportSize({ width: 1024, height: 700 });
+    const viewports = [
+      { width: 1920, height: 1080, label: "1920x1080" },
+      { width: 1440, height: 900, label: "1440x900" },
+      { width: 1366, height: 768, label: "1366x768" },
+      { width: 1280, height: 800, label: "1280x800" },
+      { width: 1024, height: 768, label: "1024x768" },
+    ];
 
-    await nav.getByRole("button", { name: "Reportes" }).click();
-    await expect(page.getByRole("region", { name: "Reporte de ventas" })).toBeVisible();
-    await shot(page, "34-reportes-1024x700");
-    await expectNoHorizontalOverflow(page);
+    const expenseStates = [
+      { scenario: "empty" as const, label: "vacio" },
+      { scenario: "populated" as const, label: "con-categorias-y-gastos" },
+      { scenario: "populated" as const, label: "formulario-con-turno" },
+      { scenario: "no-shift" as const, label: "formulario-sin-turno" },
+    ];
 
-    await nav.getByRole("button", { name: "Gastos" }).click();
-    await shot(page, "35-gastos-1024x700");
-    await expectNoHorizontalOverflow(page);
+    for (const state of expenseStates) {
+      await selectScenario(state.scenario);
+      await openScreen("Gastos");
+      if (state.label === "formulario-con-turno") {
+        await page.getByLabel(/Pagar desde caja/i).check();
+      }
+      for (const viewport of viewports) {
+        await page.setViewportSize(viewport);
+        await inspectLayout();
+        await shot(page, `r2a-gastos-${state.label}-${viewport.label}`);
+      }
+    }
 
-    await nav.getByRole("button", { name: "Devoluciones" }).click();
-    await shot(page, "36-devoluciones-1024x700");
-    await expectNoHorizontalOverflow(page);
+    const adminStates = [
+      { scenario: "empty" as const, label: "top" },
+      { scenario: "populated" as const, label: "estado-respaldo" },
+      { scenario: "populated" as const, label: "eventos" },
+    ];
 
-    await nav.getByRole("button", { name: "Gestión" }).click();
-    await shot(page, "37-gestion-1024x700");
-    await expectNoHorizontalOverflow(page);
+    for (const state of adminStates) {
+      await selectScenario(state.scenario);
+      await openScreen("Gestión");
+      if (state.label === "estado-respaldo") {
+        await page.getByRole("heading", { name: "Estado comercial" }).scrollIntoViewIfNeeded();
+      }
+      if (state.label === "eventos") {
+        await page.getByRole("heading", { name: "Últimos eventos" }).scrollIntoViewIfNeeded();
+      }
+      for (const viewport of viewports) {
+        await page.setViewportSize(viewport);
+        await inspectLayout();
+        await shot(page, `r2a-gestion-${state.label}-${viewport.label}`);
+      }
+    }
 
-    await page.setViewportSize({ width: 768, height: 1024 });
-
-    await nav.getByRole("button", { name: "Reportes" }).click();
-    await shot(page, "38-reportes-768");
-    await expectNoHorizontalOverflow(page);
-
-    await nav.getByRole("button", { name: "Gestión" }).click();
-    await shot(page, "39-gestion-768");
-    await expectNoHorizontalOverflow(page);
+    if (process.env.VISUAL_REVIEW_STAGE !== "before") {
+      await selectScenario("empty");
+      await openScreen("Gastos");
+      expect(page.locator(".compact-list")).toHaveCount(0);
+      await expect(page.getByText("Crea una categoría para poder clasificar los gastos.")).toBeVisible();
+      await page.keyboard.press("Tab");
+      await expect(page.locator(":focus")).toBeVisible();
+    }
 
     expect(consoleErrors).toEqual([]);
   });
