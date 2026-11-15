@@ -42,6 +42,20 @@ pub fn license_verifier() -> Option<pos_application::SharedLicenseVerifier> {
     }
 }
 
+/// Añade el verificador de licencias al servicio. Sin clave pública avisa y
+/// deja el servicio sin verificador: toda licencia firmada se rechazará.
+pub fn with_license_verifier(service: PosService) -> PosService {
+    match license_verifier() {
+        Some(verifier) => service.with_license_verifier(verifier),
+        None => {
+            tracing::warn!(
+                "sin clave publica de licencias: cualquier licencia firmada se rechazara"
+            );
+            service
+        }
+    }
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub async fn install_license(
     state: State<'_, AppState>,

@@ -21,8 +21,8 @@ use pos_licensing::DeviceIdentity;
 #[tokio::test]
 #[ignore = "requiere Platform local, producto y owner aprobados"]
 async fn enrolamiento_real_begin_approve_proof() {
-    let base = std::env::var("HIQNET_PLATFORM_E2E_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8080".into());
+    let base =
+        std::env::var("HIQNET_PLATFORM_E2E_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".into());
     let email = std::env::var("HIQNET_PLATFORM_E2E_EMAIL").expect("email de owner");
     let password = std::env::var("HIQNET_PLATFORM_E2E_PASSWORD").expect("contraseña de owner");
     let organization_id: OrganizationId = std::env::var("HIQNET_PLATFORM_E2E_ORG")
@@ -38,7 +38,10 @@ async fn enrolamiento_real_begin_approve_proof() {
         .send()
         .await
         .expect("login comercial");
-    assert!(login.status().is_success(), "credenciales sintéticas válidas");
+    assert!(
+        login.status().is_success(),
+        "credenciales sintéticas válidas"
+    );
     let cookie = login
         .headers()
         .get_all("set-cookie")

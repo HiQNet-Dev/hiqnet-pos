@@ -952,46 +952,10 @@ pub fn run() {
             let hasher: SharedHasher = Arc::new(Argon2idHasher::new());
             let clock: SharedClock = Arc::new(SystemClock);
             let service = PosService::new(store, hasher, clock);
-            let service = match licensing::license_verifier() {
-                Some(verifier) => service.with_license_verifier(verifier),
-                None => {
-                    tracing::warn!(
-                        "sin clave publica de licencias: cualquier licencia firmada se rechazara"
-                    );
-                    service
-                }
-            };
+            let service = licensing::with_license_verifier(service);
             // El enrolamiento es opcional: sin URL configurada la app sigue
             // operando 100 % offline y los comandos fallan con un error claro.
-            let service = match std::env::var("HIQNET_PLATFORM_URL") {
-                Ok(value) if !value.trim().is_empty() => {
-                    match (
-                        pos_application::normalize_platform_url(&value),
-                        platform_enrollment::load_or_create_identity(&db_path),
-                    ) {
-                        (Ok(url), Ok(identity)) => match platform_enrollment::HttpPlatformEnrollment::new(url.clone()) {
-                            Ok(client) => service.with_platform_enrollment(
-                                Arc::new(identity),
-                                Arc::new(client),
-                                url,
-                            ),
-                            Err(error) => {
-                                tracing::warn!(%error, "cliente de enrolamiento no disponible");
-                                service
-                            }
-                        },
-                        (Err(_), _) => {
-                            tracing::warn!("HIQNET_PLATFORM_URL invalida: enrolamiento deshabilitado");
-                            service
-                        }
-                        (_, Err(error)) => {
-                            tracing::warn!(%error, "identidad de dispositivo no disponible: enrolamiento deshabilitado");
-                            service
-                        }
-                    }
-                }
-                _ => service,
-            };
+            let service = platform_enrollment::with_platform_enrollment(service, &db_path);
 
             app.manage(AppState {
                 db_path,

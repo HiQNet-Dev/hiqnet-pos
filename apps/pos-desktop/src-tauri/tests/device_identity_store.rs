@@ -11,7 +11,10 @@ fn crea_la_clave_con_permisos_privados_y_la_reutiliza() {
         .expect("identidad creada");
     let path = pos_storage_sqlite::device_identity_path(&database);
     let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-    assert_eq!(mode, 0o600, "la clave privada no debe ser legible por otros");
+    assert_eq!(
+        mode, 0o600,
+        "la clave privada no debe ser legible por otros"
+    );
 
     let second = pos_desktop_lib::platform_enrollment::load_or_create_identity(&database)
         .expect("identidad reutilizada");

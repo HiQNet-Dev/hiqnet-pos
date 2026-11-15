@@ -8,8 +8,7 @@ fn scratch_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("reloj de prueba")
         .as_nanos();
-    let directory =
-        std::env::temp_dir().join(format!("hiqnet-cli-{}-{stamp}", std::process::id()));
+    let directory = std::env::temp_dir().join(format!("hiqnet-cli-{}-{stamp}", std::process::id()));
     std::fs::create_dir(&directory).expect("crear directorio de prueba");
     directory
 }
@@ -52,10 +51,9 @@ fn cli_restore_falla_cerrado_sin_base_verificable_y_no_toca_archivos() {
 #[test]
 fn cli_verify_backup_sigue_disponible_sin_base_instalada() {
     let directory = scratch_dir();
-    let pool = tauri::async_runtime::block_on(pos_storage_sqlite::open(
-        &directory.join("verificable.db"),
-    ))
-    .expect("SQLite temporal verificable");
+    let pool =
+        tauri::async_runtime::block_on(pos_storage_sqlite::open(&directory.join("verificable.db")))
+            .expect("SQLite temporal verificable");
     tauri::async_runtime::block_on(pool.close());
 
     let verify = Command::new(env!("CARGO_BIN_EXE_pos-desktop"))

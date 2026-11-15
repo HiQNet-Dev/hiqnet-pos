@@ -5,26 +5,18 @@ import {
   type Actor,
   type AuditEvent,
   type PublicCommercialState,
-  type PlatformEnrollment,
   type RestorePreview,
   type User,
 } from "../contracts";
 import { Modal } from "../components/Modal";
+import { formatDate } from "../lib/formatDate";
+import { PlatformEnrollmentPanel } from "./admin/PlatformEnrollmentPanel";
 
 interface Props {
   actor: Actor;
   commercial: PublicCommercialState | null;
   readOnly: boolean;
   onCommercialChanged?: () => Promise<void>;
-}
-
-function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("es-MX", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
 }
 
 function messageOf(cause: unknown, fallback: string): string {
@@ -117,8 +109,6 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
   const [licenseBusy, setLicenseBusy] = useState(false);
   const [licenseNotice, setLicenseNotice] = useState<string | null>(null);
   const [installationId, setInstallationId] = useState<string | null>(null);
-  const [enrollment, setEnrollment] = useState<PlatformEnrollment | null>(null);
-  const [enrollmentBusy, setEnrollmentBusy] = useState(false);
 
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<User | null>(null);
@@ -209,44 +199,8 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
     await loadAudit();
   }
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!canActivateLicense) return;
-    api
-      .platformEnrollmentStatus()
-      .then((view) => {
-        if (!cancelled) setEnrollment(view);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [canActivateLicense]);
-
-  async function beginEnrollment() {
-    if (enrollmentBusy) return;
-    setEnrollmentBusy(true);
-    setError(null);
-    try {
-      setEnrollment(await api.beginPlatformEnrollment());
-    } catch (cause) {
-      setError(messageOf(cause, "No fue posible iniciar la vinculación con Platform."));
-    } finally {
-      setEnrollmentBusy(false);
-    }
-  }
-
-  async function completeEnrollment() {
-    if (enrollmentBusy) return;
-    setEnrollmentBusy(true);
-    setError(null);
-    try {
-      setEnrollment(await api.completePlatformEnrollment());
-    } catch (cause) {
-      setError(messageOf(cause, "La vinculación aún no está aprobada o el código venció."));
-    } finally {
-      setEnrollmentBusy(false);
-    }
+  function reportError(cause: unknown, fallback: string) {
+    setError(messageOf(cause, fallback));
   }
 
   async function activateLicense() {
@@ -513,67 +467,7 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
                   </ul>
                 )}
               </div>
-              {canActivateLicense && (
-                <div className="license-activation">
-                  <p className="section-label">Vincular con HiQNet Platform</p>
-                  <p className="muted">
-                    Genera un código, apruébalo en el Portal con la cuenta propietaria y
-                    completa la vinculación. Solo se comparte la clave pública del equipo.
-                  </p>
-                  {enrollment?.status === "completed" ? (
-                    <p className="muted" role="status">
-                      Equipo vinculado con la organización comercial{" "}
-                      {enrollment.organization_id}.
-                    </p>
-                  ) : enrollment?.status === "pending" ? (
-                    <>
-                      <dl className="metric-grid">
-                        <div>
-                          <dt>Código para el Portal</dt>
-                          <dd className="metric-text">{enrollment.user_code}</dd>
-                        </div>
-                        <div>
-                          <dt>Vence</dt>
-                          <dd>{enrollment.expires_at ? formatDate(enrollment.expires_at) : "—"}</dd>
-                        </div>
-                      </dl>
-                      <p className="muted">
-                        Abre {enrollment.verification_uri} e introduce el código desde la
-                        cuenta propietaria de la organización.
-                      </p>
-                      <div className="row-actions">
-                        <button
-                          type="button"
-                          className="button button-primary"
-                          onClick={() => void completeEnrollment()}
-                          disabled={enrollmentBusy}
-                        >
-                          {enrollmentBusy ? "Verificando…" : "Ya está aprobado, completar"}
-                        </button>
-                        <button
-                          type="button"
-                          className="button"
-                          onClick={() => void beginEnrollment()}
-                          disabled={enrollmentBusy}
-                        >
-                          Generar nuevo código
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="row-actions">
-                      <button
-                        type="button"
-                        className="button"
-                        onClick={() => void beginEnrollment()}
-                        disabled={enrollmentBusy}
-                      >
-                        {enrollmentBusy ? "Generando…" : "Generar código de vinculación"}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
+              {canActivateLicense && <PlatformEnrollmentPanel onError={reportError} />}
               {canActivateLicense && (
                 <div className="license-activation">
                   <p className="section-label">Activar licencia</p>

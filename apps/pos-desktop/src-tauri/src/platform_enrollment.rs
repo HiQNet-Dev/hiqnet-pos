@@ -111,10 +111,7 @@ fn status_error(status: reqwest::StatusCode) -> AppError {
 
 #[async_trait::async_trait]
 impl PlatformEnrollmentClient for HttpPlatformEnrollment {
-    async fn begin(
-        &self,
-        request: BeginPlatformEnrollment,
-    ) -> AppResult<PlatformChallenge> {
+    async fn begin(&self, request: BeginPlatformEnrollment) -> AppResult<PlatformChallenge> {
         let response = self
             .client
             .post(format!("{}/api/v1/enrollment-requests", self.base_url))
@@ -182,6 +179,41 @@ impl PlatformEnrollmentClient for HttpPlatformEnrollment {
                 .map_err(|_| AppError::EnrollmentUnavailable)?,
             bound_at: body.bound_at,
         })
+    }
+}
+
+/// Configura el cliente de enrolamiento si `HIQNET_PLATFORM_URL` está definida.
+///
+/// Sin URL la app sigue operando 100 % offline y los comandos de enrolamiento
+/// responden con un error claro. Una configuración inválida degrada a offline
+/// en lugar de impedir el arranque.
+pub fn with_platform_enrollment(service: PosService, database_path: &Path) -> PosService {
+    let Ok(value) = std::env::var("HIQNET_PLATFORM_URL") else {
+        return service;
+    };
+    if value.trim().is_empty() {
+        return service;
+    }
+    let (url, identity) = match (
+        pos_application::normalize_platform_url(&value),
+        load_or_create_identity(database_path),
+    ) {
+        (Ok(url), Ok(identity)) => (url, identity),
+        (Err(_), _) => {
+            tracing::warn!("HIQNET_PLATFORM_URL invalida: enrolamiento deshabilitado");
+            return service;
+        }
+        (_, Err(error)) => {
+            tracing::warn!(%error, "identidad de dispositivo no disponible: enrolamiento deshabilitado");
+            return service;
+        }
+    };
+    match HttpPlatformEnrollment::new(url.clone()) {
+        Ok(client) => service.with_platform_enrollment(Arc::new(identity), Arc::new(client), url),
+        Err(error) => {
+            tracing::warn!(%error, "cliente de enrolamiento no disponible");
+            service
+        }
     }
 }
 

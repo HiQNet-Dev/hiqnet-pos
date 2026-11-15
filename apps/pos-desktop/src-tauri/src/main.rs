@@ -61,9 +61,8 @@ fn run_backup_cli(args: &[String]) -> ! {
         }
     };
 
-    let result = tauri::async_runtime::block_on(pos_storage_sqlite::restore_cli_backup(
-        &database, &backup,
-    ));
+    let result =
+        tauri::async_runtime::block_on(pos_storage_sqlite::restore_cli_backup(&database, &backup));
     report(result, Some(&database));
 }
 
