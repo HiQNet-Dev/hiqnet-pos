@@ -136,6 +136,7 @@ export default function App() {
         commercial={status.commercial}
         productVersion={status.product_version}
         onLogout={() => void handleLogout()}
+        onCommercialChanged={refreshStatus}
       />
     );
   }

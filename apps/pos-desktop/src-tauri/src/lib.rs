@@ -27,6 +27,7 @@ use pos_security::Argon2idHasher;
 use pos_storage_sqlite::SqliteStore;
 use serde::Serialize;
 mod licensing;
+pub mod platform_enrollment;
 
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_saf_document::{ExportRequest, ImportRequest, SafDocumentExt};
@@ -644,7 +645,8 @@ async fn list_audit_events(
 
 #[tauri::command(rename_all = "snake_case")]
 async fn commercial_state(state: State<'_, AppState>) -> IpcResult<CommercialStateView> {
-    Ok(state.service.commercial_state().await?)
+    let actor = authenticated(&state).await?;
+    Ok(state.service.commercial_state(&actor).await?)
 }
 
 /// Crea un respaldo consistente de la base local y lo registra en auditoría.
@@ -950,15 +952,10 @@ pub fn run() {
             let hasher: SharedHasher = Arc::new(Argon2idHasher::new());
             let clock: SharedClock = Arc::new(SystemClock);
             let service = PosService::new(store, hasher, clock);
-            let service = match licensing::license_verifier() {
-                Some(verifier) => service.with_license_verifier(verifier),
-                None => {
-                    tracing::warn!(
-                        "sin clave publica de licencias: cualquier licencia firmada se rechazara"
-                    );
-                    service
-                }
-            };
+            let service = licensing::with_license_verifier(service);
+            // El enrolamiento es opcional: sin URL configurada la app sigue
+            // operando 100 % offline y los comandos fallan con un error claro.
+            let service = platform_enrollment::with_platform_enrollment(service, &db_path);
 
             app.manage(AppState {
                 db_path,
@@ -1030,6 +1027,9 @@ pub fn run() {
             list_inventory_movements,
             list_audit_events,
             commercial_state,
+            platform_enrollment::platform_enrollment_status,
+            platform_enrollment::begin_platform_enrollment,
+            platform_enrollment::complete_platform_enrollment,
             backup_database,
             saf_backup_available,
             export_saf_backup,

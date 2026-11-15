@@ -18,6 +18,14 @@ pub(super) struct PendingRestore {
     pub(super) installation_id: String,
     pub(super) organization_id: String,
     pub(super) preserved_commercial: InstallationRecord,
+    /// La UI importa una copia privada y puede eliminarla; la CLI recibe una
+    /// ruta del operador y nunca debe borrar su archivo fuente.
+    #[serde(default = "remove_imported_backup")]
+    pub(super) remove_backup_after_restore: bool,
+}
+
+fn remove_imported_backup() -> bool {
+    true
 }
 
 /// Crea el marcador solamente después de que la UI confirma explícitamente la
@@ -32,13 +40,62 @@ pub async fn schedule_pending_restore(
     validate_restore_policy(&current, &backup)?;
     let pending = PendingRestore {
         version: 1,
-        backup_path: backup_path.to_path_buf(),
+        backup_path: absolute_backup_path(backup_path)?,
         backup_sha256: sha256_file(backup_path)?,
         installation_id: current.installation_id.clone(),
         organization_id: current.organization_id.clone(),
         preserved_commercial: current,
+        remove_backup_after_restore: true,
     };
     write_pending_restore(database_path, &pending)
+}
+
+/// Resuelve la ruta del respaldo a absoluta antes de guardarla. La reanudación
+/// tras una caída ocurre en otro arranque, posiblemente con otro directorio de
+/// trabajo; una ruta relativa dejaría el marcador irrecuperable.
+fn absolute_backup_path(path: &Path) -> Result<PathBuf, StorageError> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|_| StorageError::Restore)?
+            .join(path)
+    };
+    Ok(absolute)
+}
+
+/// Restauración offline ordinaria desde la CLI: exige una instalación vigente
+/// verificable y no consume el respaldo del operador. El bloqueo del proceso se
+/// mantiene desde la validación hasta la reposición del estado comercial.
+pub async fn restore_cli_backup(
+    database_path: &Path,
+    backup_path: &Path,
+) -> Result<(), StorageError> {
+    let process_lock = try_lock(database_path)?;
+    if pending_restore_path(database_path).exists() {
+        return Err(StorageError::PendingRestore);
+    }
+    // Una base ausente o corrupta no permite verificar identidad ni derechos:
+    // se rechaza en lugar de improvisar una recuperación sin política.
+    verify_backup(database_path)
+        .await
+        .map_err(|_| StorageError::Restore)?;
+    let current = read_current_installation(database_path).await?;
+    let backup = read_backup_installation(backup_path).await?;
+    validate_restore_policy(&current, &backup)?;
+    let pending = PendingRestore {
+        version: 1,
+        backup_path: absolute_backup_path(backup_path)?,
+        backup_sha256: sha256_file(backup_path)?,
+        installation_id: current.installation_id.clone(),
+        organization_id: current.organization_id.clone(),
+        preserved_commercial: current,
+        remove_backup_after_restore: false,
+    };
+    write_pending_restore(database_path, &pending)?;
+    consume_pending_restore_locked(database_path, &process_lock)
+        .await
+        .map(|_| ())
 }
 
 /// Ejecuta una restauración que fue confirmada previamente y quedó marcada en
@@ -51,6 +108,14 @@ pub async fn schedule_pending_restore(
 pub async fn consume_pending_restore(
     database_path: &Path,
 ) -> Result<PendingRestoreOutcome, StorageError> {
+    let process_lock = try_lock(database_path)?;
+    consume_pending_restore_locked(database_path, &process_lock).await
+}
+
+async fn consume_pending_restore_locked(
+    database_path: &Path,
+    process_lock: &DatabaseLock,
+) -> Result<PendingRestoreOutcome, StorageError> {
     let path = pending_restore_path(database_path);
     if !path.is_file() {
         return Ok(PendingRestoreOutcome::None);
@@ -59,12 +124,14 @@ pub async fn consume_pending_restore(
     let pending: PendingRestore =
         serde_json::from_slice(&bytes).map_err(|_| StorageError::PendingRestore)?;
     if pending.version != 1
+        || !pending.backup_path.is_absolute()
         || sha256_file(&pending.backup_path)? != pending.backup_sha256
         || !pending.backup_path.is_file()
     {
         return Err(StorageError::PendingRestore);
     }
 
+    // Una sola exclusión durante validación, promoción y reposición comercial.
     let current = read_current_installation(database_path).await?;
     // Solo la identidad debe permanecer: tras una interrupción entre la
     // promoción y la reposición del estado comercial, la base ya contiene el
@@ -78,14 +145,24 @@ pub async fn consume_pending_restore(
     let backup = read_backup_installation(&pending.backup_path).await?;
     validate_restore_policy(&current, &backup)?;
 
-    let report = restore_from_backup(database_path, &pending.backup_path).await?;
-    if let Err(error) =
-        restore_preserved_commercial(database_path, &pending.preserved_commercial).await
+    // Ambas etapas son idempotentes: si el proceso cayó entre la promoción y la
+    // reposición, repetir el mismo respaldo y el mismo estado comercial es
+    // seguro. No se infiere la etapa comparando registros.
+    let report =
+        restore_from_backup_locked(database_path, &pending.backup_path, process_lock).await?;
+    if let Err(error) = restore_preserved_commercial_locked(
+        database_path,
+        &pending.preserved_commercial,
+        process_lock,
+    )
+    .await
     {
         // La restauración ya promovida no es válida si no se puede restablecer el
         // estado comercial anterior. Se intenta volver a la copia automática.
         if let Some(recovery) = report.recovery_copy
-            && restore_from_backup(database_path, &recovery).await.is_err()
+            && restore_from_backup_locked(database_path, &recovery, process_lock)
+                .await
+                .is_err()
         {
             return Err(StorageError::RestoreCritical {
                 database: database_path.display().to_string(),
@@ -100,7 +177,9 @@ pub async fn consume_pending_restore(
     // vigente volvió a quedar intacto. El archivo importado también se elimina:
     // era una copia privada del respaldo, no un artefacto permanente.
     std::fs::remove_file(&path).map_err(|_| StorageError::Restore)?;
-    let _ = std::fs::remove_file(&pending.backup_path);
+    if pending.remove_backup_after_restore {
+        let _ = std::fs::remove_file(&pending.backup_path);
+    }
     Ok(PendingRestoreOutcome::Restored)
 }
 

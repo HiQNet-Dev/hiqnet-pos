@@ -1,6 +1,6 @@
 use pos_storage_sqlite::{
     PendingRestoreOutcome, StorageError, backup_to, consume_pending_restore, open,
-    preview_restore_candidate, schedule_pending_restore,
+    preview_restore_candidate, restore_cli_backup, schedule_pending_restore,
 };
 
 const TS: &str = "2026-01-01T00:00:00Z";
@@ -284,6 +284,46 @@ async fn un_trial_vencido_no_se_revive_con_un_respaldo_anterior() {
 }
 
 #[tokio::test]
+async fn preserva_la_marca_de_licencia_al_restaurar_sin_grant() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("hiqnet-pos.db");
+    let backup = directory.path().join("respaldo.db");
+    let pool = open(&database).await.unwrap();
+    seed_installation(
+        &pool,
+        "install-1",
+        "org-1",
+        "2026-12-01T00:00:00Z",
+        None,
+        None,
+    )
+    .await;
+    backup_to(&pool, &backup).await.unwrap();
+    sqlx::query(
+        "UPDATE local_installation_state SET license_installed_at = '2026-02-01T00:00:00Z', \
+         license_status = 'read_only', valid_until = '2025-01-01T00:00:00Z' WHERE id = 1",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+
+    schedule_pending_restore(&database, &backup).await.unwrap();
+    consume_pending_restore(&database).await.unwrap();
+
+    let pool = open(&database).await.unwrap();
+    let (installed_at, status): (Option<String>, String) = sqlx::query_as(
+        "SELECT license_installed_at, license_status FROM local_installation_state WHERE id = 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+    assert_eq!(installed_at.as_deref(), Some("2026-02-01T00:00:00Z"));
+    assert_eq!(status, "read_only", "no se reactiva el trial sin grant");
+}
+
+#[tokio::test]
 async fn reanuda_si_muere_despues_de_reponer_el_estado_comercial() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("hiqnet-pos.db");
@@ -422,4 +462,108 @@ async fn archivo_modificado_despues_de_confirmar_no_toca_la_base() {
         2,
         "la base vigente permanece intacta"
     );
+}
+
+#[tokio::test]
+async fn politica_pendiente_rechaza_vinculo_comercial_sin_verificador() {
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("actual.db");
+    let backup = dir.path().join("respaldo.db");
+    let pool = open(&database).await.unwrap();
+    seed_installation(&pool, "install-1", "org-1", TS, None, None).await;
+    backup_to(&pool, &backup).await.unwrap();
+    sqlx::query(
+        "INSERT INTO commercial_binding \
+         (id, installation_id, organization_id, proof_source, proof_json, proof_signature_b64, bound_at) \
+         VALUES (1, 'install-1', 'org-2', 'signed_license_grant_v1', '{}', 'firma', ?)",
+    )
+    .bind(TS)
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+    assert!(matches!(
+        preview_restore_candidate(&database, &backup).await,
+        Err(StorageError::RestoreLicensePolicy)
+    ));
+}
+
+#[tokio::test]
+async fn cli_restaura_datos_conserva_respaldo_y_estado_comercial() {
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("actual.db");
+    let backup = dir.path().join("respaldo.db");
+    let pool = open(&database).await.unwrap();
+    seed_installation(&pool, "install-1", "org-1", TS, None, None).await;
+    seed_product(&pool, "antes").await;
+    backup_to(&pool, &backup).await.unwrap();
+    seed_product(&pool, "despues").await;
+    // Un trial vencido posterior no debe revivir al restaurar un snapshot previo.
+    sqlx::query(
+        "UPDATE local_installation_state SET license_status = 'read_only', \
+         valid_until = '2025-01-01T00:00:00Z' WHERE id = 1",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+
+    restore_cli_backup(&database, &backup).await.unwrap();
+
+    assert!(
+        backup.is_file(),
+        "la CLI no debe consumir el respaldo fuente"
+    );
+    assert_eq!(product_count(&database).await, 1);
+    let pool = open(&database).await.unwrap();
+    let (status, until): (String, String) = sqlx::query_as(
+        "SELECT license_status, valid_until FROM local_installation_state WHERE id = 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+    assert_eq!(status, "read_only");
+    assert_eq!(until, "2025-01-01T00:00:00Z");
+}
+
+#[tokio::test]
+async fn cli_rechaza_otra_instalacion_sin_reemplazar_el_destino() {
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("actual.db");
+    let foreign = dir.path().join("ajena.db");
+    let backup = dir.path().join("respaldo.db");
+    let pool = open(&database).await.unwrap();
+    seed_installation(&pool, "install-1", "org-1", TS, None, None).await;
+    seed_product(&pool, "vigente").await;
+    pool.close().await;
+    let pool = open(&foreign).await.unwrap();
+    seed_installation(&pool, "install-2", "org-2", TS, None, None).await;
+    backup_to(&pool, &backup).await.unwrap();
+    pool.close().await;
+
+    assert!(matches!(
+        restore_cli_backup(&database, &backup).await,
+        Err(StorageError::RestoreIdentityMismatch)
+    ));
+    assert_eq!(product_count(&database).await, 1);
+    assert!(backup.is_file());
+}
+
+#[tokio::test]
+async fn cli_rechaza_base_ausente_o_corrupta() {
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("actual.db");
+    let backup = dir.path().join("respaldo.db");
+    let pool = open(&database).await.unwrap();
+    seed_installation(&pool, "install-1", "org-1", TS, None, None).await;
+    backup_to(&pool, &backup).await.unwrap();
+    pool.close().await;
+    std::fs::remove_file(&database).unwrap();
+    assert!(restore_cli_backup(&database, &backup).await.is_err());
+    assert!(!database.exists());
+    std::fs::write(&database, b"base rota").unwrap();
+    assert!(restore_cli_backup(&database, &backup).await.is_err());
+    assert_eq!(std::fs::read(&database).unwrap(), b"base rota");
+    assert!(backup.exists());
 }

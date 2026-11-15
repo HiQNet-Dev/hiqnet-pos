@@ -7,6 +7,7 @@ import {
   bootstrapResultSchema,
   branchSummarySchema,
   commercialStateSchema,
+  platformEnrollmentSchema,
   categorySchema,
   cashRegisterSchema,
   cashShiftSchema,
@@ -30,6 +31,7 @@ import {
   type BootstrapRequest,
   type BootstrapResult,
   type CommercialState,
+  type PlatformEnrollment,
   type LoginRequest,
   type Product,
   type ProductDraft,
@@ -311,6 +313,34 @@ export const api = {
 
   commercialState: () =>
     call<CommercialState>("commercial_state", undefined, commercialStateSchema),
+
+  platformEnrollmentStatus: () =>
+    call<PlatformEnrollment>(
+      "platform_enrollment_status",
+      undefined,
+      platformEnrollmentSchema,
+    ),
+
+  beginPlatformEnrollment: () =>
+    call<PlatformEnrollment>(
+      "begin_platform_enrollment",
+      undefined,
+      platformEnrollmentSchema,
+    ),
+
+  completePlatformEnrollment: () =>
+    call<PlatformEnrollment>(
+      "complete_platform_enrollment",
+      undefined,
+      platformEnrollmentSchema,
+    ),
+
+  installLicense: (grantJson: string, signatureB64: string) =>
+    call<CommercialState>(
+      "install_license",
+      { grant_json: grantJson, signature_b64: signatureB64 },
+      commercialStateSchema,
+    ),
 
   backupDatabase: () => call<string>("backup_database", undefined, z.string()),
 

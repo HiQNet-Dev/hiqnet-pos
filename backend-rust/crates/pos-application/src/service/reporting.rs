@@ -115,9 +115,16 @@ impl PosService {
         })
     }
 
-    pub async fn commercial_state(&self) -> AppResult<CommercialStateView> {
+    pub async fn commercial_state(&self, actor: &Actor) -> AppResult<CommercialStateView> {
+        actor.require(pos_core::identity::Permission::ManageOrganization)?;
         let mut tx = self.store.begin().await?;
         let state = tx.installation_state().await?.ok_or(AppError::NotFound)?;
+        if actor.organization_id != state.organization_id {
+            return Err(pos_core::DomainError::AccessDenied {
+                required: pos_core::identity::Permission::ManageOrganization.as_str(),
+            }
+            .into());
+        }
         tx.rollback().await?;
         self.commercial_view(&state)
     }

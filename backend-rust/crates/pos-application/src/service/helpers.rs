@@ -95,6 +95,12 @@ pub(super) fn resolve_commercial(
     state: &InstallationState,
     verifier: Option<&dyn LicenseVerifier>,
 ) -> (CommercialState, LicenseResolution) {
+    if !binding_is_verified(state, verifier) {
+        return (
+            revoked_state(state),
+            LicenseResolution::Rejected("binding_unverified"),
+        );
+    }
     let grant_json = state
         .license_grant_json
         .as_deref()
@@ -112,7 +118,7 @@ pub(super) fn resolve_commercial(
             // local. Si el grant se instaló alguna vez y desapareció de la
             // base, el fallback a las columnas no verificadas está prohibido:
             // quedan en sólo lectura (ni trial ni licencia sin documento).
-            if state.license_installed_at.is_some() {
+            if state.license_installed_at.is_some() || state.commercial_binding.is_some() {
                 (
                     revoked_state(state),
                     LicenseResolution::Rejected("grant_absent"),
@@ -143,7 +149,11 @@ pub(super) fn resolve_commercial(
                     LicenseResolution::Rejected("installation_mismatch"),
                 );
             }
-            if license.organization_id != state.organization_id {
+            let expected_org = state
+                .commercial_binding
+                .as_ref()
+                .map_or(state.organization_id, |binding| binding.organization_id);
+            if license.organization_id != expected_org {
                 return (
                     revoked_state(state),
                     LicenseResolution::Rejected("organization_mismatch"),
@@ -157,7 +167,7 @@ pub(super) fn resolve_commercial(
             (
                 CommercialState {
                     installation_id: license.installation_id,
-                    organization_id: license.organization_id,
+                    organization_id: state.organization_id,
                     plan: license.plan,
                     status,
                     features: license.features.clone(),
@@ -173,6 +183,24 @@ pub(super) fn resolve_commercial(
             LicenseResolution::Rejected("incomplete_document"),
         ),
     }
+}
+
+pub(super) fn binding_is_verified(
+    state: &InstallationState,
+    verifier: Option<&dyn LicenseVerifier>,
+) -> bool {
+    let Some(binding) = &state.commercial_binding else {
+        return true;
+    };
+    let proof = verifier.and_then(|verifier| {
+        verifier
+            .verify(&binding.proof_json, &binding.proof_signature_b64)
+            .ok()
+    });
+    binding.installation_id == state.installation_id
+        && matches!(proof, Some(ref verified) if
+            verified.installation_id == state.installation_id
+            && verified.organization_id == binding.organization_id)
 }
 
 /// Estado comercial de una instalacion sin licencia firmada (trial local).
@@ -258,6 +286,7 @@ impl PosService {
         }
         let effective = commercial.effective_status(self.clock.now());
         Ok(CommercialStateView {
+            installation_id: commercial.installation_id,
             plan: commercial.plan.as_str(),
             status: match effective {
                 LicenseStatus::Trial => "trial",
@@ -292,5 +321,6 @@ pub(super) fn installation_from_commercial(commercial: &CommercialState) -> Inst
         license_grant_json: None,
         license_signature_b64: None,
         license_installed_at: None,
+        commercial_binding: None,
     }
 }

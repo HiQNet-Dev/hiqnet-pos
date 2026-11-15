@@ -25,7 +25,7 @@ guarda los datos operativos en el equipo del comercio.
 | Devoluciones de venta y reportes operativos | Implementado y verificado |
 | Auditoría append-only en la misma transacción | Implementado y verificado |
 | SQLite local con WAL y migraciones SQLx (ruta por plataforma) | Implementado y verificado |
-| Respaldo verificado y restauración offline segura | Implementado y verificado (rechaza restaurar con la app abierta) |
+| Respaldo verificado y restauración offline | Implementado; la CLI exige base actual verificable, misma instalación y sin material de licencia firmado |
 | Trial de 30 días y modo solo lectura al vencer | Implementado y verificado |
 | Verificación de licencias Ed25519 | Contrato y verificador implementados; emisión productiva **pendiente** |
 | Instalador NSIS | Construible; **sin firma**, solo prueba interna |
@@ -162,8 +162,8 @@ la guía de instalación, rutas y actualización en
 ## Respaldo y restauración offline
 
 Desde la aplicación (Owner): crear respaldo genera un archivo autocontenido con
-`VACUUM INTO` y lo verifica antes de ofrecerlo. La restauración se ejecuta con la
-aplicación **cerrada**, mediante la utilidad incluida en el mismo ejecutable:
+`VACUUM INTO` y lo verifica antes de ofrecerlo. La CLI permite verificarlo y
+restaurarlo con la aplicación cerrada:
 
 ```bash
 # Verificar sin abrir la interfaz
@@ -179,11 +179,11 @@ pos-desktop --restore-backup <respaldo.db> --database <hiqnet-pos.db>
 En Windows el binario es `pos-desktop.exe`; en Linux,
 `target/release/pos-desktop`. `--help-backup` muestra la ruta efectiva.
 
-La restauración verifica integridad, esquema y claves foráneas, rechaza bases de
-una versión posterior y cualquier conexión abierta (aplicación o herramienta
-externa), y crea una copia de recuperación `*.pre-restore-<epoch>.db` antes de
-reemplazar. Si la promoción o su verificación fallan, revierte a esa copia; si la
-reversión también falla, informa un error crítico conservando los artefactos. Ver
+La restauración exige una base actual legible con la misma instalación y
+organización, rechaza material de licencia firmado y conserva el estado
+comercial vigente. Mantiene una sola exclusión desde la validación hasta la
+reposición comercial y guarda rutas absolutas para reanudar tras una caída.
+Conserva el respaldo fuente del operador. Ver
 [`docs/05-operations/backup-and-restore.md`](docs/05-operations/backup-and-restore.md).
 
 La operación es **local y offline**: no se realiza ninguna petición de red para

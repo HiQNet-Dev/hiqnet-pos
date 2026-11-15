@@ -30,16 +30,15 @@ fn run_backup_cli(args: &[String]) -> ! {
         println!("Sin --database se usa la ubicación persistente de la plataforma.");
         println!("En desarrollo y QA puede aislarse con la variable HIQNET_POS_DB_PATH.");
         println!();
-        println!("Cierra HiQNet POS antes de restaurar. La restauración crea una copia");
-        println!("de recuperación junto a la base actual.");
+        println!("Cierra HiQNet POS antes de restaurar. Se exige una base actual");
+        println!("verificable con la misma instalación y sin licencia firmada.");
         std::process::exit(0);
     }
 
     // Verificar un respaldo no abre ni resuelve la base instalada.
     if let Some(path) = value_after(args, "--verify-backup") {
-        let result = tauri::async_runtime::block_on(pos_storage_sqlite::verify_backup(
-            &PathBuf::from(path),
-        ));
+        let result =
+            tauri::async_runtime::block_on(pos_storage_sqlite::verify_backup(&PathBuf::from(path)));
         report(result, None);
     }
 
@@ -62,10 +61,8 @@ fn run_backup_cli(args: &[String]) -> ! {
         }
     };
 
-    let result = tauri::async_runtime::block_on(pos_storage_sqlite::restore_from_backup(
-        &database, &backup,
-    ))
-    .map(|_| ());
+    let result =
+        tauri::async_runtime::block_on(pos_storage_sqlite::restore_cli_backup(&database, &backup));
     report(result, Some(&database));
 }
 

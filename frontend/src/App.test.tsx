@@ -16,6 +16,7 @@ const api = vi.hoisted(() => ({
   listCashRegisters: vi.fn(),
   listCashShiftHistory: vi.fn(),
   activeCashShift: vi.fn(),
+  commercialState: vi.fn(),
   listAuditEvents: vi.fn(),
   listModifierGroups: vi.fn(),
   listModifierOptions: vi.fn(),
@@ -107,6 +108,10 @@ describe("App", () => {
     api.listCashShiftHistory.mockResolvedValue([]);
     api.activeCashShift.mockResolvedValue(null);
     api.listAuditEvents.mockResolvedValue([]);
+    api.commercialState.mockResolvedValue({
+      installation_id: "11111111-1111-4111-8111-111111111111",
+      ...commercial,
+    });
   });
 
   it("muestra la configuración inicial cuando la instalación no está inicializada", async () => {

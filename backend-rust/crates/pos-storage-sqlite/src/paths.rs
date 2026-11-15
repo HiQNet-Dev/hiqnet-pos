@@ -144,6 +144,12 @@ fn absolute_dir(value: Option<OsString>) -> Option<PathBuf> {
         .filter(|path| path.is_absolute() && path != Path::new("/"))
 }
 
+/// Ruta del archivo de identidad del dispositivo, junto a la base local.
+/// La clave privada se guarda fuera de SQLite y nunca entra en respaldos.
+pub fn device_identity_path(database_path: &Path) -> PathBuf {
+    database_path.with_file_name("device-identity.key")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

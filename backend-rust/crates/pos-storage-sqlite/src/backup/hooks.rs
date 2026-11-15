@@ -8,6 +8,8 @@ pub(super) enum RestoreStep {
     Promotion,
     FinalVerification,
     Rollback,
+    BackupValidation,
+    BackupTemporaryCleanup,
 }
 
 /// En compilaciones normales los puntos de fallo no existen.

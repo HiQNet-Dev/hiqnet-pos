@@ -6,7 +6,7 @@ import type {
   CashRegister,
   CashShift,
   Category,
-  CommercialState,
+  PublicCommercialState,
   Product,
   SaleView,
 } from "../contracts";
@@ -37,9 +37,10 @@ import { availableSections, defaultSection, type SectionId } from "./navigation"
 
 interface Props {
   actor: Actor;
-  commercial: CommercialState | null;
+  commercial: PublicCommercialState | null;
   productVersion: string;
   onLogout: () => void;
+  onCommercialChanged?: () => Promise<void>;
 }
 
 function messageOf(cause: unknown, fallback: string): string {
@@ -92,7 +93,13 @@ function loadPendingReceipt(key: string): PendingReceiptAttempt | null {
  * activa. Mantiene el estado compartido (catálogo, caja y ticket) para que
  * cambiar de sección no pierda trabajo en curso.
  */
-export function AppShell({ actor, commercial, productVersion, onLogout }: Props) {
+export function AppShell({
+  actor,
+  commercial,
+  productVersion,
+  onLogout,
+  onCommercialChanged,
+}: Props) {
   const sections = useMemo(() => availableSections(actor), [actor]);
   const initialSection = defaultSection(actor);
   const [section, setSection] = useState<SectionId>(initialSection ?? "sales");
@@ -454,7 +461,12 @@ export function AppShell({ actor, commercial, productVersion, onLogout }: Props)
             )}
 
             {activeSection === "admin" && (
-              <AdminScreen actor={actor} commercial={commercial} readOnly={readOnly} />
+              <AdminScreen
+                actor={actor}
+                commercial={commercial}
+                readOnly={readOnly}
+                onCommercialChanged={onCommercialChanged}
+              />
             )}
 
             {availableIds.length === 0 && (

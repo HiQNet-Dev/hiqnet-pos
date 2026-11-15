@@ -1,4 +1,4 @@
-import type { Actor, CashRegister, CashShift, CommercialState } from "../contracts";
+import type { Actor, CashRegister, CashShift, PublicCommercialState } from "../contracts";
 import type { BranchSummary } from "../contracts";
 import { BrandMark, CashIcon, KeyIcon, LogoutIcon } from "./icons";
 
@@ -7,7 +7,7 @@ interface Props {
   branch: BranchSummary | null;
   register: CashRegister | null;
   shift: CashShift | null;
-  commercial: CommercialState | null;
+  commercial: PublicCommercialState | null;
   onLogout: () => void;
   onOpenCash: () => void;
   canOpenCash: boolean;

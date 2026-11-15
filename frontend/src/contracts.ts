@@ -6,6 +6,7 @@ import { z } from "zod";
  */
 
 export const commercialStateSchema = z.object({
+  installation_id: z.string(),
   plan: z.enum(["trial", "local", "pro", "enterprise"]),
   status: z.enum(["trial", "active", "grace", "read_only", "expired"]),
   valid_until: z.string(),
@@ -13,10 +14,26 @@ export const commercialStateSchema = z.object({
   read_only: z.boolean(),
 });
 
+export const publicCommercialStateSchema = commercialStateSchema.omit({
+  installation_id: true,
+});
+
+export const platformEnrollmentSchema = z.object({
+  status: z.enum(["none", "pending", "completed"]),
+  user_code: z.string().nullable(),
+  verification_uri: z.string().nullable(),
+  expires_at: z.string().nullable(),
+  organization_id: z.string().nullable(),
+  installation_id: z.string(),
+  completed: z.boolean(),
+});
+
+export type PlatformEnrollment = z.infer<typeof platformEnrollmentSchema>;
+
 export const appStatusSchema = z.object({
   initialized: z.boolean(),
   product_version: z.string(),
-  commercial: commercialStateSchema.nullable(),
+  commercial: publicCommercialStateSchema.nullable(),
   user_count: z.number().int().nonnegative(),
 });
 
@@ -112,6 +129,7 @@ export const ipcErrorSchema = z.object({
 });
 
 export type CommercialState = z.infer<typeof commercialStateSchema>;
+export type PublicCommercialState = z.infer<typeof publicCommercialStateSchema>;
 export type AppStatus = z.infer<typeof appStatusSchema>;
 export type Actor = z.infer<typeof actorSchema>;
 export type BootstrapResult = z.infer<typeof bootstrapResultSchema>;

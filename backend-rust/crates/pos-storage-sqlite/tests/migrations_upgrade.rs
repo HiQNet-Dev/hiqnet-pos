@@ -121,10 +121,10 @@ async fn actualiza_una_base_0003_sin_perder_datos() {
             .expect("contar migraciones nuevas")
             .get("total");
     assert_eq!(
-        aplicadas, 12,
-        "deben quedar las doce migraciones registradas"
+        aplicadas, 14,
+        "deben quedar las catorce migraciones registradas"
     );
-    assert_eq!(esperadas, 9, "0004–0012 deben aplicarse al actualizar");
+    assert_eq!(esperadas, 11, "0004–0014 deben aplicarse al actualizar");
 
     let producto: (String, i64) = {
         let row =

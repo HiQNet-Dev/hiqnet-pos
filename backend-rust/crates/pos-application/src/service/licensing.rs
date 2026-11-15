@@ -1,6 +1,7 @@
 //! Instalacion y reemplazo de licencias firmadas.
 
 use super::*;
+use crate::ports::CommercialBinding;
 
 impl PosService {
     /// Instala o reemplaza una licencia firmada.
@@ -24,16 +25,58 @@ impl PosService {
             .installation_state()
             .await?
             .ok_or(pos_core::DomainError::AlreadyInitialized)?;
+        if actor.organization_id != current.organization_id {
+            return Err(pos_core::DomainError::AccessDenied {
+                required: pos_core::identity::Permission::ManageOrganization.as_str(),
+            }
+            .into());
+        }
 
         let license = match verifier.verify(&grant_json, &signature_b64) {
             Ok(license) => license,
             Err(_) => return reject_license(tx, &current, "signature_rejected").await,
         };
+        if !binding_is_verified(&current, self.license.as_deref()) {
+            return reject_license(tx, &current, "binding_unverified").await;
+        }
+        let expected_org = current
+            .commercial_binding
+            .as_ref()
+            .map_or(current.organization_id, |binding| binding.organization_id);
         if license.installation_id != current.installation_id
-            || license.organization_id != current.organization_id
+            || (license.organization_id != expected_org
+                && (current.commercial_binding.is_some() || current.license_installed_at.is_some()))
         {
             return reject_license(tx, &current, "identity_mismatch").await;
         }
+        // Primer grant comercial: la firma de Platform vincula tenant e instalación
+        // dentro de la misma StoreTx que licencia y auditoría. No se acepta un ID
+        // comercial aislado ni se re-vincula una instalación previamente licenciada.
+        let binding = if license.organization_id != current.organization_id
+            && current.commercial_binding.is_none()
+        {
+            let binding = CommercialBinding {
+                installation_id: current.installation_id,
+                organization_id: license.organization_id,
+                proof_json: grant_json.clone(),
+                proof_signature_b64: signature_b64.clone(),
+            };
+            tx.insert_commercial_binding(&binding).await?;
+            tx.append_audit(&AuditEvent::new(
+                current.organization_id,
+                None,
+                Some(actor.user_id),
+                AuditAction::CommercialIdentityBound,
+                "installation",
+                current.installation_id.to_string(),
+                serde_json::json!({"commercial_organization_id": license.organization_id.to_string(),
+                    "proof_source": "signed_license_grant_v1"}),
+            ))
+            .await?;
+            Some(binding)
+        } else {
+            current.commercial_binding.clone()
+        };
 
         let state = InstallationState {
             installation_id: current.installation_id,
@@ -53,6 +96,7 @@ impl PosService {
             // instalación no puede regresar al trial ni confiar en columnas
             // sin documento firmado.
             license_installed_at: Some(self.clock.now()),
+            commercial_binding: binding,
         };
         tx.save_installation_state(&state).await?;
 

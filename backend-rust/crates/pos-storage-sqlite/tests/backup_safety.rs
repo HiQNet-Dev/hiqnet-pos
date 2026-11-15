@@ -3,6 +3,7 @@ use pos_storage_sqlite::{
     verify_backup,
 };
 use sqlx::Row;
+use sqlx::sqlite::SqlitePoolOptions;
 
 const TS: &str = "2026-01-01T00:00:00Z";
 
@@ -309,6 +310,55 @@ async fn restauraciones_sucesivas_conservan_cada_copia_de_recuperacion() {
         .count();
     assert_eq!(recovery_copies, 2, "ninguna copia se sobrescribe");
     assert_eq!(product_count(&database).await, 2);
+}
+
+#[tokio::test]
+async fn restaura_respaldo_valido_anterior_a_platform_enrollment() {
+    let dir = tempfile::tempdir().unwrap();
+    let migrations = dir.path().join("migrations-0013");
+    std::fs::create_dir_all(&migrations).unwrap();
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../migrations/local");
+    for entry in std::fs::read_dir(source).unwrap().flatten() {
+        let name = entry.file_name();
+        if name.to_string_lossy().as_ref() <= "0013_commercial_binding.sql" {
+            std::fs::copy(entry.path(), migrations.join(name)).unwrap();
+        }
+    }
+
+    let backup = dir.path().join("respaldo-0013.db");
+    let legacy = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect(&format!("sqlite://{}?mode=rwc", backup.display()))
+        .await
+        .unwrap();
+    sqlx::migrate::Migrator::new(migrations.as_path())
+        .await
+        .unwrap()
+        .run(&legacy)
+        .await
+        .unwrap();
+    seed_organization(&legacy).await;
+    legacy.close().await;
+    verify_backup(&backup).await.unwrap();
+
+    let database = dir.path().join("hiqnet-pos.db");
+    let current = open(&database).await.unwrap();
+    seed_organization(&current).await;
+    current.close().await;
+
+    restore_from_backup(&database, &backup).await.unwrap();
+    let restored = open(&database).await.unwrap();
+    let enrollment_table: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'platform_enrollment'",
+    )
+    .fetch_one(&restored)
+    .await
+    .unwrap();
+    restored.close().await;
+    assert_eq!(
+        enrollment_table, 1,
+        "la restauración previa a 0014 se migra al abrirse"
+    );
 }
 
 #[tokio::test]

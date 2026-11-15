@@ -34,9 +34,16 @@ fn verifier_with(seed: &[u8; 32]) -> SharedLicenseVerifier {
 }
 
 fn build(pool: SqlitePool, license: Option<SharedLicenseVerifier>) -> PosService {
+    build_at(pool, license, Arc::new(SystemClock))
+}
+
+fn build_at(
+    pool: SqlitePool,
+    license: Option<SharedLicenseVerifier>,
+    clock: SharedClock,
+) -> PosService {
     let store: SharedStore = Arc::new(SqliteStore::new(pool));
     let hasher: SharedHasher = Arc::new(Argon2idHasher::new());
-    let clock: SharedClock = Arc::new(SystemClock);
     let service = PosService::new(store, hasher, clock);
     match license {
         Some(verifier) => service.with_license_verifier(verifier),
@@ -133,8 +140,6 @@ async fn es_solo_lectura(service: &PosService) -> bool {
         .map(|commercial| commercial.read_only)
         .unwrap_or(true)
 }
-
-// --- Casos positivos ---------------------------------------------------------
 
 #[tokio::test]
 async fn grant_valido_autoriza_los_entitlements_firmados() {

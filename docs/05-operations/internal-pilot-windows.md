@@ -6,6 +6,11 @@ Windows. Complementa `pilot-checklist.md`, `windows-installation.md` y
 
 ## Matriz de preparación
 
+La matriz registra evidencia histórica del instalador NSIS 0.1.1-rc.1; sus
+aprobaciones anteriores no acreditan el corte beta actual. Restauración por
+CLI está soportada con la política estricta descrita más abajo; la revalidación
+en Windows del corte beta actual sigue pendiente.
+
 | Capacidad | Cómo se verificó | Estado |
 |---|---|---|
 | Instalar la aplicación | Instalador NSIS 0.1.1-rc.1 instalado en modo silencioso sobre `%LOCALAPPDATA%` | **Aprobado** |
@@ -18,7 +23,7 @@ Windows. Complementa `pilot-checklist.md`, `windows-installation.md` y
 | Registrar gastos y devoluciones | `e2e_flow`, `e2e_returns`, `verify_returns_db` | **Aprobado** |
 | Operar sin internet | `e2e_offline` (0 conexiones de red) | **Aprobado con restricción**: sin corte de red forzado |
 | Generar respaldos | `e2e_restore_guard`, `backup_database` | **Aprobado** |
-| Restaurar información | `e2e_restore_guard`, `restore_multiphase_check`, `e2e_restore_corruption` | **Aprobado** |
+| Restaurar información | Política nueva con bloqueo único y rutas absolutas; falta reejecutar `e2e_restore_guard`, `restore_multiphase_check` y `e2e_restore_corruption` en Windows | **PENDIENTE DE REVALIDAR** |
 | Recuperarse de cierres inesperados | `e2e_crash_recovery` (10 cortes, 5 antes del commit) | **Aprobado** |
 | Desinstalar preservando datos | Desinstalador NSIS; la base del usuario quedó intacta (hash idéntico) | **Aprobado** |
 | Actualización entre versiones | Hay instaladores previos (0.0.9, 0.1.0) y migraciones idempotentes, pero **no se ejecutó una actualización sobre datos del piloto** | **No validado** |
@@ -59,9 +64,9 @@ Detalle en `backup-and-restore.md`. En el piloto:
 
 1. Cerrar HiQNet POS por completo.
 2. `pos-desktop.exe --restore-backup <archivo> --database <ruta>`.
-3. Abrir la aplicación y comprobar productos, ventas del día y saldo de caja.
-4. Si la restauración se rechaza porque la base está en uso, cerrar la
-   aplicación (o el visor SQLite) y repetir.
+3. La operación exige base actual verificable, misma instalación y organización;
+   conserva el estado comercial y el respaldo fuente.
+4. Abrir la aplicación y comprobar productos, ventas del día y saldo de caja.
 
 ### Actualización (cuando exista instalador firmado)
 
@@ -69,7 +74,9 @@ Detalle en `backup-and-restore.md`. En el piloto:
 2. Ejecutar el instalador nuevo sobre la instalación existente.
 3. Abrir la aplicación: las migraciones se aplican solas; la base no se
    reemplaza.
-4. Si algo falla, restaurar el respaldo del paso 1.
+4. Si algo falla, detener el piloto y conservar respaldo y base para evaluación;
+   la restauración por CLI requiere la aplicación cerrada y una base actual
+   verificable de la misma instalación.
 
 > Este procedimiento **no está validado todavía** sobre datos de piloto.
 
@@ -87,10 +94,10 @@ Detalle en `backup-and-restore.md`. En el piloto:
 
 | Síntoma | Acción |
 |---|---|
-| La aplicación no abre y la base no responde | Restaurar el último respaldo verificado |
+| La aplicación no abre y la base no responde | Conservar base y respaldo; la CLI rechaza bases no verificables |
 | Datos faltantes tras un corte de energía | Abrir la aplicación (SQLite recupera el WAL) y verificar totales |
-| Base marcada como corrupta al arrancar | Restaurar respaldo; la aplicación se niega a operar sobre una base dañada |
-| Restauración rechazada | Cerrar la aplicación y cualquier lector SQLite, reintentar |
+| Base marcada como corrupta al arrancar | Conservar el archivo dañado y restaurar el respaldo con el procedimiento soportado |
+| Restauración rechazada | Revisar el detalle; conservar los archivos y no improvisar SQL manual |
 | Restauración incompleta (`RestoreCritical`) | Conservar base, copia de recuperación y temporal; escalar a soporte con los tres archivos |
 
 ## Fuera de alcance del piloto interno

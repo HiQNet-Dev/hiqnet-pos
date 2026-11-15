@@ -79,6 +79,7 @@ export async function mockBridge(page: Page, initialized = true) {
           product_version: "0.1.0",
           commercial: initialized
             ? {
+                installation_id: "11111111-1111-4111-8111-111111111111",
                 plan: "pro",
                 status: "active",
                 valid_until: "2027-11-04T00:00:00Z",
@@ -108,7 +109,17 @@ export async function mockBridge(page: Page, initialized = true) {
         active_cash_shift: shift,
         list_cash_shift_history: [closedShift],
         list_audit_events: auditEvents,
+        platform_enrollment_status: {
+          status: "none",
+          user_code: null,
+          verification_uri: null,
+          expires_at: null,
+          organization_id: null,
+          installation_id: "11111111-1111-4111-8111-111111111111",
+          completed: false,
+        },
         commercial_state: {
+          installation_id: "11111111-1111-4111-8111-111111111111",
           plan: "pro",
           status: "active",
           valid_until: "2027-11-04T00:00:00Z",

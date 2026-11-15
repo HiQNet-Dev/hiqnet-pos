@@ -15,19 +15,21 @@ Estados: **VERIFICADO** (implementado y probado), **PARCIAL**, **PENDIENTE**,
 | Migración inicial SQLite | VERIFICADO | `0001_init.sql` aplicada al arrancar |
 | Persistencia entre reinicios | VERIFICADO | Prueba de cierre y reapertura |
 | Respaldo consistente | VERIFICADO | `VACUUM INTO` + verificación de integridad, FK, tablas y versión; el artefacto inválido se descarta |
-| Restauración desde respaldo | VERIFICADO | Utilidad offline `--restore-backup`: bloqueo de proceso, `wal_checkpoint(TRUNCATE)` contra lectores, guardia exclusiva durante copia y validación, promoción por etapas, reversión verificada y `RestoreCritical` con artefactos conservados |
-| Conservación de datos al restaurar | VERIFICADO | `restore_multiphase_check.py` compara por hash SHA-256 las 27 tablas, además de `integrity_check` y `foreign_key_check` |
+| Restauración desde respaldo por CLI | VERIFICADO en Linux (beta local) | Exige base actual verificable, identidad/organización coincidente y ausencia de material de licencia; mantiene una sola exclusión, preserva el estado comercial y conserva el respaldo. Revalidación Windows pendiente |
+| Conservación de datos al restaurar | PENDIENTE (Windows) | La suite `restore_multiphase_check.py` debe reejecutarse sobre el ejecutable Windows con la nueva política; no se declara PASS sin esa corrida. |
 | Fallo controlado de migración | VERIFICADO | `migration_failure.rs`: error `Migrate`, datos intactos, sin tablas parciales y recuperación desde respaldo |
-| Restauración desde UI | PENDIENTE | Requiere cerrar el pool y el WebView; el procedimiento seguro es la utilidad offline |
+| Restauración desde UI | PARCIAL (Android) | Gestión expone `import_saf_backup` y `schedule_saf_restore`: el selector importa a almacenamiento privado, muestra la previsualización y, tras confirmación, programa la restauración para el siguiente inicio y cierra la app. Solo está disponible en Android y requiere `backups.manage`; no se declara validada en dispositivo Android ni disponible en Windows/Linux. |
 | Trial de 30 días / solo lectura | VERIFICADO | Reloj fijo y bloqueo de mutaciones |
 | Verificación Ed25519 | VERIFICADO | Firma válida, payload manipulado, clave ajena |
+| Enrolamiento con Platform | IMPLEMENTADO (beta local) | `begin`/`complete` con clave Ed25519 del dispositivo, persistencia del challenge y auditoría; requiere `HIQNET_PLATFORM_URL` y aprobación del owner en el Portal. Probado con cliente simulado y contrato HTTP local. El E2E real contra Platform permanece `#[ignore]` y no se declara ejecutado. Falta despliegue con TLS y Windows |
+| Activación de licencia firmada | VERIFICADO (beta local) | IPC `install_license` + sección en Gestión; exige `organization.manage`, verifica firma e identidad y vincula la organización comercial sin reescribir IDs locales. Requiere que Platform emita el grant |
 | Emisión de licencias | PENDIENTE | Responsabilidad de HiQNet Platform |
 | IPC tipado React ↔ Rust | VERIFICADO | Comandos + validación Zod + pruebas de UI; argumentos snake_case verificados sobre el ejecutable real |
 | Shell de escritorio y navegación | VERIFICADO | Una pantalla activa, menú por permisos, ticket persistente y capturas en 1920/1440/1366/1024/768 |
 | App Tauri arranca en Windows | VERIFICADO | Ejecutable construido y arrancado; base creada |
 | Instalador NSIS firmado | PENDIENTE | Requiere decisión de firma (D-09) |
 | Instalador NSIS interno (sin firma) | PARCIAL | Construido y verificado como `NotSigned` (4.89 MiB, SHA-256 registrado); instalación/desinstalación en VM limpia pendiente |
-| Ejecutable de release (payload del instalador) | VERIFICADO | E2E comercial, devoluciones, restauración y multifase sobre `target/release/pos-desktop.exe` |
+| Ejecutable de release (payload del instalador) | EVIDENCIA HISTÓRICA | E2E comercial, devoluciones, restauración y multifase sobre `target/release/pos-desktop.exe` anterior al bloqueo de CLI; no valida la beta actual. |
 | Smoke E2E con Playwright | PARCIAL | Smoke de UI en navegador con puente Tauri simulado |
 | E2E nativo Windows (tauri-driver + WebView2) | PARCIAL | Flujo comercial completo, devoluciones/reportes y rendimiento verificados en local. No se ejecuta en GitHub Actions |
 | Ventas y pagos | PARCIAL | Catálogo + ticket simultáneos, cobro en efectivo verificado de extremo a extremo en el ejecutable; faltan otros métodos de pago |

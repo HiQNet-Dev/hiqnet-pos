@@ -12,6 +12,9 @@ use pos_core::ids::{InstallationId, OrganizationId};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+pub mod device_identity;
+pub use device_identity::{DeviceIdentity, DeviceIdentityError};
+
 /// Versión del documento de autorización comercial. Incrementar exige una
 /// migración explícita del verificador.
 pub const LICENSE_DOC_VERSION: u32 = 1;

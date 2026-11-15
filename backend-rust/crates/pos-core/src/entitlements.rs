@@ -150,7 +150,7 @@ impl CommercialState {
         ) {
             return self.status;
         }
-        if now > self.valid_until {
+        if now >= self.valid_until {
             return LicenseStatus::ReadOnly;
         }
         self.status
@@ -227,6 +227,10 @@ mod tests {
         );
         assert_eq!(
             state.effective_status(start + time::Duration::days(31)),
+            LicenseStatus::ReadOnly
+        );
+        assert_eq!(
+            state.effective_status(state.valid_until),
             LicenseStatus::ReadOnly
         );
         assert_eq!(

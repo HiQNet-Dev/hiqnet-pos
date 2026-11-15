@@ -18,6 +18,7 @@ export const actor = {
     "cash.register.manage",
     "audit.view",
     "backups.manage",
+    "organization.manage",
   ],
 };
 

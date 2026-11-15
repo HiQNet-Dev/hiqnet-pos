@@ -44,10 +44,12 @@ const actor = {
     "backups.manage",
     "users.manage",
     "reports.view",
+    "organization.manage",
   ],
 };
 
 const commercial = {
+  installation_id: "11111111-1111-4111-8111-111111111111",
   plan: "pro",
   status: "active",
   valid_until: "2026-12-03T00:00:00Z",
@@ -269,6 +271,15 @@ async function mockAdminBridge(page: Page) {
         ],
         active_cash_shift: shift,
         list_audit_events: auditEvents,
+        platform_enrollment_status: {
+          status: "none",
+          user_code: null,
+          verification_uri: null,
+          expires_at: null,
+          organization_id: null,
+          installation_id: "11111111-1111-4111-8111-111111111111",
+          completed: false,
+        },
         commercial_state: commercial,
         reports_summary: reports,
         list_suppliers: suppliers,

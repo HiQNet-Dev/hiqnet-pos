@@ -9,6 +9,9 @@ impl PosService {
             hasher,
             clock,
             license: None,
+            device_signer: None,
+            enrollment_client: None,
+            enrollment_url: None,
         }
     }
 
@@ -17,6 +20,21 @@ impl PosService {
     #[must_use]
     pub fn with_license_verifier(mut self, verifier: SharedLicenseVerifier) -> Self {
         self.license = Some(verifier);
+        self
+    }
+
+    /// Habilita el enrolamiento con Platform. Sin identidad de dispositivo o
+    /// cliente, la operación devuelve un error explícito y la app sigue offline.
+    #[must_use]
+    pub fn with_platform_enrollment(
+        mut self,
+        signer: SharedDeviceSigner,
+        client: SharedPlatformEnrollmentClient,
+        platform_url: String,
+    ) -> Self {
+        self.device_signer = Some(signer);
+        self.enrollment_client = Some(client);
+        self.enrollment_url = Some(platform_url);
         self
     }
 
@@ -30,7 +48,7 @@ impl PosService {
         tx.rollback().await?;
 
         let commercial = match state {
-            Some(state) => Some(self.commercial_view(&state)?),
+            Some(state) => Some(self.commercial_view(&state)?.into()),
             None => None,
         };
 
