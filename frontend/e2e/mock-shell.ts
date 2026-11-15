@@ -29,10 +29,12 @@ const ACTOR = {
     "audit.view",
     "backups.manage",
     "reports.view",
+    "organization.manage",
   ],
 };
 
 const COMMERCIAL = {
+  installation_id: "11111111-1111-4111-8111-111111111111",
   plan: "pro",
   status: "active",
   valid_until: "2026-12-03T00:00:00Z",

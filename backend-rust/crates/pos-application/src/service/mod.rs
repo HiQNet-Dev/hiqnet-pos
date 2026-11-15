@@ -5,8 +5,9 @@
 
 use crate::error::{AppError, AppResult};
 use crate::ports::{
-    InstallationState, LicenseVerifier, SharedClock, SharedHasher, SharedLicenseVerifier,
-    SharedStore, StoreTx, VerifiedLicense,
+    BeginPlatformEnrollment, EnrollmentSession, EnrollmentSessionStatus, InstallationState,
+    LicenseVerifier, PlatformProof, SharedClock, SharedDeviceSigner, SharedHasher,
+    SharedLicenseVerifier, SharedPlatformEnrollmentClient, SharedStore, StoreTx, VerifiedLicense,
 };
 use pos_core::audit::{AuditAction, AuditEvent};
 use pos_core::cash::{CashMovement, CashMovementKind, CashRegister, CashShift, CashShiftStatus};
@@ -46,9 +47,11 @@ mod cash;
 mod catalog;
 mod core;
 mod dto;
+mod enrollment;
 mod expenses;
 mod helpers;
 mod inventory;
+pub use enrollment::normalize_platform_url;
 mod licensing;
 mod purchasing;
 mod reporting;
@@ -68,4 +71,9 @@ pub struct PosService {
     clock: SharedClock,
     /// Ausente por defecto: sin verificador, una licencia firmada se rechaza.
     license: Option<SharedLicenseVerifier>,
+    /// Identidad del dispositivo y cliente de enrolamiento; ambos ausentes por
+    /// defecto para que la aplicación siga operando 100 % offline.
+    device_signer: Option<SharedDeviceSigner>,
+    enrollment_client: Option<SharedPlatformEnrollmentClient>,
+    enrollment_url: Option<String>,
 }

@@ -23,6 +23,34 @@ async fn pending_count(path: &Path) -> i64 {
     value
 }
 
+async fn assert_no_pending_device_codes(path: &Path) {
+    let pool = open(path).await.unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM platform_enrollment WHERE status = 'pending' AND device_code IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+    assert_eq!(count, 0, "el artefacto recuperable no retiene device_code");
+}
+
+async fn seed_pending_enrollment(path: &Path) {
+    let pool = open(path).await.unwrap();
+    sqlx::query(
+        "INSERT INTO platform_enrollment \
+         (id, platform_url, device_code, user_code, verification_uri, nonce, expires_at, \
+          installation_id, status, organization_id, bound_at, updated_at) \
+         VALUES (1, 'https://platform.example', 'device-secreto', 'ABCD-EFGH', \
+                 'https://platform.example/device', 'nonce', '2026-12-01T00:00:00Z', \
+                 'install-1', 'pending', NULL, NULL, '2026-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+}
+
 async fn scenario() -> (tempfile::TempDir, PathBuf, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let database = dir.path().join("hiqnet-pos.db");
@@ -194,6 +222,7 @@ async fn fallo_en_la_verificacion_final_revierte_a_la_copia_previa() {
 async fn fallo_de_reversion_conserva_artefactos_y_avisa() {
     let _serial = serial();
     let (dir, database, backup) = scenario().await;
+    seed_pending_enrollment(&database).await;
 
     fault_injector::inject(&[RestoreStep::FinalVerification, RestoreStep::Rollback]);
     let error = restore_from_backup(&database, &backup).await.unwrap_err();
@@ -234,6 +263,39 @@ async fn fallo_de_reversion_conserva_artefactos_y_avisa() {
     );
     // La copia de recuperación sí es utilizable.
     verify_snapshot(Path::new(&recovery)).await.unwrap();
+    assert_no_pending_device_codes(Path::new(&recovery)).await;
+    assert_no_pending_device_codes(Path::new(&staged)).await;
+}
+
+#[tokio::test]
+async fn fallo_y_limpieza_del_temporal_sensible_se_reportan() {
+    let _serial = serial();
+    let (dir, database, _backup) = scenario().await;
+    let target = dir.path().join("respaldo-con-fallo.db");
+
+    let pool = open(&database).await.unwrap();
+    fault_injector::inject(&[
+        RestoreStep::BackupValidation,
+        RestoreStep::BackupTemporaryCleanup,
+    ]);
+    let error = backup_to(&pool, &target).await.unwrap_err();
+    pool.close().await;
+
+    assert!(matches!(error, StorageError::BackupTemporaryCleanup));
+    assert!(!target.exists(), "no se publica un respaldo incompleto");
+    let leftover = std::fs::read_dir(dir.path())
+        .unwrap()
+        .flatten()
+        .any(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".respaldo-con-fallo.db.backup-tmp-")
+        });
+    assert!(
+        leftover,
+        "el fallo inyectado conserva el temporal para probar el error explícito"
+    );
 }
 
 #[tokio::test]

@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use pos_application::{
-    AppError, AppResult, CashReportTotals, CatalogConfiguration, ExpenseCategoryReportRow,
-    ExpensesReportTotals, InstallationState, InventoryReportTotals, ProductSalesReportRow,
-    PurchasesReportTotals, ReturnedTotals, ReturnsReportTotals, SalesReportTotals, Store, StoreTx,
+    AppError, AppResult, CashReportTotals, CatalogConfiguration, CommercialBinding,
+    EnrollmentSession, EnrollmentSessionStatus, ExpenseCategoryReportRow, ExpensesReportTotals,
+    InstallationState, InventoryReportTotals, ProductSalesReportRow, PurchasesReportTotals,
+    ReturnedTotals, ReturnsReportTotals, SalesReportTotals, Store, StoreTx,
 };
 use pos_core::audit::{AuditAction, AuditEvent};
 use pos_core::cash::{CashMovement, CashRegister, CashShift, CashShiftStatus};

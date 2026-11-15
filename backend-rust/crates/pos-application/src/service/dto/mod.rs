@@ -22,3 +22,5 @@ mod reporting;
 pub use reporting::*;
 mod audit;
 pub use audit::*;
+mod enrollment;
+pub use enrollment::*;

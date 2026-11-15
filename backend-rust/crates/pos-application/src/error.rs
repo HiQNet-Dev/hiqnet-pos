@@ -25,6 +25,12 @@ pub enum AppError {
 
     #[error("no fue posible procesar la credencial")]
     Crypto,
+
+    #[error("el enrolamiento con HiQNet Platform no está configurado")]
+    EnrollmentUnavailable,
+
+    #[error("el código de vinculación venció; genera uno nuevo")]
+    EnrollmentExpired,
 }
 
 impl AppError {
@@ -45,6 +51,8 @@ impl AppError {
             AppError::InvalidRequest => "validation_error",
             AppError::Storage => "storage_error",
             AppError::Crypto => "crypto_error",
+            AppError::EnrollmentUnavailable => "enrollment_unavailable",
+            AppError::EnrollmentExpired => "enrollment_expired",
         }
     }
 

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Actor, CommercialState, User } from "../contracts";
@@ -15,6 +15,11 @@ const api = vi.hoisted(() => ({
   importSafBackup: vi.fn(),
   scheduleSafRestore: vi.fn(),
   restoreStartupNotice: vi.fn(),
+  commercialState: vi.fn(),
+  installLicense: vi.fn(),
+  platformEnrollmentStatus: vi.fn(),
+  beginPlatformEnrollment: vi.fn(),
+  completePlatformEnrollment: vi.fn(),
 }));
 
 vi.mock("../api", () => ({
@@ -31,6 +36,7 @@ vi.mock("../api", () => ({
 import { AdminScreen } from "./AdminScreen";
 
 const commercial: CommercialState = {
+  installation_id: "11111111-1111-4111-8111-111111111111",
   plan: "trial",
   status: "trial",
   valid_until: "2026-12-03T00:00:00Z",
@@ -44,7 +50,12 @@ const owner: Actor = {
   branch_id: "b-1",
   display_name: "Ana Propietaria",
   role: "owner",
-  permissions: ["users.manage", "audit.view", "backups.manage"],
+  permissions: [
+    "users.manage",
+    "audit.view",
+    "backups.manage",
+    "organization.manage",
+  ],
 };
 
 const cashier: User = {
@@ -81,11 +92,77 @@ describe("AdminScreen · usuarios", () => {
     vi.clearAllMocks();
     api.listUsers.mockResolvedValue([ownerUser, cashier]);
     api.listAuditEvents.mockResolvedValue([]);
+    api.commercialState.mockResolvedValue(commercial);
     api.createUser.mockResolvedValue({ ...cashier, id: "u-3", username: "nuevo" });
     api.setUserActive.mockResolvedValue({ ...cashier, active: false });
     api.resetUserPassword.mockResolvedValue(null);
     api.safBackupAvailable.mockResolvedValue(false);
     api.restoreStartupNotice.mockResolvedValue(null);
+    api.installLicense.mockResolvedValue({ ...commercial, plan: "pro", status: "active" });
+    api.platformEnrollmentStatus.mockResolvedValue({
+      status: "none",
+      user_code: null,
+      verification_uri: null,
+      expires_at: null,
+      organization_id: null,
+      installation_id: commercial.installation_id,
+      completed: false,
+    });
+    api.beginPlatformEnrollment.mockResolvedValue({
+      status: "pending",
+      user_code: "ABCD-EFGH",
+      verification_uri: "http://127.0.0.1:8080/device",
+      expires_at: "2026-11-14T00:10:00Z",
+      organization_id: null,
+      installation_id: commercial.installation_id,
+      completed: false,
+    });
+    api.completePlatformEnrollment.mockResolvedValue({
+      status: "completed",
+      user_code: "ABCD-EFGH",
+      verification_uri: "http://127.0.0.1:8080/device",
+      expires_at: "2026-11-14T00:10:00Z",
+      organization_id: "22222222-2222-4222-8222-222222222222",
+      installation_id: commercial.installation_id,
+      completed: true,
+    });
+  });
+
+  it("genera el código de vinculación y completa tras la aprobación", async () => {
+    renderScreen();
+    const user = userEvent.setup();
+
+    await user.click(
+      await screen.findByRole("button", { name: /generar código de vinculación/i }),
+    );
+    expect(await screen.findByText("ABCD-EFGH")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /ya está aprobado/i }));
+
+    await waitFor(() => expect(api.completePlatformEnrollment).toHaveBeenCalled());
+    expect(await screen.findByText(/equipo vinculado/i)).toBeVisible();
+  });
+
+  it("instala una licencia firmada y refresca el estado comercial", async () => {
+    const onCommercialChanged = vi.fn().mockResolvedValue(undefined);
+    renderScreen({ onCommercialChanged });
+    const user = userEvent.setup();
+
+    fireEvent.change(screen.getByLabelText("Documento de licencia"), {
+      target: { value: '{"version":1,"grant_id":"g-1"}' },
+    });
+    fireEvent.change(screen.getByLabelText("Firma de licencia"), {
+      target: { value: "ZmlybWE=" },
+    });
+    await user.click(screen.getByRole("button", { name: /instalar licencia/i }));
+
+    await waitFor(() =>
+      expect(api.installLicense).toHaveBeenCalledWith(
+        '{"version":1,"grant_id":"g-1"}',
+        "ZmlybWE=",
+      ),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Licencia instalada");
+    expect(onCommercialChanged).toHaveBeenCalled();
   });
 
   it("lista las cuentas con rol y estado", async () => {

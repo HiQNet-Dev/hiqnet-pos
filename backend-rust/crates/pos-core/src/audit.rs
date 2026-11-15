@@ -38,6 +38,9 @@ pub enum AuditAction {
     SaleReturned,
     LicenseInstalled,
     LicenseRejected,
+    CommercialIdentityBound,
+    PlatformEnrollmentStarted,
+    PlatformEnrollmentCompleted,
 }
 
 impl AuditAction {
@@ -74,6 +77,9 @@ impl AuditAction {
             "sales.returned" => Some(AuditAction::SaleReturned),
             "license.installed" => Some(AuditAction::LicenseInstalled),
             "license.rejected" => Some(AuditAction::LicenseRejected),
+            "commercial.identity_bound" => Some(AuditAction::CommercialIdentityBound),
+            "platform.enrollment_started" => Some(AuditAction::PlatformEnrollmentStarted),
+            "platform.enrollment_completed" => Some(AuditAction::PlatformEnrollmentCompleted),
             _ => None,
         }
     }
@@ -111,6 +117,9 @@ impl AuditAction {
             AuditAction::SaleReturned => "sales.returned",
             AuditAction::LicenseInstalled => "license.installed",
             AuditAction::LicenseRejected => "license.rejected",
+            AuditAction::CommercialIdentityBound => "commercial.identity_bound",
+            AuditAction::PlatformEnrollmentStarted => "platform.enrollment_started",
+            AuditAction::PlatformEnrollmentCompleted => "platform.enrollment_completed",
         }
     }
 }

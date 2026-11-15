@@ -79,11 +79,25 @@ pos-desktop --verify-backup /ruta/respaldos/hiqnet-pos-1700000000.db
 # 3. Restaura. Sin --database usa la ruta de la plataforma.
 pos-desktop --restore-backup /ruta/respaldos/hiqnet-pos-1700000000.db
 
-# Windows: el binario es pos-desktop.exe y la ruta por defecto es
-# %LOCALAPPDATA%\HiQNet\POS\data\hiqnet-pos.db
+# Windows: el binario es pos-desktop.exe
 ```
 
-La utilidad:
+Condiciones que se verifican antes de tocar nada:
+
+- la base actual debe existir, abrir y pasar `quick_check`; si falta o está
+  dañada, la CLI rechaza y no improvisa una recuperación sin identidad;
+- el respaldo debe pertenecer a la **misma instalación y organización**;
+- se rechaza si la base o el respaldo contienen material de licencia firmado
+  que no pueda verificarse en este arranque;
+- se conserva el **estado comercial vigente** y el respaldo fuente del operador.
+
+El procedimiento mantiene un único bloqueo del proceso desde la validación hasta
+la reposición del estado comercial. Guarda la ruta absoluta del respaldo en el
+marcador para poder reanudar tras una caída desde otro directorio de trabajo.
+
+### Motor interno
+
+El motor de bajo nivel aplica estas garantías:
 
 1. verifica el respaldo (integridad, tablas, claves foráneas, historial de
    migraciones y versión);
@@ -156,21 +170,18 @@ Al arrancar, la aplicación toma ese mismo bloqueo. Si ya está abierto en el
 equipo, muestra `HiQNet POS ya está abierto en este equipo` en lugar de trabajar
 sobre la base de otra instancia.
 
-Consecuencia: **todo cambio posterior al respaldo se pierde** (ventas,
-deoluciones, compras, gastos, merma, usuarios, licencias y auditoría vuelven al
-estado del archivo). La copia de recuperación permite deshacer una restauración
-equivocada si aún no se operó sobre la base restaurada.
+El flujo diferido de UI conserva el mismo estado comercial y comparte el motor.
 
 No se reemplaza la base desde la interfaz en operación: cerrar el pool activo
 dentro del proceso seguiría dejando el WebView y la sesión en un estado
-inconsistente. La utilidad offline es el procedimiento seguro soportado.
+inconsistente. La utilidad offline es el procedimiento soportado.
 
 ## Recuperación ante fallos
 
 | Situación | Acción |
 | --- | --- |
-| Migración falla al arrancar | No abrir la app; conservar logs; restaurar el respaldo previo |
-| Base corrupta (`quick_check` falla) | Restaurar respaldo verificado; conservar el archivo dañado para análisis |
+| Migración falla al arrancar | No abrir la app; conservar logs; si la base abre, restaurar el respaldo previo |
+| Base corrupta (`quick_check` falla) | Conservar el archivo dañado y usar el respaldo con el procedimiento soportado |
 | Base de versión posterior | Usar el ejecutable correspondiente; no degradar el esquema |
 | Restauración equivocada | Cerrar la app y restaurar `*.pre-restore-<epoch>.db` |
 | `critico=true` en la utilidad | No operar: conservar base, `*.pre-restore-*` y `*.restore-tmp`, y contactar a soporte |
@@ -233,7 +244,8 @@ SQLite real y fallos inyectados):
 Los fallos "inyectados" usan puntos de fallo compilados solo en pruebas
 (`#[cfg(test)]`); no existen en el binario de producción.
 
-`tools/windows-native-e2e/e2e_restore_guard.py` (ejecutable real, base aislada):
+`tools/windows-native-e2e/e2e_restore_guard.py` (reejecutar en Windows con la
+política actual; no se declara PASS sin esa corrida):
 
 - respaldo creado por la aplicación;
 - `--restore-backup` con la aplicación abierta → código 2 y base intacta;
@@ -246,7 +258,7 @@ Los fallos "inyectados" usan puntos de fallo compilados solo en pruebas
 
 ### Conservación de datos de todas las fases
 
-`tools/windows-native-e2e/restore_multiphase_check.py` toma una base generada por
+Históricamente `tools/windows-native-e2e/restore_multiphase_check.py` tomaba una base generada por
 el E2E (ventas, devoluciones, caja, compras, recepciones, gastos, merma,
 inventario y auditoría), crea un snapshot, restaura con la utilidad real sobre una
 copia con WAL y compara el **contenido exacto** de 27 tablas mediante un hash

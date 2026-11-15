@@ -88,6 +88,7 @@ pub struct ReportsView {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CommercialStateView {
+    pub installation_id: InstallationId,
     pub plan: &'static str,
     pub status: &'static str,
     #[serde(with = "time::serde::rfc3339")]
@@ -96,10 +97,34 @@ pub struct CommercialStateView {
     pub read_only: bool,
 }
 
+/// Estado comercial seguro para el arranque. No incluye el identificador de
+/// instalación, que solo puede consultarse con una sesión autorizada.
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicCommercialStateView {
+    pub plan: &'static str,
+    pub status: &'static str,
+    #[serde(with = "time::serde::rfc3339")]
+    pub valid_until: OffsetDateTime,
+    pub features: Vec<&'static str>,
+    pub read_only: bool,
+}
+
+impl From<CommercialStateView> for PublicCommercialStateView {
+    fn from(value: CommercialStateView) -> Self {
+        Self {
+            plan: value.plan,
+            status: value.status,
+            valid_until: value.valid_until,
+            features: value.features,
+            read_only: value.read_only,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AppStatus {
     pub initialized: bool,
     pub product_version: &'static str,
-    pub commercial: Option<CommercialStateView>,
+    pub commercial: Option<PublicCommercialStateView>,
     pub user_count: i64,
 }

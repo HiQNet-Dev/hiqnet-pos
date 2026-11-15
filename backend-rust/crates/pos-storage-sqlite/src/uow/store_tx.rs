@@ -15,6 +15,22 @@ impl StoreTx for SqliteTx {
         organization::save_installation_state(self, state).await
     }
 
+    async fn insert_commercial_binding(&mut self, binding: &CommercialBinding) -> AppResult<()> {
+        organization::insert_commercial_binding(self, binding).await
+    }
+
+    async fn save_enrollment_session(&mut self, session: &EnrollmentSession) -> AppResult<()> {
+        organization::save_enrollment_session(self, session).await
+    }
+
+    async fn enrollment_session(&mut self) -> AppResult<Option<EnrollmentSession>> {
+        organization::enrollment_session(self).await
+    }
+
+    async fn clear_enrollment_session(&mut self) -> AppResult<()> {
+        organization::clear_enrollment_session(self).await
+    }
+
     async fn insert_organization(&mut self, organization: &Organization) -> AppResult<()> {
         organization::insert_organization(self, organization).await
     }

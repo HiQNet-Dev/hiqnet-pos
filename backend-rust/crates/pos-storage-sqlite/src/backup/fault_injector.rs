@@ -11,6 +11,8 @@ fn mask(step: RestoreStep) -> u32 {
         RestoreStep::Promotion => 1 << 3,
         RestoreStep::FinalVerification => 1 << 4,
         RestoreStep::Rollback => 1 << 5,
+        RestoreStep::BackupValidation => 1 << 6,
+        RestoreStep::BackupTemporaryCleanup => 1 << 7,
     }
 }
 

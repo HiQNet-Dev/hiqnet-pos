@@ -4,7 +4,8 @@ import {
   userDraftSchema,
   type Actor,
   type AuditEvent,
-  type CommercialState,
+  type PublicCommercialState,
+  type PlatformEnrollment,
   type RestorePreview,
   type User,
 } from "../contracts";
@@ -12,8 +13,9 @@ import { Modal } from "../components/Modal";
 
 interface Props {
   actor: Actor;
-  commercial: CommercialState | null;
+  commercial: PublicCommercialState | null;
   readOnly: boolean;
+  onCommercialChanged?: () => Promise<void>;
 }
 
 function formatDate(value: string): string {
@@ -95,10 +97,11 @@ const ACTION_LABELS: Record<string, string> = {
   "users.password_changed": "Contraseña actualizada",
 };
 
-export function AdminScreen({ actor, commercial, readOnly }: Props) {
+export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }: Props) {
   const canAudit = actor.permissions.includes("audit.view");
   const canBackup = actor.permissions.includes("backups.manage");
   const canManageUsers = actor.permissions.includes("users.manage");
+  const canActivateLicense = actor.permissions.includes("organization.manage");
 
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [auditLoading, setAuditLoading] = useState(canAudit);
@@ -109,10 +112,24 @@ export function AdminScreen({ actor, commercial, readOnly }: Props) {
   const [busy, setBusy] = useState(false);
   const [safAvailable, setSafAvailable] = useState(false);
   const [restorePreview, setRestorePreview] = useState<RestorePreview | null>(null);
+  const [grantJson, setGrantJson] = useState("");
+  const [signature, setSignature] = useState("");
+  const [licenseBusy, setLicenseBusy] = useState(false);
+  const [licenseNotice, setLicenseNotice] = useState<string | null>(null);
+  const [installationId, setInstallationId] = useState<string | null>(null);
+  const [enrollment, setEnrollment] = useState<PlatformEnrollment | null>(null);
+  const [enrollmentBusy, setEnrollmentBusy] = useState(false);
 
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<User | null>(null);
   const [confirming, setConfirming] = useState<{ user: User; active: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!canActivateLicense) return;
+    api.commercialState()
+      .then((state) => setInstallationId(state.installation_id))
+      .catch((cause: unknown) => setError(messageOf(cause, "No fue posible cargar la instalación.")));
+  }, [canActivateLicense]);
 
   const loadAudit = useCallback(async () => {
     if (!canAudit) return;
@@ -190,6 +207,70 @@ export function AdminScreen({ actor, commercial, readOnly }: Props) {
   async function refresh() {
     if (canManageUsers) setUsers(await api.listUsers());
     await loadAudit();
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!canActivateLicense) return;
+    api
+      .platformEnrollmentStatus()
+      .then((view) => {
+        if (!cancelled) setEnrollment(view);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [canActivateLicense]);
+
+  async function beginEnrollment() {
+    if (enrollmentBusy) return;
+    setEnrollmentBusy(true);
+    setError(null);
+    try {
+      setEnrollment(await api.beginPlatformEnrollment());
+    } catch (cause) {
+      setError(messageOf(cause, "No fue posible iniciar la vinculación con Platform."));
+    } finally {
+      setEnrollmentBusy(false);
+    }
+  }
+
+  async function completeEnrollment() {
+    if (enrollmentBusy) return;
+    setEnrollmentBusy(true);
+    setError(null);
+    try {
+      setEnrollment(await api.completePlatformEnrollment());
+    } catch (cause) {
+      setError(messageOf(cause, "La vinculación aún no está aprobada o el código venció."));
+    } finally {
+      setEnrollmentBusy(false);
+    }
+  }
+
+  async function activateLicense() {
+    if (licenseBusy) return;
+    setError(null);
+    setLicenseNotice(null);
+    if (!grantJson.trim() || !signature.trim()) {
+      setError("Pega el documento de licencia y su firma antes de continuar.");
+      return;
+    }
+    setLicenseBusy(true);
+    try {
+      await api.installLicense(grantJson.trim(), signature.trim());
+      setGrantJson("");
+      setSignature("");
+      setLicenseNotice("Licencia instalada y verificada.");
+      await onCommercialChanged?.();
+    } catch (cause) {
+      setError(
+        messageOf(cause, "La licencia no se pudo verificar. Revisa el documento y la firma."),
+      );
+    } finally {
+      setLicenseBusy(false);
+    }
   }
 
   async function backup() {
@@ -432,6 +513,119 @@ export function AdminScreen({ actor, commercial, readOnly }: Props) {
                   </ul>
                 )}
               </div>
+              {canActivateLicense && (
+                <div className="license-activation">
+                  <p className="section-label">Vincular con HiQNet Platform</p>
+                  <p className="muted">
+                    Genera un código, apruébalo en el Portal con la cuenta propietaria y
+                    completa la vinculación. Solo se comparte la clave pública del equipo.
+                  </p>
+                  {enrollment?.status === "completed" ? (
+                    <p className="muted" role="status">
+                      Equipo vinculado con la organización comercial{" "}
+                      {enrollment.organization_id}.
+                    </p>
+                  ) : enrollment?.status === "pending" ? (
+                    <>
+                      <dl className="metric-grid">
+                        <div>
+                          <dt>Código para el Portal</dt>
+                          <dd className="metric-text">{enrollment.user_code}</dd>
+                        </div>
+                        <div>
+                          <dt>Vence</dt>
+                          <dd>{enrollment.expires_at ? formatDate(enrollment.expires_at) : "—"}</dd>
+                        </div>
+                      </dl>
+                      <p className="muted">
+                        Abre {enrollment.verification_uri} e introduce el código desde la
+                        cuenta propietaria de la organización.
+                      </p>
+                      <div className="row-actions">
+                        <button
+                          type="button"
+                          className="button button-primary"
+                          onClick={() => void completeEnrollment()}
+                          disabled={enrollmentBusy}
+                        >
+                          {enrollmentBusy ? "Verificando…" : "Ya está aprobado, completar"}
+                        </button>
+                        <button
+                          type="button"
+                          className="button"
+                          onClick={() => void beginEnrollment()}
+                          disabled={enrollmentBusy}
+                        >
+                          Generar nuevo código
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="button"
+                        onClick={() => void beginEnrollment()}
+                        disabled={enrollmentBusy}
+                      >
+                        {enrollmentBusy ? "Generando…" : "Generar código de vinculación"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {canActivateLicense && (
+                <div className="license-activation">
+                  <p className="section-label">Activar licencia</p>
+                  <p className="muted">
+                    Pega el documento y la firma emitidos por HiQNet Platform para esta
+                    instalación. El documento se verifica antes de guardarse.
+                  </p>
+                  <dl className="metric-grid">
+                    <div>
+                      <dt>Identificador de instalación</dt>
+                      <dd className="metric-text">{installationId ?? "No disponible"}</dd>
+                    </div>
+                  </dl>
+                  <label className="field">
+                    <span>Documento de licencia (JSON)</span>
+                    <textarea
+                      value={grantJson}
+                      onChange={(event) => setGrantJson(event.target.value)}
+                      rows={4}
+                      spellCheck={false}
+                      autoComplete="off"
+                      aria-label="Documento de licencia"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Firma Ed25519 (base64)</span>
+                    <textarea
+                      value={signature}
+                      onChange={(event) => setSignature(event.target.value)}
+                      rows={2}
+                      spellCheck={false}
+                      autoComplete="off"
+                      aria-label="Firma de licencia"
+                    />
+                  </label>
+                  <div className="row-actions">
+                    <button
+                      type="button"
+                      className="button button-primary"
+                      onClick={() => void activateLicense()}
+                      disabled={licenseBusy}
+                    >
+                      {licenseBusy ? "Verificando…" : "Instalar licencia"}
+                    </button>
+                  </div>
+                  {licenseNotice && (
+                    <p className="muted" role="status">
+                      {licenseNotice}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <p className="muted empty-cell">Sin información comercial disponible.</p>

@@ -123,6 +123,15 @@ pub struct InstallationState {
     /// Momento de la última instalación de un grant verificado. Persistente:
     /// si el grant desaparece de la base, la instalación no vuelve al trial.
     pub license_installed_at: Option<OffsetDateTime>,
+    pub commercial_binding: Option<CommercialBinding>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CommercialBinding {
+    pub installation_id: InstallationId,
+    pub organization_id: OrganizationId,
+    pub proof_json: String,
+    pub proof_signature_b64: String,
 }
 
 /// Puertos de persistencia. La implementación transaccional vive en
@@ -136,6 +145,10 @@ pub trait Store: Send + Sync {
 pub trait StoreTx: Send {
     async fn installation_state(&mut self) -> AppResult<Option<InstallationState>>;
     async fn save_installation_state(&mut self, state: &InstallationState) -> AppResult<()>;
+    async fn insert_commercial_binding(&mut self, binding: &CommercialBinding) -> AppResult<()>;
+    async fn save_enrollment_session(&mut self, session: &EnrollmentSession) -> AppResult<()>;
+    async fn enrollment_session(&mut self) -> AppResult<Option<EnrollmentSession>>;
+    async fn clear_enrollment_session(&mut self) -> AppResult<()>;
 
     async fn insert_organization(&mut self, organization: &Organization) -> AppResult<()>;
     async fn insert_branch(&mut self, branch: &Branch) -> AppResult<()>;
@@ -560,3 +573,103 @@ pub type SharedLicenseVerifier = std::sync::Arc<dyn LicenseVerifier>;
 pub fn storage_error(_detail: impl std::fmt::Display) -> AppError {
     AppError::Storage
 }
+
+/// Sesión local del enrolamiento con Platform. `device_code` es un secreto de
+/// un solo uso y nunca se envía a la interfaz.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnrollmentSession {
+    pub platform_url: String,
+    pub device_code: Option<String>,
+    pub user_code: String,
+    pub verification_uri: String,
+    pub nonce: String,
+    pub expires_at: OffsetDateTime,
+    pub installation_id: InstallationId,
+    pub status: EnrollmentSessionStatus,
+    pub organization_id: Option<OrganizationId>,
+    pub bound_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnrollmentSessionStatus {
+    Pending,
+    Completed,
+}
+
+impl EnrollmentSessionStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Completed => "completed",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(Self::Pending),
+            "completed" => Some(Self::Completed),
+            _ => None,
+        }
+    }
+}
+
+/// Datos que POS envía al iniciar un challenge. La clave pública es la única
+/// información criptográfica que viaja.
+#[derive(Debug, Clone)]
+pub struct BeginPlatformEnrollment {
+    pub installation_id: InstallationId,
+    pub product_key: String,
+    pub public_key: String,
+    pub device_label: String,
+    pub app_version: String,
+    pub platform: String,
+}
+
+/// Respuesta del challenge; los secretos se entregan una sola vez.
+#[derive(Debug, Clone)]
+pub struct PlatformChallenge {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_uri: String,
+    pub nonce: String,
+    pub expires_in_seconds: u64,
+}
+
+/// Proof firmado por la identidad del dispositivo.
+#[derive(Debug, Clone)]
+pub struct PlatformProof {
+    pub device_code: String,
+    pub installation_id: InstallationId,
+    pub public_key: String,
+    pub nonce: String,
+    pub signature_b64: String,
+}
+
+/// Resultado verificado por Platform.
+#[derive(Debug, Clone)]
+pub struct PlatformEnrollmentBinding {
+    pub installation_id: InstallationId,
+    pub organization_id: OrganizationId,
+    pub bound_at: OffsetDateTime,
+}
+
+/// Cliente HTTP de enrolamiento. La aplicación no conoce reqwest ni URLs.
+#[async_trait::async_trait]
+pub trait PlatformEnrollmentClient: Send + Sync {
+    async fn begin(&self, request: BeginPlatformEnrollment) -> AppResult<PlatformChallenge>;
+    async fn prove(&self, request: PlatformProof) -> AppResult<PlatformEnrollmentBinding>;
+}
+
+/// Firma del dispositivo. El adaptador Ed25519 vive en `pos-licensing`.
+pub trait DeviceSigner: Send + Sync {
+    fn public_key(&self) -> String;
+    fn sign_proof(
+        &self,
+        device_code: &str,
+        installation_id: InstallationId,
+        nonce: &str,
+    ) -> AppResult<String>;
+}
+
+pub type SharedDeviceSigner = std::sync::Arc<dyn DeviceSigner>;
+pub type SharedPlatformEnrollmentClient = std::sync::Arc<dyn PlatformEnrollmentClient>;

@@ -21,6 +21,7 @@ pub(super) struct InstallationRecord {
     pub(super) license_status: String,
     pub(super) features_json: String,
     pub(super) trial_started_at: String,
+    pub(super) license_installed_at: Option<String>,
     pub(super) valid_until: String,
     pub(super) license_grant_json: Option<String>,
     pub(super) license_signature_b64: Option<String>,
@@ -89,13 +90,31 @@ pub(super) async fn read_installation(
         .map_err(|_| error.clone())?;
     let row = sqlx::query(
         "SELECT installation_id, organization_id, plan, license_status, features_json, \
-         trial_started_at, valid_until, license_grant_json, license_signature_b64 \
+          trial_started_at, license_installed_at, valid_until, license_grant_json, license_signature_b64 \
          FROM local_installation_state WHERE id = 1",
     )
     .fetch_optional(&mut connection)
     .await
     .map_err(|_| error.clone())?
     .ok_or(error.clone())?;
+    // El vínculo comercial también contiene una prueba firmada. Restaurarlo
+    // sin verificador (o perder el vínculo vigente) cambiaría los derechos.
+    // Los respaldos anteriores a la tabla siguen siendo legibles.
+    let has_binding_table: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'commercial_binding'",
+    )
+    .fetch_one(&mut connection)
+    .await
+    .map_err(|_| error.clone())?;
+    if has_binding_table != 0 {
+        let has_binding: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM commercial_binding")
+            .fetch_one(&mut connection)
+            .await
+            .map_err(|_| error.clone())?;
+        if has_binding != 0 {
+            return Err(StorageError::RestoreLicensePolicy);
+        }
+    }
     let record = InstallationRecord {
         installation_id: row.get("installation_id"),
         organization_id: row.get("organization_id"),
@@ -103,6 +122,7 @@ pub(super) async fn read_installation(
         license_status: row.get("license_status"),
         features_json: row.get("features_json"),
         trial_started_at: row.get("trial_started_at"),
+        license_installed_at: row.get("license_installed_at"),
         valid_until: row.get("valid_until"),
         license_grant_json: row.get("license_grant_json"),
         license_signature_b64: row.get("license_signature_b64"),
@@ -114,11 +134,13 @@ pub(super) async fn read_installation(
     Ok(record)
 }
 
-pub(super) async fn restore_preserved_commercial(
+/// Variante para quien ya mantiene el bloqueo del proceso durante toda la
+/// restauración (validación, promoción y reposición comercial).
+pub(super) async fn restore_preserved_commercial_locked(
     database_path: &Path,
     state: &InstallationRecord,
+    _process_lock: &DatabaseLock,
 ) -> Result<(), StorageError> {
-    let _process_lock = try_lock(database_path)?;
     let mut connection = SqliteConnectOptions::new()
         .filename(database_path)
         .create_if_missing(false)
@@ -133,7 +155,7 @@ pub(super) async fn restore_preserved_commercial(
     let update = sqlx::query(
         "UPDATE local_installation_state SET \
          installation_id = ?, organization_id = ?, plan = ?, license_status = ?, features_json = ?, \
-         trial_started_at = ?, valid_until = ?, license_grant_json = ?, license_signature_b64 = ?, \
+          trial_started_at = ?, license_installed_at = ?, valid_until = ?, license_grant_json = ?, license_signature_b64 = ?, \
          updated_at = ? WHERE id = 1",
     )
     .bind(&state.installation_id)
@@ -142,6 +164,7 @@ pub(super) async fn restore_preserved_commercial(
     .bind(&state.license_status)
     .bind(&state.features_json)
     .bind(&state.trial_started_at)
+    .bind(&state.license_installed_at)
     .bind(&state.valid_until)
     .bind(&state.license_grant_json)
     .bind(&state.license_signature_b64)

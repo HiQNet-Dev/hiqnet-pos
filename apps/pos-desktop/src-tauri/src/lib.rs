@@ -27,6 +27,7 @@ use pos_security::Argon2idHasher;
 use pos_storage_sqlite::SqliteStore;
 use serde::Serialize;
 mod licensing;
+pub mod platform_enrollment;
 
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_saf_document::{ExportRequest, ImportRequest, SafDocumentExt};
@@ -644,7 +645,8 @@ async fn list_audit_events(
 
 #[tauri::command(rename_all = "snake_case")]
 async fn commercial_state(state: State<'_, AppState>) -> IpcResult<CommercialStateView> {
-    Ok(state.service.commercial_state().await?)
+    let actor = authenticated(&state).await?;
+    Ok(state.service.commercial_state(&actor).await?)
 }
 
 /// Crea un respaldo consistente de la base local y lo registra en auditoría.
@@ -959,6 +961,37 @@ pub fn run() {
                     service
                 }
             };
+            // El enrolamiento es opcional: sin URL configurada la app sigue
+            // operando 100 % offline y los comandos fallan con un error claro.
+            let service = match std::env::var("HIQNET_PLATFORM_URL") {
+                Ok(value) if !value.trim().is_empty() => {
+                    match (
+                        pos_application::normalize_platform_url(&value),
+                        platform_enrollment::load_or_create_identity(&db_path),
+                    ) {
+                        (Ok(url), Ok(identity)) => match platform_enrollment::HttpPlatformEnrollment::new(url.clone()) {
+                            Ok(client) => service.with_platform_enrollment(
+                                Arc::new(identity),
+                                Arc::new(client),
+                                url,
+                            ),
+                            Err(error) => {
+                                tracing::warn!(%error, "cliente de enrolamiento no disponible");
+                                service
+                            }
+                        },
+                        (Err(_), _) => {
+                            tracing::warn!("HIQNET_PLATFORM_URL invalida: enrolamiento deshabilitado");
+                            service
+                        }
+                        (_, Err(error)) => {
+                            tracing::warn!(%error, "identidad de dispositivo no disponible: enrolamiento deshabilitado");
+                            service
+                        }
+                    }
+                }
+                _ => service,
+            };
 
             app.manage(AppState {
                 db_path,
@@ -1030,6 +1063,9 @@ pub fn run() {
             list_inventory_movements,
             list_audit_events,
             commercial_state,
+            platform_enrollment::platform_enrollment_status,
+            platform_enrollment::begin_platform_enrollment,
+            platform_enrollment::complete_platform_enrollment,
             backup_database,
             saf_backup_available,
             export_saf_backup,

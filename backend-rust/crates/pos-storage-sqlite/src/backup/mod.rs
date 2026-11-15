@@ -4,7 +4,7 @@
 //! en `restore`: no debe fragmentarse, porque su atomicidad depende del orden
 //! y de la ventana entre el checkpoint y el reemplazo del archivo.
 
-use crate::lock::try_lock;
+use crate::lock::{DatabaseLock, try_lock};
 use crate::{StorageError, embedded_migrations, latest_schema_version};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -36,8 +36,8 @@ use verify::*;
 
 pub use file::backup_to;
 pub use pending::{
-    PendingRestoreOutcome, cleanup_saf_staging, consume_pending_restore, saf_workspace,
-    schedule_pending_restore,
+    PendingRestoreOutcome, cleanup_saf_staging, consume_pending_restore, restore_cli_backup,
+    saf_workspace, schedule_pending_restore,
 };
 pub use policy::{RestorePreview, preview_restore_candidate};
 pub use restore::{RestoreReport, restore_from_backup};

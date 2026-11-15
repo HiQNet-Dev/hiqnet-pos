@@ -429,8 +429,46 @@ Devuelve eventos en orden descendente.
 
 ## `commercial_state`
 
-Devuelve el estado comercial efectivo (con reloj actual). Requiere instalación
-inicializada.
+Devuelve el estado comercial efectivo (con reloj actual). Requiere una sesión
+autenticada con `organization.manage` e instalación inicializada. Incluye
+`installation_id` para que el propietario pueda solicitar la licencia
+correspondiente a esta instalación. El estado público de arranque no incluye
+ese identificador.
+
+## `platform_enrollment_status`
+
+Requiere `organization.manage`. Devuelve el estado del enrolamiento sin
+secretos: `none`, `pending` o
+`completed`, el `user_code` y la URL de verificación cuando existe. Nunca
+expone `device_code` ni la clave privada del dispositivo.
+
+## `begin_platform_enrollment`
+
+Requiere `organization.manage` y `HIQNET_PLATFORM_URL` configurada. Genera un
+challenge en Platform con el `installation_id` local y la clave pública Ed25519
+del dispositivo (`ed25519:v1:<base64url>`). Persiste el challenge y lo audita.
+
+## `complete_platform_enrollment`
+
+Requiere `organization.manage`. Firma el mensaje canónico
+`hiqnet-enrollment-proof:v1` con la clave privada local y lo envía a Platform.
+Solo si el owner aprobó el código en el Portal, Platform devuelve la
+organización comercial y el binding. No concede derechos comerciales: la
+licencia firmada sigue siendo obligatoria para escribir.
+
+## `install_license`
+
+Requiere permiso `organization.manage`. Entrada
+`{ "grant_json": string, "signature_b64": string }`; devuelve el estado
+comercial verificado. El documento se verifica con la clave pública embebida
+antes de persistirse. Si el `organization_id` del grant difiere del local, el
+primer grant firmado crea el vínculo comercial en la misma transacción que la
+licencia y su auditoría; los identificadores locales y sus datos no se
+reescriben. Un grant manipulado, de otra instalación o de otro tenant se
+rechaza sin alterar el estado vigente.
+
+La emisión del documento corresponde a HiQNet Platform. Esta beta no habilita
+emisión productiva ni custodia de clave.
 
 ## `backup_database`
 

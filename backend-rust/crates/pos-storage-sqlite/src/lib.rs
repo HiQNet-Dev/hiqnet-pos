@@ -16,13 +16,13 @@ pub mod uow;
 
 pub use backup::{
     PendingRestoreOutcome, RestorePreview, RestoreReport, backup_to, cleanup_saf_staging,
-    consume_pending_restore, open_read_only, preview_restore_candidate, restore_from_backup,
-    saf_workspace, schedule_pending_restore, verify_backup,
+    consume_pending_restore, open_read_only, preview_restore_candidate, restore_cli_backup,
+    restore_from_backup, saf_workspace, schedule_pending_restore, verify_backup,
 };
 pub use lock::{DatabaseLock, lock_path, try_lock};
 pub use paths::{
     DATABASE_PATH_ENV, DatabasePathError, HostPlatform, database_path_from_env,
-    default_database_path, resolved_database_path,
+    default_database_path, device_identity_path, resolved_database_path,
 };
 pub use uow::SqliteStore;
 
@@ -56,6 +56,9 @@ pub enum StorageError {
 
     #[error("no fue posible respaldar la base de datos")]
     Backup,
+
+    #[error("no fue posible eliminar un archivo temporal sensible del respaldo")]
+    BackupTemporaryCleanup,
 
     #[error("el respaldo no es válido")]
     InvalidBackup,

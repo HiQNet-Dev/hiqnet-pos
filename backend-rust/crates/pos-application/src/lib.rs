@@ -9,11 +9,14 @@ pub mod service;
 
 pub use error::{AppError, AppResult, ErrorView};
 pub use ports::{
-    CashReportTotals, CatalogConfiguration, Clock, ExpenseCategoryReportRow, ExpensesReportTotals,
-    InstallationState, InventoryReportTotals, LicenseVerifier, PasswordHasher,
-    ProductSalesReportRow, PurchasesReportTotals, ReturnedTotals, ReturnsReportTotals,
-    SalesReportTotals, SharedClock, SharedHasher, SharedLicenseVerifier, SharedStore, Store,
-    StoreTx, SystemClock, VerifiedLicense,
+    BeginPlatformEnrollment, CashReportTotals, CatalogConfiguration, Clock, CommercialBinding,
+    DeviceSigner, EnrollmentSession, EnrollmentSessionStatus, ExpenseCategoryReportRow,
+    ExpensesReportTotals, InstallationState, InventoryReportTotals, LicenseVerifier,
+    PasswordHasher, PlatformChallenge, PlatformEnrollmentBinding, PlatformEnrollmentClient,
+    PlatformProof, ProductSalesReportRow, PurchasesReportTotals, ReturnedTotals,
+    ReturnsReportTotals, SalesReportTotals, SharedClock, SharedDeviceSigner, SharedHasher,
+    SharedLicenseVerifier, SharedPlatformEnrollmentClient, SharedStore, Store, StoreTx,
+    SystemClock, VerifiedLicense,
 };
 pub use service::{
     AppStatus, AuditEventView, BootstrapRequest, BootstrapResponse, BranchView,
@@ -22,8 +25,8 @@ pub use service::{
     ChangeOwnPasswordDraft, CheckoutDraft, CommercialStateView, ExpenseCategoryDraft,
     ExpenseCategoryView, ExpenseDraft, ExpenseView, InventoryMovementDraft, InventoryMovementView,
     LoginRequest, ModifierConfigurationDraft, ModifierConfigurationView, ModifierGroupDraft,
-    ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PosService, ProductDraft,
-    ProductPricePreviewView, ProductVariantDraft, ProductVariantView, ProductView,
+    ModifierGroupView, ModifierOptionDraft, ModifierOptionView, PlatformEnrollmentView, PosService,
+    ProductDraft, ProductPricePreviewView, ProductVariantDraft, ProductVariantView, ProductView,
     PurchaseOrderDraft, PurchaseOrderLineDraft, PurchaseOrderLineView, PurchaseOrderView,
     PurchaseReceiptDraft, PurchaseReceiptLineDraft, ReportsCashView, ReportsExpenseCategoryView,
     ReportsExpensesView, ReportsInventoryView, ReportsProductView, ReportsPurchasesView,
@@ -32,4 +35,5 @@ pub use service::{
     SaleReturnLineDraft, SaleReturnLineView, SaleReturnPreviewDraft, SaleReturnPreviewLineView,
     SaleReturnPreviewView, SaleReturnView, SaleView, SetUserActiveDraft, StockLevelView,
     SupplierDraft, SupplierView, UserDraft, UserView, WasteDraft, WasteView,
+    normalize_platform_url,
 };

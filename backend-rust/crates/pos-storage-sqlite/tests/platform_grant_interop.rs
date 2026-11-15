@@ -65,26 +65,16 @@ fn service(pool: sqlx::SqlitePool) -> PosService {
     PosService::new(store, hasher, clock).with_license_verifier(verifier)
 }
 
-/// Ajusta la identidad local a la del grant (equivalente a un dispositivo
-/// enrolado con esas identidades en Platform). No toca el documento ni la
-/// firma: sólo hace que la instalación local sea la destinataria del grant.
+/// Ajusta la identidad local de instalación a la del grant. La organización
+/// local se conserva: el grant comercial de Platform se vincula mediante
+/// `commercial_binding` sin reescribir las claves locales ni sus datos.
 async fn reidentificar(pool: &sqlx::SqlitePool, fixture: &Fixture) {
-    let organizacion = fixture.grant.organization_id.as_uuid().to_string();
     let instalacion = fixture.grant.installation_id.as_uuid().to_string();
     sqlx::query(
-        "INSERT OR IGNORE INTO organization (id, name, created_at) \
-             VALUES (?, 'Organización del fixture', '2026-01-01T00:00:00Z')",
-    )
-    .bind(&organizacion)
-    .execute(pool)
-    .await
-    .unwrap();
-    sqlx::query(
         "UPDATE local_installation_state \
-             SET installation_id = ?, organization_id = ? WHERE id = 1",
+             SET installation_id = ? WHERE id = 1",
     )
     .bind(&instalacion)
-    .bind(&organizacion)
     .execute(pool)
     .await
     .unwrap();
@@ -131,6 +121,7 @@ async fn el_grant_de_platform_se_instala_verifica_y_sobrevive_al_reinicio() {
         })
         .await
         .unwrap();
+    reidentificar(&pool, &fixture).await;
     let actor = instalador
         .login(LoginRequest {
             username: "owner".into(),
@@ -138,7 +129,6 @@ async fn el_grant_de_platform_se_instala_verifica_y_sobrevive_al_reinicio() {
         })
         .await
         .unwrap();
-    reidentificar(&pool, &fixture).await;
 
     // Instalación con los bytes originales de Platform, sin reconstruir ni
     // volver a firmar.
@@ -201,6 +191,7 @@ async fn el_documento_manipulado_del_fixture_se_rechaza() {
         })
         .await
         .unwrap();
+    reidentificar(&pool, &fixture).await;
     let actor = servicio
         .login(LoginRequest {
             username: "owner".into(),
@@ -208,7 +199,6 @@ async fn el_documento_manipulado_del_fixture_se_rechaza() {
         })
         .await
         .unwrap();
-    reidentificar(&pool, &fixture).await;
 
     // Manipulación mínima del JSON canónico: la vigencia cambia de mes.
     let manipulado = fixture

@@ -47,13 +47,23 @@ pub async fn restore_from_backup(
     database_path: &Path,
     backup_path: &Path,
 ) -> Result<RestoreReport, StorageError> {
+    let process_lock = try_lock(database_path)?;
+    restore_from_backup_locked(database_path, backup_path, &process_lock).await
+}
+
+/// Variante que exige un [`DatabaseLock`] ya tomado. Permite a la restauración
+/// diferida mantener una sola exclusión desde la validación hasta la reposición
+/// del estado comercial, sin reabrirlo entre etapas.
+pub(crate) async fn restore_from_backup_locked(
+    database_path: &Path,
+    backup_path: &Path,
+    _process_lock: &DatabaseLock,
+) -> Result<RestoreReport, StorageError> {
     verify_backup(backup_path).await?;
 
     if let Some(parent) = database_path.parent() {
         std::fs::create_dir_all(parent).map_err(|_| StorageError::Restore)?;
     }
-
-    let _process_lock = try_lock(database_path)?;
 
     // 1. Estado previo: checkpoint seguro, copia de recuperación y bloqueo
     //    exclusivo que se mantiene hasta después del reemplazo.
@@ -192,6 +202,23 @@ pub(super) async fn prepare_destination(
         let _ = std::fs::remove_file(&path);
     }
 
+    // `VACUUM INTO` copia literalmente el estado anterior. Antes de que esta
+    // copia pueda conservarse o servir para revertir, aplica la misma política
+    // de exportación que un respaldo: no persiste challenges pendientes y
+    // conserva los vínculos completados sin `device_code` (constraint 0014).
+    if let Err(_error) = redact_enrollment_device_codes(&path).await {
+        let _ = guard.close().await;
+        let _ = std::fs::remove_file(&path);
+        // La copia de recuperación es parte de la restauración: un fallo al
+        // sanearla no debe reportarse como fallo de respaldo.
+        return Err(StorageError::Restore);
+    }
+    if sync_file(&path).is_err() {
+        let _ = guard.close().await;
+        let _ = std::fs::remove_file(&path);
+        return Err(StorageError::Restore);
+    }
+
     if wal_has_data(database_path) {
         let _ = guard.close().await;
         let _ = std::fs::remove_file(&path);
@@ -310,6 +337,10 @@ pub(super) async fn promote_and_verify(
     if fault(RestoreStep::StagedValidation) {
         let _ = std::fs::write(staged.path(), b"temporal corrupto");
     }
+    redact_enrollment_device_codes(staged.path())
+        .await
+        .map_err(|_| fail(StorageError::Restore, false))?;
+    sync_file(staged.path()).map_err(|_| fail(StorageError::Restore, false))?;
 
     let validation = if strict {
         verify_backup(staged.path()).await
@@ -376,7 +407,10 @@ pub(super) async fn promote_and_verify(
     } else {
         verify_snapshot(database_path).await
     };
-    validation.map_err(|error| fail(error, true))
+    validation.map_err(|error| fail(error, true))?;
+    redact_enrollment_device_codes(database_path)
+        .await
+        .map_err(|error| fail(error, true))
 }
 
 /// Devuelve la base al estado previo y comprueba que quedó íntegra.
