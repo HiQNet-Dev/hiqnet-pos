@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { api, IpcError } from "../api";
-import type { Actor, CashShift, Expense, ExpenseCategory, ExpenseDraft } from "../contracts";
+import type {
+  Actor,
+  CashShift,
+  Expense,
+  ExpenseCategory,
+  ExpenseDraft,
+} from "../contracts";
 import { displayMoney } from "../lib/money";
 import type { PendingExpenseAttempt } from "../lib/pendingAttempt";
 
@@ -19,9 +25,11 @@ function messageOf(cause: unknown, fallback: string) {
 
 /** Un error de transporte no confirma ni descarta el hecho en SQLite. */
 function isUncertain(cause: unknown): boolean {
-  return !(cause instanceof IpcError) ||
+  return (
+    !(cause instanceof IpcError) ||
     cause.code === "storage_error" ||
-    cause.code === "unknown_error";
+    cause.code === "unknown_error"
+  );
 }
 
 export function ExpensesScreen({
@@ -81,7 +89,9 @@ export function ExpensesScreen({
     setError(null);
     setNotice(null);
     try {
-      const category = await api.createExpenseCategory({ name: categoryName.trim() });
+      const category = await api.createExpenseCategory({
+        name: categoryName.trim(),
+      });
       setCategories((items) => [...items, category]);
       setCategoryName("");
       setNotice("Categoría creada.");
@@ -128,13 +138,14 @@ export function ExpensesScreen({
   async function record(event: React.FormEvent) {
     event.preventDefault();
     if (readOnly || locked) return;
-    if (!categoryId || !amount || !concept.trim() || (fromCash && !shift)) return;
+    if (!categoryId || !amount || !concept.trim() || (fromCash && !shift))
+      return;
     const payload: ExpenseDraft = {
       category_id: categoryId,
       amount,
       concept: concept.trim(),
       paid_from_cash: fromCash,
-      shift_id: fromCash ? shift?.id ?? null : null,
+      shift_id: fromCash ? (shift?.id ?? null) : null,
       idempotency_key: crypto.randomUUID(),
     };
     await send({
@@ -155,7 +166,8 @@ export function ExpensesScreen({
         <div>
           <h1>Gastos</h1>
           <p className="screen-subtitle">
-            Un gasto registra el hecho económico; solo el pago desde caja modifica efectivo.
+            Un gasto registra el hecho económico; solo el pago desde caja
+            modifica efectivo.
           </p>
         </div>
       </header>
@@ -168,13 +180,16 @@ export function ExpensesScreen({
       )}
 
       {pendingAttempt && (
-        <section className="surface attention" aria-label="Gasto pendiente de confirmar">
+        <section
+          className="surface attention"
+          aria-label="Gasto pendiente de confirmar"
+        >
           <header className="surface-header">
             <div>
               <h2>Gasto pendiente de confirmar</h2>
               <p className="muted">
-                Se reintentará la misma operación: no se registrará un segundo gasto ni una
-                segunda salida de caja.
+                Se reintentará la misma operación: no se registrará un segundo
+                gasto ni una segunda salida de caja.
               </p>
             </div>
           </header>
@@ -185,11 +200,15 @@ export function ExpensesScreen({
             </div>
             <div>
               <dt>Importe</dt>
-              <dd className="mono">{displayMoney(pendingAttempt.payload.amount)}</dd>
+              <dd className="mono">
+                {displayMoney(pendingAttempt.payload.amount)}
+              </dd>
             </div>
             <div>
               <dt>Origen</dt>
-              <dd>{pendingAttempt.payload.paid_from_cash ? "Caja" : "Externo"}</dd>
+              <dd>
+                {pendingAttempt.payload.paid_from_cash ? "Caja" : "Externo"}
+              </dd>
             </div>
           </dl>
           <button
@@ -203,8 +222,91 @@ export function ExpensesScreen({
         </section>
       )}
 
-      <div className="purchasing-layout">
-        <section className="surface">
+      <div className="expenses-layout">
+        <section className="surface expense-registration">
+          <header className="surface-header">
+            <div>
+              <h2>Registrar gasto</h2>
+              <p className="muted">
+                {fromCash
+                  ? "Creará una salida en el turno abierto."
+                  : "No afecta el saldo de caja."}
+              </p>
+            </div>
+          </header>
+          <form
+            className="form-grid form-compact expense-form"
+            onSubmit={record}
+          >
+            <label className="field expense-category-field">
+              <span>Categoría</span>
+              <select
+                value={categoryId}
+                onChange={(event) => setCategoryId(event.target.value)}
+                disabled={locked}
+              >
+                <option value="">Selecciona una categoría</option>
+                {categories
+                  .filter((category) => category.active)
+                  .map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field expense-concept-field">
+              <span>Concepto</span>
+              <input
+                value={concept}
+                onChange={(event) => setConcept(event.target.value)}
+                disabled={locked}
+              />
+            </label>
+            <label className="field field-short expense-amount-field">
+              <span>Importe</span>
+              <input
+                inputMode="decimal"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder="0.00"
+                disabled={locked}
+              />
+            </label>
+            <div className="expense-payment-field">
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={fromCash}
+                  onChange={(event) => setFromCash(event.target.checked)}
+                  disabled={!shift || locked}
+                />
+                <span>Pagar desde caja</span>
+              </label>
+              {!shift && (
+                <p className="field-hint">Requiere un turno abierto.</p>
+              )}
+            </div>
+            <div className="form-action-row expense-actions">
+              <button
+                className="button button-primary"
+                disabled={
+                  busy ||
+                  readOnly ||
+                  locked ||
+                  !categoryId ||
+                  !amount ||
+                  !concept.trim() ||
+                  (fromCash && !shift)
+                }
+              >
+                {busy ? "Registrando…" : "Registrar gasto"}
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <section className="surface expense-categories">
           <header className="surface-header">
             <div>
               <h2>Categorías</h2>
@@ -223,82 +325,17 @@ export function ExpensesScreen({
               Crear
             </button>
           </form>
-          <ul className="compact-list">
-            {categories.map((category) => (
-              <li key={category.id}>{category.name}</li>
-            ))}
-          </ul>
-          {categories.length === 0 && (
-            <p className="muted empty-cell">
-              Crea una categoría para poder clasificar los gastos.
-            </p>
-          )}
-        </section>
-
-        <section className="surface">
-          <header className="surface-header">
-            <div>
-              <h2>Registrar gasto</h2>
-              <p className="muted">
-                {fromCash ? "Creará una salida en el turno abierto." : "No afecta el saldo de caja."}
-              </p>
+          {categories.length > 0 ? (
+            <ul className="compact-list">
+              {categories.map((category) => (
+                <li key={category.id}>{category.name}</li>
+              ))}
+            </ul>
+          ) : (
+            <div className="empty-state empty-state-compact">
+              <p>Crea una categoría para poder clasificar los gastos.</p>
             </div>
-          </header>
-          <form className="form-grid form-compact" onSubmit={record}>
-            <label className="field">
-              <span>Categoría</span>
-              <select
-                value={categoryId}
-                onChange={(event) => setCategoryId(event.target.value)}
-                disabled={locked}
-              >
-                <option value="">Selecciona una categoría</option>
-                {categories
-                  .filter((category) => category.active)
-                  .map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>Concepto</span>
-              <input
-                value={concept}
-                onChange={(event) => setConcept(event.target.value)}
-                disabled={locked}
-              />
-            </label>
-            <label className="field field-short">
-              <span>Importe</span>
-              <input
-                inputMode="decimal"
-                value={amount}
-                onChange={(event) => setAmount(event.target.value)}
-                placeholder="0.00"
-                disabled={locked}
-              />
-            </label>
-            <label className="checkbox-field">
-              <input
-                type="checkbox"
-                checked={fromCash}
-                onChange={(event) => setFromCash(event.target.checked)}
-                disabled={!shift || locked}
-              />
-              <span>Pagar desde caja {shift ? "" : "(sin turno abierto)"}</span>
-            </label>
-            <button
-              className="button button-primary"
-              disabled={
-                busy || readOnly || locked || !categoryId || !amount || !concept.trim() ||
-                (fromCash && !shift)
-              }
-            >
-              {busy ? "Registrando…" : "Registrar gasto"}
-            </button>
-          </form>
+          )}
         </section>
       </div>
 
@@ -311,12 +348,13 @@ export function ExpensesScreen({
           <span className="badge badge-neutral">{expenses.length}</span>
         </header>
         {expenses.length === 0 ? (
-          <div className="empty-state">
-            <p>Sin gastos registrados.</p>
+          <div className="empty-state empty-state-compact">
+            <p>Todavía no hay gastos registrados.</p>
           </div>
         ) : (
           <div className="table-scroll">
             <table className="data-table">
+              <caption className="sr-only">Historial de gastos</caption>
               <thead>
                 <tr>
                   <th>Concepto</th>
@@ -331,7 +369,9 @@ export function ExpensesScreen({
                     <td>{expense.concept}</td>
                     <td className="mono">${expense.amount}</td>
                     <td>{expense.paid_from_cash ? "Caja" : "Externo"}</td>
-                    <td>{new Date(expense.occurred_at).toLocaleString("es-MX")}</td>
+                    <td>
+                      {new Date(expense.occurred_at).toLocaleString("es-MX")}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -58,10 +58,54 @@ const commercial = {
 };
 
 const products = [
-  { id: "p-1", sku: "CAF-001", name: "Café americano", unit_price: "12.50", public_unit_total: "14.50", tax_rate_bp: 1600, active: true, active_variants: 0, variant_public_from: null, has_modifiers: false },
-  { id: "p-2", sku: "CAF-002", name: "Capuchino", unit_price: "18.00", public_unit_total: "20.88", tax_rate_bp: 1600, active: true, active_variants: 0, variant_public_from: null, has_modifiers: false },
-  { id: "p-3", sku: "PAN-010", name: "Croissant de mantequilla", unit_price: "9.80", public_unit_total: "11.37", tax_rate_bp: 1600, active: true, active_variants: 0, variant_public_from: null, has_modifiers: false },
-  { id: "p-4", sku: "COM-001", name: "Combo desayuno", unit_price: "39.00", public_unit_total: "45.24", tax_rate_bp: 1600, active: true, active_variants: 0, variant_public_from: null, has_modifiers: false },
+  {
+    id: "p-1",
+    sku: "CAF-001",
+    name: "Café americano",
+    unit_price: "12.50",
+    public_unit_total: "14.50",
+    tax_rate_bp: 1600,
+    active: true,
+    active_variants: 0,
+    variant_public_from: null,
+    has_modifiers: false,
+  },
+  {
+    id: "p-2",
+    sku: "CAF-002",
+    name: "Capuchino",
+    unit_price: "18.00",
+    public_unit_total: "20.88",
+    tax_rate_bp: 1600,
+    active: true,
+    active_variants: 0,
+    variant_public_from: null,
+    has_modifiers: false,
+  },
+  {
+    id: "p-3",
+    sku: "PAN-010",
+    name: "Croissant de mantequilla",
+    unit_price: "9.80",
+    public_unit_total: "11.37",
+    tax_rate_bp: 1600,
+    active: true,
+    active_variants: 0,
+    variant_public_from: null,
+    has_modifiers: false,
+  },
+  {
+    id: "p-4",
+    sku: "COM-001",
+    name: "Combo desayuno",
+    unit_price: "39.00",
+    public_unit_total: "45.24",
+    tax_rate_bp: 1600,
+    active: true,
+    active_variants: 0,
+    variant_public_from: null,
+    has_modifiers: false,
+  },
 ];
 
 const categories = [
@@ -81,10 +125,38 @@ const reports = {
     returned_total: "38.00",
     net_total: "1400.40",
     products: [
-      { product_id: "p-1", product_name: "Café americano", quantity: "42.000", net: "452.59", tax: "72.41", total: "525.00" },
-      { product_id: "p-2", product_name: "Capuchino", quantity: "28.000", net: "434.48", tax: "69.52", total: "504.00" },
-      { product_id: "p-3", product_name: "Croissant de mantequilla", quantity: "31.000", net: "262.07", tax: "41.93", total: "304.00" },
-      { product_id: "p-4", product_name: "Combo desayuno", quantity: "2.000", net: "67.24", tax: "10.76", total: "78.00" },
+      {
+        product_id: "p-1",
+        product_name: "Café americano",
+        quantity: "42.000",
+        net: "452.59",
+        tax: "72.41",
+        total: "525.00",
+      },
+      {
+        product_id: "p-2",
+        product_name: "Capuchino",
+        quantity: "28.000",
+        net: "434.48",
+        tax: "69.52",
+        total: "504.00",
+      },
+      {
+        product_id: "p-3",
+        product_name: "Croissant de mantequilla",
+        quantity: "31.000",
+        net: "262.07",
+        tax: "41.93",
+        total: "304.00",
+      },
+      {
+        product_id: "p-4",
+        product_name: "Combo desayuno",
+        quantity: "2.000",
+        net: "67.24",
+        tax: "10.76",
+        total: "78.00",
+      },
     ],
   },
   cash: {
@@ -122,8 +194,22 @@ const reports = {
 };
 
 const suppliers = [
-  { id: "sup-1", code: "PROV-01", name: "Distribuidora Central", contact: "Laura Ruiz", rfc: "DCE010101AAA", active: true },
-  { id: "sup-2", code: null, name: "Panificadora del Valle", contact: null, rfc: null, active: true },
+  {
+    id: "sup-1",
+    code: "PROV-01",
+    name: "Distribuidora Central",
+    contact: "Laura Ruiz",
+    rfc: "DCE010101AAA",
+    active: true,
+  },
+  {
+    id: "sup-2",
+    code: null,
+    name: "Panificadora del Valle",
+    contact: null,
+    rfc: null,
+    active: true,
+  },
 ];
 
 const purchaseOrders = [
@@ -134,8 +220,20 @@ const purchaseOrders = [
     status: "ordered",
     created_at: "2026-11-04T10:00:00Z",
     lines: [
-      { id: "pol-1", product_id: "p-1", quantity: "50.000", received_quantity: "0.000", unit_cost: "8.90" },
-      { id: "pol-2", product_id: "p-3", quantity: "40.000", received_quantity: "0.000", unit_cost: "4.20" },
+      {
+        id: "pol-1",
+        product_id: "p-1",
+        quantity: "50.000",
+        received_quantity: "0.000",
+        unit_cost: "8.90",
+      },
+      {
+        id: "pol-2",
+        product_id: "p-3",
+        quantity: "40.000",
+        received_quantity: "0.000",
+        unit_cost: "4.20",
+      },
     ],
   },
   {
@@ -145,7 +243,13 @@ const purchaseOrders = [
     status: "received",
     created_at: "2026-11-02T09:30:00Z",
     lines: [
-      { id: "pol-3", product_id: "p-2", quantity: "30.000", received_quantity: "30.000", unit_cost: "11.00" },
+      {
+        id: "pol-3",
+        product_id: "p-2",
+        quantity: "30.000",
+        received_quantity: "30.000",
+        unit_cost: "11.00",
+      },
     ],
   },
 ];
@@ -156,8 +260,22 @@ const expenseCategories = [
 ];
 
 const expenses = [
-  { id: "e-1", category_id: "ec-1", amount: "58.00", concept: "Compra de hielo", paid_from_cash: true, occurred_at: "2026-11-05T18:35:00Z" },
-  { id: "e-2", category_id: "ec-2", amount: "200.00", concept: "Internet del mes", paid_from_cash: false, occurred_at: "2026-11-04T12:00:00Z" },
+  {
+    id: "e-1",
+    category_id: "ec-1",
+    amount: "58.00",
+    concept: "Compra de hielo",
+    paid_from_cash: true,
+    occurred_at: "2026-11-05T18:35:00Z",
+  },
+  {
+    id: "e-2",
+    category_id: "ec-2",
+    amount: "200.00",
+    concept: "Internet del mes",
+    paid_from_cash: false,
+    occurred_at: "2026-11-04T12:00:00Z",
+  },
 ];
 
 const saleReturns = [
@@ -183,17 +301,59 @@ const saleReturns = [
 ];
 
 const users = [
-  { id: "u-1", username: "ana", display_name: "Ana Martínez", role: "owner", active: true, created_at: "2026-01-10T09:00:00Z" },
-  { id: "u-2", username: "luis", display_name: "Luis Ramírez", role: "cashier", active: true, created_at: "2026-03-02T10:00:00Z" },
-  { id: "u-3", username: "sofia", display_name: "Sofía Ortega", role: "cashier", active: false, created_at: "2026-05-18T10:00:00Z" },
+  {
+    id: "u-1",
+    username: "ana",
+    display_name: "Ana Martínez",
+    role: "owner",
+    active: true,
+    created_at: "2026-01-10T09:00:00Z",
+  },
+  {
+    id: "u-2",
+    username: "luis",
+    display_name: "Luis Ramírez",
+    role: "cashier",
+    active: true,
+    created_at: "2026-03-02T10:00:00Z",
+  },
+  {
+    id: "u-3",
+    username: "sofia",
+    display_name: "Sofía Ortega",
+    role: "cashier",
+    active: false,
+    created_at: "2026-05-18T10:00:00Z",
+  },
 ];
 
 // Claves tal como las emite `AuditAction::as_str()` en Rust: si una deja de
 // estar traducida, la captura lo muestra en lugar de ocultarlo.
 const auditEvents = [
-  { id: "a-1", action: "sales.completed", entity_type: "sale", entity_id: "8f2a1c40-1d2e-4f5a-9b3c-0a1b2c3d4e5f", actor_user_id: "u-1", occurred_at: "2026-11-05T18:40:00Z" },
-  { id: "a-2", action: "expenses.recorded", entity_type: "expense", entity_id: "3c9d7e21-6a4b-4c8d-8e1f-2b3a4c5d6e7f", actor_user_id: "u-1", occurred_at: "2026-11-05T18:35:00Z" },
-  { id: "a-3", action: "purchasing.order_created", entity_type: "purchase_order", entity_id: "b71e4a55-9f0c-4d2b-8a6e-c1d2e3f4a5b6", actor_user_id: "u-1", occurred_at: "2026-11-04T10:00:00Z" },
+  {
+    id: "a-1",
+    action: "sales.completed",
+    entity_type: "sale",
+    entity_id: "8f2a1c40-1d2e-4f5a-9b3c-0a1b2c3d4e5f",
+    actor_user_id: "u-1",
+    occurred_at: "2026-11-05T18:40:00Z",
+  },
+  {
+    id: "a-2",
+    action: "expenses.recorded",
+    entity_type: "expense",
+    entity_id: "3c9d7e21-6a4b-4c8d-8e1f-2b3a4c5d6e7f",
+    actor_user_id: "u-1",
+    occurred_at: "2026-11-05T18:35:00Z",
+  },
+  {
+    id: "a-3",
+    action: "purchasing.order_created",
+    entity_type: "purchase_order",
+    entity_id: "b71e4a55-9f0c-4d2b-8a6e-c1d2e3f4a5b6",
+    actor_user_id: "u-1",
+    occurred_at: "2026-11-04T10:00:00Z",
+  },
 ];
 
 const shift = {
@@ -211,14 +371,40 @@ const shift = {
   counted_amount: null,
   difference_minor: null,
   movements: [
-    { id: "m-1", kind: "entry", amount: "200.00", reason: "Cambio adicional", occurred_at: "2026-11-05T17:35:00Z" },
-    { id: "m-2", kind: "exit", amount: "58.00", reason: "Compra de hielo", occurred_at: "2026-11-05T18:35:00Z" },
+    {
+      id: "m-1",
+      kind: "entry",
+      amount: "200.00",
+      reason: "Cambio adicional",
+      occurred_at: "2026-11-05T17:35:00Z",
+    },
+    {
+      id: "m-2",
+      kind: "exit",
+      amount: "58.00",
+      reason: "Compra de hielo",
+      occurred_at: "2026-11-05T18:35:00Z",
+    },
   ],
 };
 
 const stockMovements = [
-  { id: "mv-1", product_id: "p-1", kind: "inbound", quantity: "50.000", reason: "Recepción OC-000112", occurred_at: "2026-11-04T10:20:00Z" },
-  { id: "mv-2", product_id: "p-1", kind: "outbound", quantity: "12.000", reason: "Venta F-000128", occurred_at: "2026-11-05T18:40:00Z" },
+  {
+    id: "mv-1",
+    product_id: "p-1",
+    kind: "inbound",
+    quantity: "50.000",
+    reason: "Recepción OC-000112",
+    occurred_at: "2026-11-04T10:20:00Z",
+  },
+  {
+    id: "mv-2",
+    product_id: "p-1",
+    kind: "outbound",
+    quantity: "12.000",
+    reason: "Venta F-000128",
+    occurred_at: "2026-11-05T18:40:00Z",
+  },
 ];
 
 async function mockAdminBridge(page: Page) {
@@ -238,12 +424,18 @@ async function mockAdminBridge(page: Page) {
       auditEvents,
       shift,
       stockMovements,
-      }) => {
-      const selectedScenario = () => localStorage.getItem("hiqnet.visual-admin-scenario") ?? "populated";
+    }) => {
+      const selectedScenario = () =>
+        localStorage.getItem("hiqnet.visual-admin-scenario") ?? "populated";
       const scenarioData = () => {
         switch (selectedScenario()) {
           case "empty":
-            return { expenseCategories: [], expenses: [], shift: null, auditEvents: [] };
+            return {
+              expenseCategories: [],
+              expenses: [],
+              shift: null,
+              auditEvents: [],
+            };
           case "no-shift":
             return { expenseCategories, expenses, shift: null, auditEvents };
           default:
@@ -270,7 +462,9 @@ async function mockAdminBridge(page: Page) {
         })),
         list_product_variants: [],
         list_modifier_groups: [],
-        list_cash_registers: [{ id: "r-1", name: "Caja principal", code: "CJ-01", active: true }],
+        list_cash_registers: [
+          { id: "r-1", name: "Caja principal", code: "CJ-01", active: true },
+        ],
         list_cash_shift_history: [
           {
             ...shift,
@@ -315,18 +509,29 @@ async function mockAdminBridge(page: Page) {
           invoke: (command: string, args?: Record<string, unknown>) => {
             const request = args ?? {};
             const scenario = scenarioData();
-            if (command === "active_cash_shift") return Promise.resolve(scenario.shift);
-            if (command === "list_audit_events") return Promise.resolve(scenario.auditEvents);
-            if (command === "list_expense_categories") return Promise.resolve(scenario.expenseCategories);
-            if (command === "list_expenses") return Promise.resolve(scenario.expenses);
+            if (command === "active_cash_shift")
+              return Promise.resolve(scenario.shift);
+            if (command === "list_audit_events")
+              return Promise.resolve(scenario.auditEvents);
+            if (command === "list_expense_categories")
+              return Promise.resolve(scenario.expenseCategories);
+            if (command === "list_expenses")
+              return Promise.resolve(scenario.expenses);
             if (command === "configure_product") {
-              const draft = request.draft as { product_id?: string } | undefined;
+              const draft = request.draft as
+                { product_id?: string } | undefined;
               const product =
-                (products as Array<{ id: string; name: string; unit_price: string; tax_rate_bp: number }>).find(
-                  (item) => item.id === draft?.product_id,
-                ) ?? products[0]!;
+                (
+                  products as Array<{
+                    id: string;
+                    name: string;
+                    unit_price: string;
+                    tax_rate_bp: number;
+                  }>
+                ).find((item) => item.id === draft?.product_id) ?? products[0]!;
               const unit = Number(product.unit_price);
-              const tax = (unit * product.tax_rate_bp) / (10000 + product.tax_rate_bp);
+              const tax =
+                (unit * product.tax_rate_bp) / (10000 + product.tax_rate_bp);
               return Promise.resolve({
                 product_id: product.id,
                 product_name: product.name,
@@ -379,7 +584,10 @@ async function shot(page: Page, name: string) {
     );
   });
   await page.waitForTimeout(120);
-  await page.screenshot({ path: path.join(OUT_DIR, `${name}.png`), fullPage: false });
+  await page.screenshot({
+    path: path.join(OUT_DIR, `${name}.png`),
+    fullPage: false,
+  });
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -395,11 +603,16 @@ async function login(page: Page) {
   await page.getByLabel("Usuario").fill("ana");
   await page.getByLabel("Contraseña").fill("contrasena-segura");
   await page.getByRole("button", { name: "Entrar" }).click();
-  await page.getByRole("navigation", { name: "Navegación principal" }).waitFor();
+  await page
+    .getByRole("navigation", { name: "Navegación principal" })
+    .waitFor();
 }
 
 test.describe("capturas de pantallas administrativas", () => {
-  test.skip(!process.env.VISUAL_REVIEW, "Define VISUAL_REVIEW=1 para capturar.");
+  test.skip(
+    !process.env.VISUAL_REVIEW,
+    "Define VISUAL_REVIEW=1 para capturar.",
+  );
 
   test.beforeAll(async () => {
     await mkdir(OUT_DIR, { recursive: true });
@@ -419,38 +632,91 @@ test.describe("capturas de pantallas administrativas", () => {
     const nav = page.getByRole("navigation", { name: "Navegación principal" });
 
     async function selectScenario(name: "empty" | "populated" | "no-shift") {
-      await page.evaluate((scenario) => localStorage.setItem("hiqnet.visual-admin-scenario", scenario), name);
+      await page.evaluate(
+        (scenario) =>
+          localStorage.setItem("hiqnet.visual-admin-scenario", scenario),
+        name,
+      );
     }
 
     async function openScreen(name: "Gastos" | "Gestión") {
       // Fuerza un nuevo montaje para que cada estado consulte las fixtures del escenario.
-      await nav.getByRole("button", { name: name === "Gastos" ? "Ventas" : "Gastos" }).click();
+      await nav
+        .getByRole("button", { name: name === "Gastos" ? "Ventas" : "Gastos" })
+        .click();
       await nav.getByRole("button", { name }).click();
-      await expect(page.getByRole("heading", { name: name === "Gastos" ? "Gastos" : "Gestión y auditoría" })).toBeVisible();
+      await expect(
+        page.getByRole("heading", {
+          name: name === "Gastos" ? "Gastos" : "Gestión y auditoría",
+        }),
+      ).toBeVisible();
+    }
+
+    async function focusSection(heading: string) {
+      await page
+        .getByRole("heading", { name: heading })
+        .evaluate((element) =>
+          element.scrollIntoView({ block: "start", behavior: "instant" }),
+        );
     }
 
     async function inspectLayout() {
       await expectNoHorizontalOverflow(page);
       const layout = await page.evaluate(() => {
-        const controls = [...document.querySelectorAll<HTMLElement>(".screen input, .screen select, .screen button")];
+        const controls = [
+          ...document.querySelectorAll<HTMLElement>(
+            ".screen input, .screen select, .screen button",
+          ),
+        ];
         return controls.map((control) => {
           const box = control.getBoundingClientRect();
           const surface = control.closest<HTMLElement>(".surface");
           const parent = surface?.getBoundingClientRect();
           return {
             visible: box.width > 0 && box.height > 0,
-            insideSurface: !parent || (
-              box.left >= parent.left - 1 &&
-              box.right <= parent.right + 1 &&
-              box.top >= parent.top - 1 &&
-              box.bottom <= parent.bottom + 1
-            ),
+            insideSurface:
+              !parent ||
+              (box.left >= parent.left - 1 &&
+                box.right <= parent.right + 1 &&
+                box.top >= parent.top - 1 &&
+                box.bottom <= parent.bottom + 1),
             fontSize: getComputedStyle(control).fontSize,
           };
         });
       });
-      expect(layout.every((control) => !control.visible || control.insideSurface)).toBe(true);
-      expect(layout.every((control) => !control.visible || Number.parseFloat(control.fontSize) >= 12)).toBe(true);
+      expect(
+        layout.every((control) => !control.visible || control.insideSurface),
+      ).toBe(true);
+      expect(
+        layout.every(
+          (control) =>
+            !control.visible || Number.parseFloat(control.fontSize) >= 12,
+        ),
+      ).toBe(true);
+    }
+
+    async function inspectAdminLayout() {
+      await inspectLayout();
+      const widths = await page.evaluate(() => {
+        const summary = document.querySelector<HTMLElement>(
+          ".admin-summary-layout",
+        );
+        const enrollment = document.querySelector<HTMLElement>(
+          ".admin-platform-enrollment-section",
+        );
+        const activation = document.querySelector<HTMLElement>(
+          ".admin-license-activation-section",
+        );
+        if (!summary || !enrollment || !activation) return null;
+        return {
+          summary: summary.getBoundingClientRect().width,
+          enrollment: enrollment.getBoundingClientRect().width,
+          activation: activation.getBoundingClientRect().width,
+        };
+      });
+      expect(widths).not.toBeNull();
+      expect(widths!.enrollment).toBeGreaterThanOrEqual(widths!.summary - 1);
+      expect(widths!.activation).toBeGreaterThanOrEqual(widths!.summary - 1);
     }
 
     const viewports = [
@@ -484,6 +750,8 @@ test.describe("capturas de pantallas administrativas", () => {
     const adminStates = [
       { scenario: "empty" as const, label: "top" },
       { scenario: "populated" as const, label: "estado-respaldo" },
+      { scenario: "populated" as const, label: "vinculacion" },
+      { scenario: "populated" as const, label: "licencia" },
       { scenario: "populated" as const, label: "eventos" },
     ];
 
@@ -491,14 +759,20 @@ test.describe("capturas de pantallas administrativas", () => {
       await selectScenario(state.scenario);
       await openScreen("Gestión");
       if (state.label === "estado-respaldo") {
-        await page.getByRole("heading", { name: "Estado comercial" }).scrollIntoViewIfNeeded();
+        await focusSection("Estado comercial");
+      }
+      if (state.label === "vinculacion") {
+        await focusSection("Vincular con HiQNet Platform");
+      }
+      if (state.label === "licencia") {
+        await focusSection("Activar licencia");
       }
       if (state.label === "eventos") {
-        await page.getByRole("heading", { name: "Últimos eventos" }).scrollIntoViewIfNeeded();
+        await focusSection("Últimos eventos");
       }
       for (const viewport of viewports) {
         await page.setViewportSize(viewport);
-        await inspectLayout();
+        await inspectAdminLayout();
         await shot(page, `r2a-gestion-${state.label}-${viewport.label}`);
       }
     }
@@ -507,7 +781,9 @@ test.describe("capturas de pantallas administrativas", () => {
       await selectScenario("empty");
       await openScreen("Gastos");
       expect(page.locator(".compact-list")).toHaveCount(0);
-      await expect(page.getByText("Crea una categoría para poder clasificar los gastos.")).toBeVisible();
+      await expect(
+        page.getByText("Crea una categoría para poder clasificar los gastos."),
+      ).toBeVisible();
       await page.keyboard.press("Tab");
       await expect(page.locator(":focus")).toBeVisible();
     }

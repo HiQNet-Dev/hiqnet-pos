@@ -51,14 +51,15 @@ export function PlatformEnrollmentPanel({ onError }: Props) {
 
   return (
     <div className="license-activation">
-      <p className="section-label">Vincular con HiQNet Platform</p>
+      <h2>Vincular con HiQNet Platform</h2>
       <p className="muted">
-        Genera un código, apruébalo en el Portal con la cuenta propietaria y completa la
-        vinculación. Solo se comparte la clave pública del equipo.
+        Genera un código, apruébalo en el Portal con la cuenta propietaria y
+        completa la vinculación. Solo se comparte la clave pública del equipo.
       </p>
       {enrollment?.status === "completed" ? (
         <p className="muted" role="status">
-          Equipo vinculado con la organización comercial {enrollment.organization_id}.
+          Equipo vinculado con la organización comercial{" "}
+          {enrollment.organization_id}.
         </p>
       ) : enrollment?.status === "pending" ? (
         <>
@@ -69,12 +70,16 @@ export function PlatformEnrollmentPanel({ onError }: Props) {
             </div>
             <div>
               <dt>Vence</dt>
-              <dd>{enrollment.expires_at ? formatDate(enrollment.expires_at) : "—"}</dd>
+              <dd>
+                {enrollment.expires_at
+                  ? formatDate(enrollment.expires_at)
+                  : "—"}
+              </dd>
             </div>
           </dl>
           <p className="muted">
-            Abre {enrollment.verification_uri} e introduce el código desde la cuenta
-            propietaria de la organización.
+            Abre {enrollment.verification_uri} e introduce el código desde la
+            cuenta propietaria de la organización.
           </p>
           <div className="row-actions">
             <button
@@ -85,14 +90,24 @@ export function PlatformEnrollmentPanel({ onError }: Props) {
             >
               {busy ? "Verificando…" : "Ya está aprobado, completar"}
             </button>
-            <button type="button" className="button" onClick={() => void beginEnrollment()} disabled={busy}>
+            <button
+              type="button"
+              className="button"
+              onClick={() => void beginEnrollment()}
+              disabled={busy}
+            >
               Generar nuevo código
             </button>
           </div>
         </>
       ) : (
         <div className="row-actions">
-          <button type="button" className="button" onClick={() => void beginEnrollment()} disabled={busy}>
+          <button
+            type="button"
+            className="button"
+            onClick={() => void beginEnrollment()}
+            disabled={busy}
+          >
             {busy ? "Generando…" : "Generar código de vinculación"}
           </button>
         </div>
