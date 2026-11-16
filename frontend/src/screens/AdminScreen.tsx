@@ -10,6 +10,7 @@ import {
 } from "../contracts";
 import { Modal } from "../components/Modal";
 import { formatDate } from "../lib/formatDate";
+import { LicenseActivationPanel } from "./admin/LicenseActivationPanel";
 import { PlatformEnrollmentPanel } from "./admin/PlatformEnrollmentPanel";
 
 interface Props {
@@ -111,28 +112,12 @@ export function AdminScreen({
   const [restorePreview, setRestorePreview] = useState<RestorePreview | null>(
     null,
   );
-  const [grantJson, setGrantJson] = useState("");
-  const [signature, setSignature] = useState("");
-  const [licenseBusy, setLicenseBusy] = useState(false);
-  const [licenseNotice, setLicenseNotice] = useState<string | null>(null);
-  const [installationId, setInstallationId] = useState<string | null>(null);
-
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<User | null>(null);
   const [confirming, setConfirming] = useState<{
     user: User;
     active: boolean;
   } | null>(null);
-
-  useEffect(() => {
-    if (!canActivateLicense) return;
-    api
-      .commercialState()
-      .then((state) => setInstallationId(state.installation_id))
-      .catch((cause: unknown) =>
-        setError(messageOf(cause, "No fue posible cargar la instalación.")),
-      );
-  }, [canActivateLicense]);
 
   const loadAudit = useCallback(async () => {
     if (!canAudit) return;
@@ -213,36 +198,9 @@ export function AdminScreen({
     await loadAudit();
   }
 
-  function reportError(cause: unknown, fallback: string) {
+  const reportError = useCallback((cause: unknown, fallback: string) => {
     setError(messageOf(cause, fallback));
-  }
-
-  async function activateLicense() {
-    if (licenseBusy) return;
-    setError(null);
-    setLicenseNotice(null);
-    if (!grantJson.trim() || !signature.trim()) {
-      setError("Pega el documento de licencia y su firma antes de continuar.");
-      return;
-    }
-    setLicenseBusy(true);
-    try {
-      await api.installLicense(grantJson.trim(), signature.trim());
-      setGrantJson("");
-      setSignature("");
-      setLicenseNotice("Licencia instalada y verificada.");
-      await onCommercialChanged?.();
-    } catch (cause) {
-      setError(
-        messageOf(
-          cause,
-          "La licencia no se pudo verificar. Revisa el documento y la firma.",
-        ),
-      );
-    } finally {
-      setLicenseBusy(false);
-    }
-  }
+  }, []);
 
   async function backup() {
     setBusy(true);
@@ -587,58 +545,11 @@ export function AdminScreen({
           className="surface admin-full-width-section admin-license-activation-section"
           aria-label="Activación de licencia"
         >
-          <div className="license-activation">
-            <h2>Activar licencia</h2>
-            <p className="muted">
-              Pega el documento y la firma emitidos por HiQNet Platform para
-              esta instalación. El documento se verifica antes de guardarse.
-            </p>
-            <dl className="metric-grid">
-              <div>
-                <dt>Identificador de instalación</dt>
-                <dd className="metric-text">
-                  {installationId ?? "No disponible"}
-                </dd>
-              </div>
-            </dl>
-            <label className="field">
-              <span>Documento de licencia (JSON)</span>
-              <textarea
-                value={grantJson}
-                onChange={(event) => setGrantJson(event.target.value)}
-                rows={4}
-                spellCheck={false}
-                autoComplete="off"
-                aria-label="Documento de licencia"
-              />
-            </label>
-            <label className="field">
-              <span>Firma Ed25519 (base64)</span>
-              <textarea
-                value={signature}
-                onChange={(event) => setSignature(event.target.value)}
-                rows={2}
-                spellCheck={false}
-                autoComplete="off"
-                aria-label="Firma de licencia"
-              />
-            </label>
-            <div className="row-actions">
-              <button
-                type="button"
-                className="button button-primary"
-                onClick={() => void activateLicense()}
-                disabled={licenseBusy}
-              >
-                {licenseBusy ? "Verificando…" : "Instalar licencia"}
-              </button>
-            </div>
-            {licenseNotice && (
-              <p className="muted" role="status">
-                {licenseNotice}
-              </p>
-            )}
-          </div>
+          <LicenseActivationPanel
+            onCommercialChanged={onCommercialChanged}
+            onError={reportError}
+            onClearError={() => setError(null)}
+          />
         </section>
       )}
 
