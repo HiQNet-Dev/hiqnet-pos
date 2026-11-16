@@ -94,7 +94,9 @@ function AttemptHarness({ storageKey }: { storageKey: string }) {
   );
 }
 
-function renderScreen(props: Partial<Parameters<typeof ExpensesScreen>[0]> = {}) {
+function renderScreen(
+  props: Partial<Parameters<typeof ExpensesScreen>[0]> = {},
+) {
   const onCashChanged = vi.fn();
   const view = render(
     <ExpensesScreen
@@ -110,7 +112,10 @@ function renderScreen(props: Partial<Parameters<typeof ExpensesScreen>[0]> = {})
   return { ...view, onCashChanged };
 }
 
-async function fillExpense(user: ReturnType<typeof userEvent.setup>, fromCash = false) {
+async function fillExpense(
+  user: ReturnType<typeof userEvent.setup>,
+  fromCash = false,
+) {
   await screen.findByRole("option", { name: "Servicios" });
   await user.selectOptions(screen.getByLabelText("Categoría"), "cat-1");
   await user.type(screen.getByLabelText("Concepto"), "Internet");
@@ -122,7 +127,9 @@ describe("ExpensesScreen", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
-    api.listExpenseCategories.mockResolvedValue([{ id: "cat-1", name: "Servicios", active: true }]);
+    api.listExpenseCategories.mockResolvedValue([
+      { id: "cat-1", name: "Servicios", active: true },
+    ]);
     api.listExpenses.mockResolvedValue([]);
     api.recordExpense.mockResolvedValue(storedExpense);
   });
@@ -138,22 +145,30 @@ describe("ExpensesScreen", () => {
     await fillExpense(user);
     await user.click(screen.getByRole("button", { name: /registrar gasto/i }));
 
-    expect(await screen.findByText(/gasto pendiente de confirmar/i)).toBeVisible();
+    expect(
+      await screen.findByText(/gasto pendiente de confirmar/i),
+    ).toBeVisible();
     expect(screen.getByLabelText("Importe")).toBeDisabled();
     expect(screen.getByLabelText("Concepto")).toBeDisabled();
     const first = api.recordExpense.mock.calls[0]?.[0] as ExpenseDraft;
 
     await user.click(screen.getByRole("button", { name: "Ir a Ventas" }));
-    expect(screen.queryByText(/gasto pendiente de confirmar/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/gasto pendiente de confirmar/i),
+    ).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Ir a Gastos" }));
-    expect(await screen.findByText(/gasto pendiente de confirmar/i)).toBeVisible();
+    expect(
+      await screen.findByText(/gasto pendiente de confirmar/i),
+    ).toBeVisible();
     expect(screen.getByText("$12.50")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: /reintentar gasto/i }));
     await waitFor(() => expect(api.recordExpense).toHaveBeenCalledTimes(2));
     expect(api.recordExpense.mock.calls[1]?.[0]).toEqual(first);
     await waitFor(() =>
-      expect(screen.queryByText(/gasto pendiente de confirmar/i)).not.toBeInTheDocument(),
+      expect(
+        screen.queryByText(/gasto pendiente de confirmar/i),
+      ).not.toBeInTheDocument(),
     );
   });
 
@@ -173,9 +188,13 @@ describe("ExpensesScreen", () => {
 
     // Nuevo montaje del shell: sólo queda lo persistido localmente.
     render(<AttemptHarness storageKey={key} />);
-    expect(await screen.findByText(/gasto pendiente de confirmar/i)).toBeVisible();
+    expect(
+      await screen.findByText(/gasto pendiente de confirmar/i),
+    ).toBeVisible();
     expect(screen.getByText("$12.50")).toBeVisible();
-    await userEvent.setup().click(screen.getByRole("button", { name: /reintentar gasto/i }));
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: /reintentar gasto/i }));
     await waitFor(() => expect(api.recordExpense).toHaveBeenCalledTimes(2));
     expect(api.recordExpense.mock.calls[1]?.[0]).toEqual(original);
   });
@@ -201,7 +220,9 @@ describe("ExpensesScreen", () => {
     });
     renderScreen();
     await screen.findByRole("option", { name: "Servicios" });
-    expect(screen.queryByText(/gasto pendiente de confirmar/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/gasto pendiente de confirmar/i),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("$99.00")).not.toBeInTheDocument();
   });
 
@@ -222,5 +243,26 @@ describe("ExpensesScreen", () => {
     renderScreen({ actor: { ...actor, role: "cashier", permissions: [] } });
     expect(screen.getByText(/no tienes permiso/i)).toBeVisible();
     expect(api.listExpenseCategories).not.toHaveBeenCalled();
+  });
+
+  it("prioriza el registro y muestra un único estado vacío de categorías", async () => {
+    api.listExpenseCategories.mockResolvedValue([]);
+    api.listExpenses.mockResolvedValue([]);
+    renderScreen();
+
+    expect(
+      (await screen.findAllByRole("heading", { level: 2 })).map(
+        (heading) => heading.textContent,
+      ),
+    ).toEqual(["Registrar gasto", "Categorías", "Historial"]);
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Crea una categoría para poder clasificar los gastos."),
+    ).toBeVisible();
+    expect(
+      screen.getByText("Todavía no hay gastos registrados."),
+    ).toBeVisible();
+    expect(screen.getByLabelText("Pagar desde caja")).toBeDisabled();
+    expect(screen.getByText("Requiere un turno abierto.")).toBeVisible();
   });
 });

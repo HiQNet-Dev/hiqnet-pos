@@ -10,6 +10,7 @@ import {
 } from "../contracts";
 import { Modal } from "../components/Modal";
 import { formatDate } from "../lib/formatDate";
+import { LicenseActivationPanel } from "./admin/LicenseActivationPanel";
 import { PlatformEnrollmentPanel } from "./admin/PlatformEnrollmentPanel";
 
 interface Props {
@@ -89,7 +90,12 @@ const ACTION_LABELS: Record<string, string> = {
   "users.password_changed": "Contraseña actualizada",
 };
 
-export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }: Props) {
+export function AdminScreen({
+  actor,
+  commercial,
+  readOnly,
+  onCommercialChanged,
+}: Props) {
   const canAudit = actor.permissions.includes("audit.view");
   const canBackup = actor.permissions.includes("backups.manage");
   const canManageUsers = actor.permissions.includes("users.manage");
@@ -103,23 +109,15 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [safAvailable, setSafAvailable] = useState(false);
-  const [restorePreview, setRestorePreview] = useState<RestorePreview | null>(null);
-  const [grantJson, setGrantJson] = useState("");
-  const [signature, setSignature] = useState("");
-  const [licenseBusy, setLicenseBusy] = useState(false);
-  const [licenseNotice, setLicenseNotice] = useState<string | null>(null);
-  const [installationId, setInstallationId] = useState<string | null>(null);
-
+  const [restorePreview, setRestorePreview] = useState<RestorePreview | null>(
+    null,
+  );
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<User | null>(null);
-  const [confirming, setConfirming] = useState<{ user: User; active: boolean } | null>(null);
-
-  useEffect(() => {
-    if (!canActivateLicense) return;
-    api.commercialState()
-      .then((state) => setInstallationId(state.installation_id))
-      .catch((cause: unknown) => setError(messageOf(cause, "No fue posible cargar la instalación.")));
-  }, [canActivateLicense]);
+  const [confirming, setConfirming] = useState<{
+    user: User;
+    active: boolean;
+  } | null>(null);
 
   const loadAudit = useCallback(async () => {
     if (!canAudit) return;
@@ -184,7 +182,8 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
         if (!cancelled) setUsers(list);
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setError(messageOf(cause, "No fue posible cargar los usuarios."));
+        if (!cancelled)
+          setError(messageOf(cause, "No fue posible cargar los usuarios."));
       })
       .finally(() => {
         if (!cancelled) setUsersLoading(false);
@@ -199,33 +198,9 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
     await loadAudit();
   }
 
-  function reportError(cause: unknown, fallback: string) {
+  const reportError = useCallback((cause: unknown, fallback: string) => {
     setError(messageOf(cause, fallback));
-  }
-
-  async function activateLicense() {
-    if (licenseBusy) return;
-    setError(null);
-    setLicenseNotice(null);
-    if (!grantJson.trim() || !signature.trim()) {
-      setError("Pega el documento de licencia y su firma antes de continuar.");
-      return;
-    }
-    setLicenseBusy(true);
-    try {
-      await api.installLicense(grantJson.trim(), signature.trim());
-      setGrantJson("");
-      setSignature("");
-      setLicenseNotice("Licencia instalada y verificada.");
-      await onCommercialChanged?.();
-    } catch (cause) {
-      setError(
-        messageOf(cause, "La licencia no se pudo verificar. Revisa el documento y la firma."),
-      );
-    } finally {
-      setLicenseBusy(false);
-    }
-  }
+  }, []);
 
   async function backup() {
     setBusy(true);
@@ -248,7 +223,11 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
     setNotice(null);
     try {
       const completed = await api.exportSafBackup();
-      setNotice(completed ? "Respaldo exportado correctamente." : "Exportación cancelada.");
+      setNotice(
+        completed
+          ? "Respaldo exportado correctamente."
+          : "Exportación cancelada.",
+      );
       if (completed) await loadAudit();
     } catch (cause) {
       setError(messageOf(cause, "No fue posible exportar el respaldo."));
@@ -266,7 +245,9 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
       if (preview) setRestorePreview(preview);
       else setNotice("Importación cancelada.");
     } catch (cause) {
-      setError(messageOf(cause, "No fue posible validar el respaldo seleccionado."));
+      setError(
+        messageOf(cause, "No fue posible validar el respaldo seleccionado."),
+      );
     } finally {
       setBusy(false);
     }
@@ -347,12 +328,16 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
           ) : users.length === 0 ? (
             <div className="empty-state">
               <p>Sin cuentas registradas.</p>
-              <p className="muted">Crea la primera cuenta con “Nuevo usuario”.</p>
+              <p className="muted">
+                Crea la primera cuenta con “Nuevo usuario”.
+              </p>
             </div>
           ) : (
             <div className="table-scroll">
               <table className="data-table">
-                <caption className="visually-hidden">Empleados de la sucursal</caption>
+                <caption className="visually-hidden">
+                  Empleados de la sucursal
+                </caption>
                 <thead>
                   <tr>
                     <th scope="col">Empleado</th>
@@ -370,7 +355,9 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
                       <td>
                         {user.display_name}
                         {user.id === actor.user_id && (
-                          <span className="badge badge-neutral user-self">Tú</span>
+                          <span className="badge badge-neutral user-self">
+                            Tú
+                          </span>
                         )}
                       </td>
                       <td className="mono">{user.username}</td>
@@ -378,7 +365,9 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
                       <td>
                         <span
                           className={
-                            user.active ? "badge badge-success" : "badge badge-neutral"
+                            user.active
+                              ? "badge badge-success"
+                              : "badge badge-neutral"
                           }
                         >
                           {user.active ? "Activo" : "Inactivo"}
@@ -401,8 +390,13 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
                                 ? "button button-quiet-danger button-small"
                                 : "button button-quiet button-small"
                             }
-                            onClick={() => setConfirming({ user, active: !user.active })}
-                            disabled={readOnly || (user.active && user.id === actor.user_id)}
+                            onClick={() =>
+                              setConfirming({ user, active: !user.active })
+                            }
+                            disabled={
+                              readOnly ||
+                              (user.active && user.id === actor.user_id)
+                            }
                           >
                             {user.active ? "Desactivar" : "Activar"}
                           </button>
@@ -416,13 +410,14 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
           )}
 
           <p className="surface-note">
-            Desactivar una cuenta revoca su acceso de inmediato, incluso si tenía una
-            sesión abierta. Siempre debe quedar al menos un propietario activo.
+            Desactivar una cuenta revoca su acceso de inmediato, incluso si
+            tenía una sesión abierta. Siempre debe quedar al menos un
+            propietario activo.
           </p>
         </section>
       )}
 
-      <div className="admin-layout">
+      <div className="admin-layout admin-summary-layout">
         <section className="surface" aria-label="Estado comercial">
           <header className="surface-header">
             <div>
@@ -430,7 +425,11 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
             </div>
             {commercial && (
               <span
-                className={commercial.read_only ? "badge badge-warning" : "badge badge-success"}
+                className={
+                  commercial.read_only
+                    ? "badge badge-warning"
+                    : "badge badge-success"
+                }
               >
                 {commercial.read_only ? "Solo lectura" : "Operación habilitada"}
               </span>
@@ -446,11 +445,15 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
                 </div>
                 <div>
                   <dt>Estado</dt>
-                  <dd>{STATUS_LABELS[commercial.status] ?? commercial.status}</dd>
+                  <dd>
+                    {STATUS_LABELS[commercial.status] ?? commercial.status}
+                  </dd>
                 </div>
                 <div>
                   <dt>Vigente hasta</dt>
-                  <dd className="metric-text">{formatDate(commercial.valid_until)}</dd>
+                  <dd className="metric-text">
+                    {formatDate(commercial.valid_until)}
+                  </dd>
                 </div>
               </dl>
               <div>
@@ -467,62 +470,11 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
                   </ul>
                 )}
               </div>
-              {canActivateLicense && <PlatformEnrollmentPanel onError={reportError} />}
-              {canActivateLicense && (
-                <div className="license-activation">
-                  <p className="section-label">Activar licencia</p>
-                  <p className="muted">
-                    Pega el documento y la firma emitidos por HiQNet Platform para esta
-                    instalación. El documento se verifica antes de guardarse.
-                  </p>
-                  <dl className="metric-grid">
-                    <div>
-                      <dt>Identificador de instalación</dt>
-                      <dd className="metric-text">{installationId ?? "No disponible"}</dd>
-                    </div>
-                  </dl>
-                  <label className="field">
-                    <span>Documento de licencia (JSON)</span>
-                    <textarea
-                      value={grantJson}
-                      onChange={(event) => setGrantJson(event.target.value)}
-                      rows={4}
-                      spellCheck={false}
-                      autoComplete="off"
-                      aria-label="Documento de licencia"
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Firma Ed25519 (base64)</span>
-                    <textarea
-                      value={signature}
-                      onChange={(event) => setSignature(event.target.value)}
-                      rows={2}
-                      spellCheck={false}
-                      autoComplete="off"
-                      aria-label="Firma de licencia"
-                    />
-                  </label>
-                  <div className="row-actions">
-                    <button
-                      type="button"
-                      className="button button-primary"
-                      onClick={() => void activateLicense()}
-                      disabled={licenseBusy}
-                    >
-                      {licenseBusy ? "Verificando…" : "Instalar licencia"}
-                    </button>
-                  </div>
-                  {licenseNotice && (
-                    <p className="muted" role="status">
-                      {licenseNotice}
-                    </p>
-                  )}
-                </div>
-              )}
             </div>
           ) : (
-            <p className="muted empty-cell">Sin información comercial disponible.</p>
+            <p className="muted empty-cell">
+              Sin información comercial disponible.
+            </p>
           )}
         </section>
 
@@ -535,7 +487,8 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
               </div>
             </header>
             <p className="muted">
-              Genera un respaldo consistente de la base local y lo registra en auditoría.
+              Genera un respaldo consistente de la base local y lo registra en
+              auditoría.
             </p>
             <div className="row-actions">
               <button
@@ -569,13 +522,36 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
             </div>
             {safAvailable && (
               <p className="muted">
-                La restauración solo acepta respaldos de esta misma instalación y organización.
-                Conserva el estado comercial vigente y reinicia la aplicación.
+                La restauración solo acepta respaldos de esta misma instalación
+                y organización. Conserva el estado comercial vigente y reinicia
+                la aplicación.
               </p>
             )}
           </section>
         )}
       </div>
+
+      {canActivateLicense && commercial && (
+        <section
+          className="surface admin-full-width-section admin-platform-enrollment-section"
+          aria-label="Vinculación con HiQNet Platform"
+        >
+          <PlatformEnrollmentPanel onError={reportError} />
+        </section>
+      )}
+
+      {canActivateLicense && commercial && (
+        <section
+          className="surface admin-full-width-section admin-license-activation-section"
+          aria-label="Activación de licencia"
+        >
+          <LicenseActivationPanel
+            onCommercialChanged={onCommercialChanged}
+            onError={reportError}
+            onClearError={() => setError(null)}
+          />
+        </section>
+      )}
 
       {canAudit && (
         <section className="surface" aria-label="Auditoría">
@@ -592,7 +568,9 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
           ) : audit.length === 0 ? (
             <div className="empty-state">
               <p>Sin eventos registrados.</p>
-              <p className="muted">Las operaciones auditables aparecerán aquí.</p>
+              <p className="muted">
+                Las operaciones auditables aparecerán aquí.
+              </p>
             </div>
           ) : (
             <ol className="audit-list">
@@ -646,7 +624,9 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
           user={confirming.user}
           active={confirming.active}
           onClose={() => setConfirming(null)}
-          onConfirm={() => void toggleActive(confirming.user, confirming.active)}
+          onConfirm={() =>
+            void toggleActive(confirming.user, confirming.active)
+          }
         />
       )}
 
@@ -677,8 +657,8 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
           }
         >
           <p>
-            Los datos posteriores al respaldo dejarán de estar en la base operativa. Se creará
-            una copia de recuperación antes del reemplazo.
+            Los datos posteriores al respaldo dejarán de estar en la base
+            operativa. Se creará una copia de recuperación antes del reemplazo.
           </p>
           <dl className="metric-grid">
             <div>
@@ -687,12 +667,17 @@ export function AdminScreen({ actor, commercial, readOnly, onCommercialChanged }
             </div>
             <div>
               <dt>Estado comercial</dt>
-              <dd>{restorePreview.preserves_commercial_state ? "Se conserva el estado vigente" : "No disponible"}</dd>
+              <dd>
+                {restorePreview.preserves_commercial_state
+                  ? "Se conserva el estado vigente"
+                  : "No disponible"}
+              </dd>
             </div>
           </dl>
           <p className="muted">
-            Solo se permiten respaldos de esta instalación y organización. Tras confirmar, la
-            aplicación se cerrará y exigirá iniciar sesión de nuevo.
+            Solo se permiten respaldos de esta instalación y organización. Tras
+            confirmar, la aplicación se cerrará y exigirá iniciar sesión de
+            nuevo.
           </p>
         </Modal>
       )}
@@ -706,7 +691,11 @@ interface CreateUserDialogProps {
   onError: (message: string) => void;
 }
 
-function CreateUserDialog({ onClose, onCreated, onError }: CreateUserDialogProps) {
+function CreateUserDialog({
+  onClose,
+  onCreated,
+  onError,
+}: CreateUserDialogProps) {
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<"cashier" | "owner">("cashier");
@@ -745,7 +734,12 @@ function CreateUserDialog({ onClose, onCreated, onError }: CreateUserDialogProps
       onClose={onClose}
       footer={
         <>
-          <button type="button" className="button" onClick={onClose} disabled={busy}>
+          <button
+            type="button"
+            className="button"
+            onClick={onClose}
+            disabled={busy}
+          >
             Cancelar
           </button>
           <button
@@ -784,7 +778,9 @@ function CreateUserDialog({ onClose, onCreated, onError }: CreateUserDialogProps
             <span>Rol</span>
             <select
               value={role}
-              onChange={(event) => setRole(event.target.value as "cashier" | "owner")}
+              onChange={(event) =>
+                setRole(event.target.value as "cashier" | "owner")
+              }
             >
               <option value="cashier">Cajero</option>
               <option value="owner">Propietario</option>
@@ -822,7 +818,12 @@ interface ResetPasswordDialogProps {
   onError: (message: string) => void;
 }
 
-function ResetPasswordDialog({ user, onClose, onDone, onError }: ResetPasswordDialogProps) {
+function ResetPasswordDialog({
+  user,
+  onClose,
+  onDone,
+  onError,
+}: ResetPasswordDialogProps) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -834,7 +835,12 @@ function ResetPasswordDialog({ user, onClose, onDone, onError }: ResetPasswordDi
       onClose={onClose}
       footer={
         <>
-          <button type="button" className="button" onClick={onClose} disabled={busy}>
+          <button
+            type="button"
+            className="button"
+            onClick={onClose}
+            disabled={busy}
+          >
             Cancelar
           </button>
           <button
@@ -862,7 +868,9 @@ function ResetPasswordDialog({ user, onClose, onDone, onError }: ResetPasswordDi
             await api.resetUserPassword(user.id, password);
             await onDone(user.display_name);
           } catch (cause) {
-            onError(messageOf(cause, "No fue posible restablecer la contraseña."));
+            onError(
+              messageOf(cause, "No fue posible restablecer la contraseña."),
+            );
             onClose();
           } finally {
             setBusy(false);
@@ -885,8 +893,8 @@ function ResetPasswordDialog({ user, onClose, onDone, onError }: ResetPasswordDi
           />
         </label>
         <p className="hint">
-          La contraseña anterior deja de funcionar de inmediato. No se muestra ni se
-          registra en auditoría.
+          La contraseña anterior deja de funcionar de inmediato. No se muestra
+          ni se registra en auditoría.
         </p>
         {localError && (
           <p className="alert alert-error" role="alert">
@@ -905,7 +913,12 @@ interface ConfirmUserDialogProps {
   onConfirm: () => void;
 }
 
-function ConfirmUserDialog({ user, active, onClose, onConfirm }: ConfirmUserDialogProps) {
+function ConfirmUserDialog({
+  user,
+  active,
+  onClose,
+  onConfirm,
+}: ConfirmUserDialogProps) {
   return (
     <Modal
       title={active ? "Activar cuenta" : "Desactivar cuenta"}
@@ -915,7 +928,11 @@ function ConfirmUserDialog({ user, active, onClose, onConfirm }: ConfirmUserDial
           <button type="button" className="button" onClick={onClose}>
             Cancelar
           </button>
-          <button type="button" className="button button-primary" onClick={onConfirm}>
+          <button
+            type="button"
+            className="button button-primary"
+            onClick={onConfirm}
+          >
             {active ? "Activar" : "Desactivar"}
           </button>
         </>
